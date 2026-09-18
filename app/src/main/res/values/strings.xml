@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">JARVIS-HP</string>
+    <string name="accessibility_service_description">JARVIS-HP Companion Service allows on-device AI agents to inspect screen hierarchy, dispatch taps, swiping gestures, and input text via secure local loopback.</string>
+</resources>
+
+

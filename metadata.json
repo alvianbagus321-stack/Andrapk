@@ -1,0 +1,7 @@
+{
+  "name": "JARVIS-HP",
+  "description": "Android Companion App and Termux Agent Engine for on-device autonomous UI control.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
