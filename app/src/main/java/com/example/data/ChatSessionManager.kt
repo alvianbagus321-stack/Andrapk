@@ -79,7 +79,10 @@ object ChatSessionManager {
                                 isExecutingAction = mObj.optBoolean("isExecutingAction", false),
                                 actionToolName = if (mObj.has("actionToolName") && !mObj.isNull("actionToolName")) mObj.getString("actionToolName") else null,
                                 actionResult = if (mObj.has("actionResult") && !mObj.isNull("actionResult")) mObj.getString("actionResult") else null,
-                                thinkingProcess = if (mObj.has("thinkingProcess") && !mObj.isNull("thinkingProcess")) mObj.getString("thinkingProcess") else null
+                                thinkingProcess = if (mObj.has("thinkingProcess") && !mObj.isNull("thinkingProcess")) mObj.getString("thinkingProcess") else null,
+                                attachmentUri = if (mObj.has("attachmentUri") && !mObj.isNull("attachmentUri")) mObj.getString("attachmentUri") else null,
+                                attachmentName = if (mObj.has("attachmentName") && !mObj.isNull("attachmentName")) mObj.getString("attachmentName") else null,
+                                attachmentMimeType = if (mObj.has("attachmentMimeType") && !mObj.isNull("attachmentMimeType")) mObj.getString("attachmentMimeType") else null
                             )
                         )
                     }
@@ -118,8 +121,12 @@ object ChatSessionManager {
         saveSessionsToDisk()
     }
 
+    private var saveJob: kotlinx.coroutines.Job? = null
+
     private fun saveSessionsToDisk() {
-        scope.launch {
+        saveJob?.cancel()
+        saveJob = scope.launch {
+            kotlinx.coroutines.delay(400) // Debounce writes
             try {
                 val jsonArray = JSONArray()
                 for (session in _sessions.value) {
@@ -130,16 +137,23 @@ object ChatSessionManager {
                         put("updatedAt", session.updatedAt)
 
                         val msgArray = JSONArray()
-                        for (m in session.messages) {
+                        // Cap messages to latest 60 to prevent unbounded bloat
+                        val cappedMessages = if (session.messages.size > 60) session.messages.takeLast(60) else session.messages
+                        for (m in cappedMessages) {
                             val mObj = JSONObject().apply {
                                 put("id", m.id)
                                 put("sender", m.sender.name)
-                                put("text", m.text)
+                                // Cap individual message text in storage if it's an extreme log dump
+                                val safeText = if (m.text.length > 8000) m.text.take(8000) + "... [truncated]" else m.text
+                                put("text", safeText)
                                 put("timestamp", m.timestamp)
                                 put("isExecutingAction", m.isExecutingAction)
                                 m.actionToolName?.let { put("actionToolName", it) }
-                                m.actionResult?.let { put("actionResult", it) }
-                                m.thinkingProcess?.let { put("thinkingProcess", it) }
+                                m.actionResult?.let { put("actionResult", if (it.length > 2000) it.take(2000) + "..." else it) }
+                                m.thinkingProcess?.let { put("thinkingProcess", if (it.length > 2000) it.take(2000) + "..." else it) }
+                                m.attachmentUri?.let { put("attachmentUri", it) }
+                                m.attachmentName?.let { put("attachmentName", it) }
+                                m.attachmentMimeType?.let { put("attachmentMimeType", it) }
                             }
                             msgArray.put(mObj)
                         }

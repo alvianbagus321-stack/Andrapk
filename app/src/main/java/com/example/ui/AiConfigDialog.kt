@@ -47,6 +47,7 @@ fun AiConfigDialog(
     var apiKey by remember { mutableStateOf(currentConfig.apiKey) }
     var baseUrl by remember { mutableStateOf(currentConfig.baseUrl) }
     var modelName by remember { mutableStateOf(currentConfig.modelName) }
+    var maxAgentLoops by remember { mutableStateOf(currentConfig.maxAgentLoops) }
     var selectedPresetId by remember { mutableStateOf<String?>(null) }
     var isKeyVisible by remember { mutableStateOf(false) }
 
@@ -271,6 +272,79 @@ fun AiConfigDialog(
                     )
                 }
 
+                // Agent Max Loop Limit Setting
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "MAKSIMUM AGENT LOOP:",
+                            color = JarvisTextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (maxAgentLoops == 0) "⚡ OTOMATIS (Sebanyak yang AI perlukan ♾️)" else "$maxAgentLoops langkah (Manual)",
+                            color = if (maxAgentLoops == 0) JarvisEmerald else JarvisCyan,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (maxAgentLoops == 0) JarvisEmerald.copy(alpha = 0.25f) else JarvisSurfaceVariant,
+                            border = BorderStroke(1.dp, if (maxAgentLoops == 0) JarvisEmerald else JarvisBorder),
+                            modifier = Modifier.clickable { maxAgentLoops = 0 }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.AutoMode, contentDescription = null, tint = if (maxAgentLoops == 0) JarvisEmerald else JarvisTextSecondary, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Set Mode Otomatis ♾️", color = if (maxAgentLoops == 0) JarvisEmerald else JarvisTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (maxAgentLoops == 20) JarvisCyan.copy(alpha = 0.25f) else JarvisSurfaceVariant,
+                            border = BorderStroke(1.dp, if (maxAgentLoops == 20) JarvisCyan else JarvisBorder),
+                            modifier = Modifier.clickable { maxAgentLoops = 20 }
+                        ) {
+                            Text("20 Langkah (Default)", color = if (maxAgentLoops == 20) JarvisCyan else JarvisTextSecondary, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
+                        }
+                    }
+
+                    Slider(
+                        value = maxAgentLoops.toFloat(),
+                        onValueChange = { maxAgentLoops = it.toInt() },
+                        valueRange = 0f..50f,
+                        steps = 50,
+                        colors = SliderDefaults.colors(
+                            thumbColor = if (maxAgentLoops == 0) JarvisEmerald else JarvisCyan,
+                            activeTrackColor = if (maxAgentLoops == 0) JarvisEmerald else JarvisCyan,
+                            inactiveTrackColor = JarvisBorder
+                        )
+                    )
+                    Text(
+                        text = if (maxAgentLoops == 0)
+                            "✨ Mode Otomatis Aktif: AI akan beriterasi secara fleksibel sebanyak yang diperlukan hingga tugas selesai sepenuhnya."
+                        else
+                            "💡 Mengontrol berapa kali AI agent dapat beriterasi secara manual (1 - 50 langkah) saat mengeksekusi multi-step task.",
+                        color = JarvisTextSecondary,
+                        fontSize = 9.5.sp
+                    )
+                }
+
                 // Connection Test Button & Status Banner
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     OutlinedButton(
@@ -354,6 +428,7 @@ fun AiConfigDialog(
                             apiKey = ""
                             baseUrl = AiConfigManager.DEFAULT_GEMINI_BASE_URL
                             modelName = AiConfigManager.DEFAULT_GEMINI_MODEL
+                            maxAgentLoops = 20
                             selectedPresetId = "gemini_flash"
                             testResult = null
                         },
@@ -366,6 +441,7 @@ fun AiConfigDialog(
 
                     Button(
                         onClick = {
+                            AiConfigManager.saveMaxAgentLoops(maxAgentLoops)
                             onSave(apiKey, baseUrl, modelName, null)
                             onDismiss()
                         },

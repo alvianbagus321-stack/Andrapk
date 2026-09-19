@@ -1,10 +1,12 @@
 package com.example.service
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.example.BuildConfig
 import com.example.model.ToolResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -29,6 +31,15 @@ object AiChatService {
 
     private const val TAG = "AiChatService"
 
+    @Volatile
+    private var isCancelled = false
+
+    val liveThoughtState = MutableStateFlow<String?>("")
+
+    fun stopCurrentExecution() {
+        isCancelled = true
+    }
+
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -48,6 +59,8 @@ object AiChatService {
         baseUrl: String,
         modelName: String,
         history: List<Pair<String, String>>, // (role, text)
+        attachmentUri: String? = null,
+        attachmentMimeType: String? = null,
         onStatusUpdate: (String) -> Unit
     ): AiChatResponse = withContext(Dispatchers.IO) {
         val savedConfig = com.example.data.AiConfigManager.config.value
@@ -78,12 +91,18 @@ object AiChatService {
 
         // Construct System Instructions for Autonomous Agent Loop & ReAct Step Execution
         val systemInstruction = """
-            Kamu adalah JARVIS-HP, AI Agent otonom tingkat lanjut yang mengendalikan smartphone Android secara langsung melalui ReAct Agent Loop.
+            Kamu adalah JARVIS-HP, AI Agent otonom tingkat lanjut yang mengendalikan smartphone Android secara langsung melalui Shizuku, Termux, Android Intent, Shell, dan Accessibility Service.
             Mode Izin Keamanan saat ini: ${currentPermissionMode.name}.
             
-            PRINSIP AGENT LOOP (SANGAT PENTING):
+            PENTING (AKSES SISTEM & TOOLS):
+            1. Kamu memiliki AKSES PENUH ke sistem smartphone Android melalui Shizuku, Termux, ADB, dan Accessibility.
+            2. SEMUA tools yang terdaftar di sistem ini (baik bawaan maupun custom tool buatan pengguna/AI) adalah TOOLS NYATA DAN AKTIF (BUKAN DUMMY).
+            3. JANGAN PERNAH menolak perintah atau mengatakan tool adalah dummy atau tidak dapat dijalankan.
+            4. Jika pengguna meminta menjalankan perintah shell, termux, membuka aplikasi, mengubah pengaturan, cek storage, cek ram, atau tool custom lainnya, SEGERA EKSEKUSI dengan mengeluarkan blok ```json:action```!
+            
+            PRINSIP AGENT LOOP:
             1. Kamu beroperasi dalam multi-step Agent Loop: Berpikir → Ambil 1 tindakan (tool) → Amati hasil dari HP → Tentukan tindakan berikutnya → Ulangi sampai selesai.
-            2. JANGAN membuat rencana 10 aksi sekaligus di awal! Jalankan HANYA SATU AKSI per giliran, lalu tunggu hasil eksekusinya karena kondisi layar dan aplikasi HP bisa berubah setelah setiap tindakan.
+            2. Jalankan HANYA SATU AKSI per giliran, lalu tunggu hasil eksekusinya karena kondisi sistem HP dan layar dapat berubah setelah tindakan.
             3. Setiap kali kamu butuh mengeksekusi aksi, letakkan blok JSON di bagian akhir jawabanmu dengan format:
             ```json:action
             {
@@ -91,32 +110,43 @@ object AiChatService {
               "params": { ... }
             }
             ```
-            4. Setelah aksi dieksekusi oleh sistem Android, hasilnya akan langsung dikirimkan kembali kepadamu pada giliran berikutnya.
+            4. Setelah aksi dieksekusi oleh sistem Android, hasilnya (stdout / output / status) akan langsung dikirimkan kembali kepadamu pada giliran berikutnya.
             5. KETIKA SEMUA TUGAS SELESAI atau pengguna hanya bertanya tanpa perlu aksi di HP, berikan jawaban akhir yang ramah, informatif, dan solutif TANPA blok ```json:action```.
 
             ARSITEKTUR TOOL (3-LAYER MODULAR REGISTRY):
-            1. Android Layer:
-               - open_app: Membuka aplikasi (params: {"package_name": "com.google.android.youtube"} atau nama aplikasi umum "youtube", "chrome", "whatsapp")
+            1. Android & Accessibility Layer:
+               - open_app: Membuka aplikasi (params: {"package_name": "com.google.android.youtube"} atau alias "youtube", "chrome", "whatsapp", "settings")
                - read_screen: Membaca semua elemen UI, teks, tombol, viewId, dan koordinat posisi yang sedang tampil di layar HP
                - tap: Menekan elemen di layar (params: {"element_id": "id_atau_teks_tombol"} atau {"x": 540, "y": 1200})
                - type_text: Mengetik teks pada kolom input aktif (params: {"text": "teks yang ingin diketik", "element_id": "opsional"})
                - press_key: Menekan tombol sistem (params: {"keycode": "ENTER"|"BACK"|"HOME"|"RECENTS"|"VOLUME_UP"|"VOLUME_DOWN"})
                - swipe: Menggeser layar (params: {"x1": 500, "y1": 1500, "x2": 500, "y2": 500, "duration_ms": 300})
                - screenshot: Mengambil tangkapan layar perangkat
-               - send_notification: Mengirim notifikasi lokal ke status bar
-            2. Termux/Terminal Layer:
-               - termux_command / shell: Menjalankan perintah bash/terminal apa pun di HP (params: {"command": "ls -la"})
-               - get_battery, get_wifi, read_clipboard, write_clipboard
-            3. Custom Tools Layer (tools/custom/):
-               - get_storage: Cek kapasitas penyimpanan memori HP (GB)
-               - cek_ram: Cek penggunaan memori RAM (MB)
-               - create_tool / create_python_tool: Membuat tool baru secara dinamis
+               - send_notification: Mengirim notifikasi lokal ke status bar (params: {"title": "Judul", "message": "Pesan"})
+               - flashlight_toggle: Menyalakan/mematikan senter (params: {"enable": true})
+            2. Termux Service, API & Shell Layer:
+               - termux_service: Mengontrol service background Termux & daemon JARVIS (params: {"action": "status"|"start"|"stop"|"restart"|"run_agent"|"list", "service": "jarvis_agent"})
+               - termux_api: Menjalankan utilitas Termux:API (params: {"command": "battery"|"wifi"|"tts"|"vibrate"|"torch"|"notification"|"toast"|"location"|"volume"|"sensor"|"sms"|"clipboard-get"|"clipboard-set", "args": "..."})
+               - termux_pkg: Mengelola package Termux (params: {"action": "install"|"update"|"list"|"search", "package": "nama_paket"})
+               - termux_python: Menjalankan kode atau script Python 3 langsung di runtime Termux (params: {"code": "print('Halo dari Termux!')"})
+               - termux_file: Operasi file Termux/Android (params: {"action": "read"|"write"|"list"|"delete"|"mkdir", "path": "...", "content": "..."})
+               - shell / termux_command: Menjalankan perintah bash/Linux/ADB apa pun langsung di HP (params: {"command": "df -h" atau "pm list packages -3"})
+               - get_storage: Cek kapasitas memori internal HP (Total, Used, Free dalam GB)
+               - cek_ram: Cek memori RAM perangkat (Total, Available, Used dalam MB/GB)
+               - clipboard_read, clipboard_write: Membaca dan menulis teks ke clipboard sistem
+               - http_request: Request API HTTP GET/POST (params: {"url": "https://api.ipify.org?format=json"})
+            3. Custom Tools Layer:
+               - create_tool: Membuat tool baru secara dinamis (params: {"name": "...", "description": "...", "script_type": "shell", "command": "...", "parameters_schema": "{}"})
+               - create_python_tool: Membuat script tool Python lengkap untuk dieksekusi (params: {"filename": "tool.py", "tool_name": "...", "description": "...", "code": "..."})
 
             PROSES BERPIKIR (REASONING TRACE):
             Tuliskan analisa kamu di dalam tag:
             <thought>
             [Langkah analisa: apa yang sedang terjadi, evaluasi hasil tool sebelumnya, dan aksi apa yang harus dilakukan berikutnya]
             </thought>
+
+            MEMORI TERMANFAATKAN (.md):
+            ${com.example.data.JarvisMemoryManager.getMemoryMarkdown()}
 
             Daftar Tool yang AKTIF saat ini:
             $toolsDescription
@@ -125,11 +155,33 @@ object AiChatService {
             Gunakan Bahasa Indonesia yang ramah, profesional, dan ringkas.
         """.trimIndent()
 
+        isCancelled = false
+        var currentPrompt = userPrompt
+
+        // Process file / image attachment if provided
+        var imageBase64: String? = null
+        val context = com.example.JarvisApp.instance
+        if (!attachmentUri.isNullOrEmpty()) {
+            if (attachmentMimeType?.startsWith("image/") == true) {
+                imageBase64 = readUriAsBase64(context, attachmentUri)
+            } else {
+                val fileText = readUriAsString(context, attachmentUri)
+                if (!fileText.isNullOrEmpty()) {
+                    currentPrompt = "[LAMPIRAN BERKAS TERHUBUNG]\n```\n$fileText\n```\n\n$userPrompt"
+                }
+            }
+        }
+
+        liveThoughtState.value = ""
+        var activeStepImageBase64: String? = imageBase64
+        var activeStepImageMimeType: String? = attachmentMimeType ?: "image/jpeg"
+
         // Multi-Step Autonomous Agent Loop Controller
-        val maxSteps = 20
+        val maxSteps = savedConfig.maxAgentLoops
+        val isUnlimited = maxSteps == 0
+        val effectiveMaxSteps = if (isUnlimited) 200 else maxSteps
         var currentStep = 0
         val loopHistory = history.toMutableList()
-        var currentPrompt = userPrompt
         val allThoughts = mutableListOf<String>()
         val executedTools = mutableListOf<Pair<String, ToolResult>>()
         val stepSummary = mutableListOf<String>()
@@ -138,16 +190,35 @@ object AiChatService {
         var lastToolResult: ToolResult? = null
         var lastActionName: String? = null
 
-        while (currentStep < maxSteps) {
+        while (isUnlimited || currentStep < maxSteps) {
+            if (currentStep >= effectiveMaxSteps) {
+                break
+            }
+            if (isCancelled) {
+                onStatusUpdate("Dihentikan oleh pengguna.")
+                return@withContext AiChatResponse(
+                    replyText = if (finalReplyText.isNotBlank()) finalReplyText else "Proses AI dihentikan oleh pengguna. 🛑",
+                    thinkingProcess = allThoughts.joinToString("\n\n"),
+                    actionToolName = lastActionName,
+                    actionResult = lastToolResult
+                )
+            }
             currentStep++
-            val stepLabel = "Langkah $currentStep/$maxSteps"
+            val stepLabel = if (isUnlimited) "Langkah $currentStep (Mode Otomatis)" else "Langkah $currentStep/$maxSteps"
             onStatusUpdate("$stepLabel: Menganalisa & merencanakan aksi...")
 
             val (rawResponse, nativeThought) = if (isGemini) {
-                callGeminiRest(cleanBaseUrl, cleanModel, cleanKey, systemInstruction, loopHistory, currentPrompt)
+                callGeminiRest(
+                    cleanBaseUrl, cleanModel, cleanKey, systemInstruction, loopHistory, currentPrompt,
+                    imageBase64 = activeStepImageBase64,
+                    imageMimeType = activeStepImageMimeType
+                )
             } else {
                 Pair(callOpenAiRest(cleanBaseUrl, cleanModel, cleanKey, systemInstruction, loopHistory, currentPrompt), null)
             }
+
+            // Clear image after single-use step unless updated by screenshot tool result
+            activeStepImageBase64 = null
 
             // Extract <thought> tags
             val (extractedThought, textWithoutThought) = extractThinking(rawResponse)
@@ -159,6 +230,7 @@ object AiChatService {
             }
             if (!combinedThought.isNullOrBlank()) {
                 allThoughts.add("[$stepLabel]\n$combinedThought")
+                liveThoughtState.value = "[$stepLabel]\n$combinedThought"
             }
 
             // Parse action JSON
@@ -175,6 +247,14 @@ object AiChatService {
                 val executionResult = executeActionLocally(toolName, params)
                 lastToolResult = executionResult
                 executedTools.add(toolName to executionResult)
+
+                // Check if tool produced a new screenshot Base64 for Vision analysis
+                val toolScreenshotB64 = executionResult.extra["screenshot_b64"] as? String
+                if (!toolScreenshotB64.isNullOrBlank()) {
+                    activeStepImageBase64 = toolScreenshotB64
+                    activeStepImageMimeType = "image/jpeg"
+                    onStatusUpdate("$stepLabel: Tangkapan layar berhasil dikirim ke Analisis Visi AI...")
+                }
 
                 val resultOutputStr = executionResult.result ?: executionResult.message ?: if (executionResult.status == "ok") "Berhasil (OK)" else "Gagal"
                 val briefResult = if (resultOutputStr.length > 300) resultOutputStr.take(300) + "..." else resultOutputStr
@@ -210,8 +290,9 @@ object AiChatService {
             }
         }
 
-        if (currentStep >= maxSteps && finalReplyText.isBlank()) {
-            finalReplyText = "Batas maksimum langkah agent loop ($maxSteps langkah) telah tercapai.\n\nRingkasan eksekusi:\n" + stepSummary.joinToString("\n")
+        if (finalReplyText.isBlank() && ((!isUnlimited && currentStep >= maxSteps) || (isUnlimited && currentStep >= effectiveMaxSteps))) {
+            val limitLabel = if (isUnlimited) "Batas pengaman Mode Otomatis ($effectiveMaxSteps langkah)" else "Batas maksimum langkah agent loop ($maxSteps langkah)"
+            finalReplyText = "$limitLabel telah tercapai.\n\nRingkasan eksekusi:\n" + stepSummary.joinToString("\n")
         }
 
         val aggregatedThoughts = if (allThoughts.isNotEmpty()) {
@@ -246,29 +327,107 @@ object AiChatService {
         }
     }
 
+    private fun readUriAsBase64(context: Context, uriString: String): String? {
+        return try {
+            val uri = Uri.parse(uriString)
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val bytes = inputStream.readBytes()
+            inputStream.close()
+            android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading URI as base64", e)
+            null
+        }
+    }
+
+    private fun readUriAsString(context: Context, uriString: String): String? {
+        return try {
+            val uri = Uri.parse(uriString)
+            val inputStream = context.contentResolver.openInputStream(uri) ?: return null
+            val reader = java.io.BufferedReader(java.io.InputStreamReader(inputStream))
+            val sb = StringBuilder()
+            var line: String?
+            var totalChars = 0
+            while (reader.readLine().also { line = it } != null) {
+                sb.appendLine(line)
+                totalChars += line?.length ?: 0
+                if (totalChars > 12000) {
+                    sb.appendLine("... [Lampiran terpotong agar tidak melebihi batas token]")
+                    break
+                }
+            }
+            inputStream.close()
+            sb.toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading URI text", e)
+            null
+        }
+    }
+
     private fun callGeminiRest(
         baseUrl: String,
         model: String,
         apiKey: String,
         systemInstruction: String,
         history: List<Pair<String, String>>,
-        prompt: String
+        prompt: String,
+        imageBase64: String? = null,
+        imageMimeType: String? = "image/jpeg"
     ): Pair<String, String?> {
         val endpoint = "$baseUrl/v1beta/models/$model:generateContent?key=$apiKey"
 
         val contentsArray = JSONArray()
-        // Add past conversation turns
-        for ((role, msg) in history.takeLast(10)) {
-            val geminiRole = if (role == "user") "user" else "model"
+
+        // Sanitize and build strictly alternating user/model history
+        val cleanHistory = mutableListOf<Pair<String, String>>()
+        for ((rawRole, rawMsg) in history.takeLast(12)) {
+            val text = rawMsg.trim()
+            if (text.isBlank()) continue
+            // Truncate long past messages to prevent token overflow & huge payload lag
+            val truncated = if (text.length > 1500) text.take(1500) + "... [terpotong]" else text
+            val role = if (rawRole.equals("user", ignoreCase = true)) "user" else "model"
+            
+            // Merge consecutive messages with the same role to prevent Gemini 400 Bad Request
+            if (cleanHistory.isNotEmpty() && cleanHistory.last().first == role) {
+                val previous = cleanHistory.removeAt(cleanHistory.size - 1)
+                cleanHistory.add(role to "${previous.second}\n\n$truncated")
+            } else {
+                cleanHistory.add(role to truncated)
+            }
+        }
+
+        // If history ends with "user", remove it or merge with prompt to avoid two consecutive "user" roles
+        if (cleanHistory.isNotEmpty() && cleanHistory.last().first == "user") {
+            cleanHistory.removeAt(cleanHistory.size - 1)
+        }
+
+        // If history starts with "model", remove the first model turn as Gemini requires first turn to be "user"
+        if (cleanHistory.isNotEmpty() && cleanHistory.first().first == "model") {
+            cleanHistory.removeAt(0)
+        }
+
+        // Add normalized past conversation turns
+        for ((role, msg) in cleanHistory) {
             contentsArray.put(JSONObject().apply {
-                put("role", geminiRole)
+                put("role", role)
                 put("parts", JSONArray().put(JSONObject().put("text", msg)))
             })
         }
+
         // Add current user prompt
         contentsArray.put(JSONObject().apply {
             put("role", "user")
-            put("parts", JSONArray().put(JSONObject().put("text", prompt)))
+            val partsArr = JSONArray()
+            if (!imageBase64.isNullOrBlank()) {
+                partsArr.put(JSONObject().apply {
+                    put("inline_data", JSONObject().apply {
+                        put("mime_type", imageMimeType ?: "image/jpeg")
+                        put("data", imageBase64)
+                    })
+                })
+            }
+            partsArr.put(JSONObject().put("text", prompt))
+            put("parts", partsArr)
         })
 
         val requestJson = JSONObject().apply {
@@ -345,9 +504,10 @@ object AiChatService {
             put("content", systemInstruction)
         })
         for ((role, msg) in history.takeLast(10)) {
+            val truncated = if (msg.length > 1500) msg.take(1500) + "... [terpotong]" else msg
             messagesArray.put(JSONObject().apply {
-                put("role", role)
-                put("content", msg)
+                put("role", if (role.equals("user", ignoreCase = true)) "user" else "assistant")
+                put("content", truncated)
             })
         }
         messagesArray.put(JSONObject().apply {
@@ -427,6 +587,27 @@ object AiChatService {
             return ToolResult("error", message = reason ?: "Izin eksekusi ditolak oleh sistem keamanan AI.")
         }
 
+        // Check deletion approval if permission mode is not FULL_ACCESS
+        if (ToolManager.isDeletionAction(lower, customTool?.command ?: "", params) && ToolManager.permissionMode.value != com.example.model.AiPermissionMode.FULL_ACCESS) {
+            var isApproved: Boolean? = null
+            ToolManager.requestDeletionApproval(
+                title = "Konfirmasi Aksi Penghapusan AI",
+                details = "AI meminta untuk mengeksekusi aksi penghapusan '$toolName' (parameter: $params).\n\nApakah Anda mengizinkan aksi penghapusan ini?",
+                onConfirm = { isApproved = true },
+                onDeny = { isApproved = false }
+            )
+
+            var waitCounter = 0
+            while (isApproved == null && waitCounter < 300) {
+                kotlinx.coroutines.delay(200)
+                waitCounter++
+            }
+
+            if (isApproved != true) {
+                return ToolResult("error", message = "❌ Ditolak oleh pengguna: Aksi penghapusan '$toolName' dibatalkan.")
+            }
+        }
+
         // 3. Special AI meta-tools
         if (lower == "create_tool" || lower == "register_tool") {
             val name = params.optString("name", params.optString("tool_name", "Tool Baru"))
@@ -453,22 +634,41 @@ object AiChatService {
         }
 
         if (lower == "create_python_tool") {
-            val filename = params.optString("filename", "custom_tool.py")
-            val toolNamePy = params.optString("tool_name", "custom_tool")
+            val filename = params.optString("filename", "custom_tool.py").replace("..", "").replace("/", "")
+            val toolNamePy = params.optString("tool_name", params.optString("name", "custom_tool"))
             val descPy = params.optString("description", "Custom Python Tool")
             val codePy = params.optString("code", "")
+
+            val context = com.example.JarvisApp.instance
+            val scriptsDir = java.io.File(context.filesDir, "scripts").apply { if (!exists()) mkdirs() }
+            val scriptFile = java.io.File(scriptsDir, filename)
+            if (codePy.isNotBlank()) {
+                scriptFile.writeText(codePy)
+                scriptFile.setExecutable(true)
+            }
+
+            val runCmd = if (codePy.isNotBlank()) {
+                "python3 \"${scriptFile.absolutePath}\""
+            } else {
+                "python3 -c \"import sys; print('Menjalankan $toolNamePy')\""
+            }
 
             val created = ToolManager.registerAiGeneratedTool(
                 name = toolNamePy,
                 description = descPy,
                 scriptTypeStr = "shell",
-                command = "python -c \"import sys; print('Menjalankan $toolNamePy...')\"",
-                paramsSchema = "{}"
+                command = runCmd,
+                paramsSchema = params.optString("parameters_schema", "{}")
             )
             return ToolResult(
                 status = "ok",
-                result = "✨ Berhasil membuat Custom Tool Python '@tool' ('$toolNamePy') untuk direktori tools/custom/$filename!\n\nTool ini telah terdaftar dalam sistem dan siap digunakan baik di Termux maupun di Android Companion."
+                result = "✨ Berhasil membuat Custom Tool Python '${created.name}' (${created.id})!\n\nScript tersimpan di: ${scriptFile.name} dan terdaftar sebagai tool aktif yang langsung dapat dieksekusi oleh JARVIS."
             )
+        }
+
+        // If tool is in custom tools or standard registry
+        if (customTool != null && customTool.scriptType != com.example.model.ToolScriptType.ACCESSIBILITY) {
+            return ToolManager.executeCustomTool(customTool, params)
         }
 
         val service = JarvisAccessibilityService.instance
@@ -600,6 +800,11 @@ object AiChatService {
                 val cmd = params.optString("command", "")
                 executeLocalTerminalCommand(cmd)
             }
+            "termux_service", "service" -> ToolManager.executeCustomLogic(com.example.JarvisApp.instance, "termux_service", params)
+            "termux_api", "termux-api" -> ToolManager.executeCustomLogic(com.example.JarvisApp.instance, "termux_api", params)
+            "termux_pkg", "pkg" -> ToolManager.executeCustomLogic(com.example.JarvisApp.instance, "termux_pkg", params)
+            "termux_python", "python" -> ToolManager.executeCustomLogic(com.example.JarvisApp.instance, "termux_python", params)
+            "termux_file", "file_op" -> ToolManager.executeCustomLogic(com.example.JarvisApp.instance, "termux_file", params)
             else -> {
                 // Check if it matches any registered custom tool
                 if (customTool != null) {

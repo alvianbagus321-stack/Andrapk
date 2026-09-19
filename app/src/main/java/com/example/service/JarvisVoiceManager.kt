@@ -209,7 +209,6 @@ object JarvisVoiceManager : TextToSpeech.OnInitListener {
     ) {
         mainHandler.post {
             stopSpeaking()
-            destroySpeechRecognizer()
 
             if (!SpeechRecognizer.isRecognitionAvailable(context)) {
                 onError?.invoke("Speech Recognizer tidak tersedia di perangkat ini.")
@@ -217,73 +216,75 @@ object JarvisVoiceManager : TextToSpeech.OnInitListener {
             }
 
             try {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                    setRecognitionListener(object : RecognitionListener {
-                        override fun onReadyForSpeech(params: Bundle?) {
-                            _isListening.value = true
-                            _voiceStatus.value = "Mendengarkan..."
-                        }
-
-                        override fun onBeginningOfSpeech() {
-                            _voiceStatus.value = "Mendengar suara..."
-                        }
-
-                        override fun onRmsChanged(rmsdB: Float) {
-                            val normalized = ((rmsdB + 2) / 12f).coerceIn(0.05f, 1f)
-                            _audioRms.value = normalized
-                        }
-
-                        override fun onBufferReceived(buffer: ByteArray?) {}
-
-                        override fun onEndOfSpeech() {
-                            _isListening.value = false
-                            _audioRms.value = 0f
-                            _voiceStatus.value = "Memproses suara..."
-                        }
-
-                        override fun onError(error: Int) {
-                            _isListening.value = false
-                            _audioRms.value = 0f
-                            val errorMsg = when (error) {
-                                SpeechRecognizer.ERROR_AUDIO -> "Error audio"
-                                SpeechRecognizer.ERROR_CLIENT -> "Klien suara error"
-                                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Izin mikrofon diperlukan"
-                                SpeechRecognizer.ERROR_NETWORK -> "Koneksi jaringan error"
-                                SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Waktu jaringan habis"
-                                SpeechRecognizer.ERROR_NO_MATCH -> "Suara tidak terdengar jelas"
-                                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Layanan suara sibuk"
-                                SpeechRecognizer.ERROR_SERVER -> "Server suara error"
-                                SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Tidak ada suara yang terdeteksi"
-                                else -> "Error suara ($error)"
+                if (speechRecognizer == null) {
+                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                        setRecognitionListener(object : RecognitionListener {
+                            override fun onReadyForSpeech(params: Bundle?) {
+                                _isListening.value = true
+                                _voiceStatus.value = "Mendengarkan..."
                             }
-                            _voiceStatus.value = errorMsg
-                            onError?.invoke(errorMsg)
-                        }
 
-                        override fun onResults(results: Bundle?) {
-                            _isListening.value = false
-                            _audioRms.value = 0f
-                            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            val spoken = matches?.firstOrNull()?.trim().orEmpty()
-                            if (spoken.isNotEmpty()) {
-                                _lastUserSpeech.value = spoken
-                                _voiceStatus.value = "Selesai"
-                                onResult(spoken)
-                            } else {
-                                _voiceStatus.value = "Tidak ada teks"
+                            override fun onBeginningOfSpeech() {
+                                _voiceStatus.value = "Mendengar suara..."
                             }
-                        }
 
-                        override fun onPartialResults(partialResults: Bundle?) {
-                            val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            val partial = matches?.firstOrNull()?.trim().orEmpty()
-                            if (partial.isNotEmpty()) {
-                                _lastUserSpeech.value = partial
+                            override fun onRmsChanged(rmsdB: Float) {
+                                val normalized = ((rmsdB + 2) / 12f).coerceIn(0.05f, 1f)
+                                _audioRms.value = normalized
                             }
-                        }
 
-                        override fun onEvent(eventType: Int, params: Bundle?) {}
-                    })
+                            override fun onBufferReceived(buffer: ByteArray?) {}
+
+                            override fun onEndOfSpeech() {
+                                _isListening.value = false
+                                _audioRms.value = 0f
+                                _voiceStatus.value = "Memproses suara..."
+                            }
+
+                            override fun onError(error: Int) {
+                                _isListening.value = false
+                                _audioRms.value = 0f
+                                val errorMsg = when (error) {
+                                    SpeechRecognizer.ERROR_AUDIO -> "Error audio"
+                                    SpeechRecognizer.ERROR_CLIENT -> "Klien suara error"
+                                    SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Izin mikrofon diperlukan"
+                                    SpeechRecognizer.ERROR_NETWORK -> "Koneksi jaringan error"
+                                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Waktu jaringan habis"
+                                    SpeechRecognizer.ERROR_NO_MATCH -> "Suara tidak terdengar jelas"
+                                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Layanan suara sibuk"
+                                    SpeechRecognizer.ERROR_SERVER -> "Server suara error"
+                                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Tidak ada suara yang terdeteksi"
+                                    else -> "Error suara ($error)"
+                                }
+                                _voiceStatus.value = errorMsg
+                                onError?.invoke(errorMsg)
+                            }
+
+                            override fun onResults(results: Bundle?) {
+                                _isListening.value = false
+                                _audioRms.value = 0f
+                                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                val spoken = matches?.firstOrNull()?.trim().orEmpty()
+                                if (spoken.isNotEmpty()) {
+                                    _lastUserSpeech.value = spoken
+                                    _voiceStatus.value = "Selesai"
+                                    onResult(spoken)
+                                } else {
+                                    _voiceStatus.value = "Tidak ada teks"
+                                }
+                            }
+
+                            override fun onPartialResults(partialResults: Bundle?) {
+                                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                val partial = matches?.firstOrNull()?.trim().orEmpty()
+                                if (partial.isNotEmpty()) {
+                                    _lastUserSpeech.value = partial
+                                }
+                            }
+
+                            override fun onEvent(eventType: Int, params: Bundle?) {}
+                        })
+                    }
                 }
 
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -293,9 +294,11 @@ object JarvisVoiceManager : TextToSpeech.OnInitListener {
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 }
+                speechRecognizer?.cancel()
                 speechRecognizer?.startListening(intent)
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting speech recognition", e)
+                destroySpeechRecognizer()
                 _isListening.value = false
                 onError?.invoke(e.message ?: "Gagal memulai mikrofon")
             }

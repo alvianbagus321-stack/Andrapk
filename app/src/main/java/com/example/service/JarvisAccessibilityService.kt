@@ -168,6 +168,7 @@ class JarvisAccessibilityService : AccessibilityService() {
      * Taps the screen at given coordinates using real touch injection.
      */
     suspend fun tapCoordinates(x: Float, y: Float): ToolResult = suspendCoroutine { cont ->
+        com.example.ui.JarvisOverlayManager.showTapPointer(this, x, y)
         val path = Path().apply {
             moveTo(x, y)
             lineTo(x, y)
@@ -209,6 +210,8 @@ class JarvisAccessibilityService : AccessibilityService() {
      */
     suspend fun swipeCoordinates(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long): ToolResult =
         suspendCoroutine { cont ->
+            com.example.ui.JarvisOverlayManager.showTapPointer(this, x1, y1)
+            com.example.ui.JarvisOverlayManager.showTapPointer(this, x2, y2)
             val safeDuration = durationMs.coerceIn(50L, 2500L)
             val path = Path().apply {
                 moveTo(x1, y1)
@@ -556,6 +559,50 @@ class JarvisAccessibilityService : AccessibilityService() {
         } else {
             onResult(null)
         }
+    }
+
+    /**
+     * Traverses active window tree and collects interactive or text UI elements.
+     */
+    fun getScreenElements(): List<UiElementInfo> {
+        val root = rootInActiveWindow ?: return emptyList()
+        val list = mutableListOf<UiElementInfo>()
+        fun traverse(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+            if (node.isClickable || !node.text.isNullOrBlank() || !node.contentDescription.isNullOrBlank()) {
+                val rectBounds = RectBounds(
+                    left = bounds.left,
+                    top = bounds.top,
+                    right = bounds.right,
+                    bottom = bounds.bottom,
+                    width = bounds.width(),
+                    height = bounds.height(),
+                    centerX = bounds.centerX(),
+                    centerY = bounds.centerY()
+                )
+                list.add(
+                    UiElementInfo(
+                        id = node.viewIdResourceName ?: "element_${list.size}",
+                        text = node.text?.toString() ?: "",
+                        contentDescription = node.contentDescription?.toString() ?: "",
+                        viewId = node.viewIdResourceName ?: "",
+                        className = node.className?.toString() ?: "",
+                        bounds = rectBounds,
+                        isClickable = node.isClickable,
+                        isEditable = node.isEditable,
+                        isScrollable = node.isScrollable,
+                        packageName = node.packageName?.toString() ?: ""
+                    )
+                )
+            }
+            for (i in 0 until node.childCount) {
+                traverse(node.getChild(i))
+            }
+        }
+        traverse(root)
+        return list
     }
 
     private fun findNodeByIdentifier(node: AccessibilityNodeInfo?, identifier: String): AccessibilityNodeInfo? {

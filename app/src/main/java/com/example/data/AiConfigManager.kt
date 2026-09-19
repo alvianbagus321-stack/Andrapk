@@ -32,7 +32,8 @@ data class AiConfig(
     val apiKey: String,
     val baseUrl: String,
     val modelName: String,
-    val providerLabel: String = "Google Gemini"
+    val providerLabel: String = "Google Gemini",
+    val maxAgentLoops: Int = 20
 )
 
 data class ConnectionTestResult(
@@ -56,6 +57,7 @@ object AiConfigManager {
     private const val KEY_BASE_URL = "key_base_url"
     private const val KEY_MODEL_NAME = "key_model_name"
     private const val KEY_PROVIDER_LABEL = "key_provider_label"
+    private const val KEY_MAX_AGENT_LOOPS = "key_max_agent_loops"
 
     const val DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com"
     const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
@@ -188,12 +190,14 @@ object AiConfigManager {
         val savedUrl = sp.getString(KEY_BASE_URL, DEFAULT_GEMINI_BASE_URL) ?: DEFAULT_GEMINI_BASE_URL
         val savedModel = sp.getString(KEY_MODEL_NAME, DEFAULT_GEMINI_MODEL) ?: DEFAULT_GEMINI_MODEL
         val savedProvider = sp.getString(KEY_PROVIDER_LABEL, "Google Gemini") ?: "Google Gemini"
+        val savedMaxLoops = sp.getInt(KEY_MAX_AGENT_LOOPS, 20).coerceIn(0, 100)
 
         _config.value = AiConfig(
             apiKey = savedKey,
             baseUrl = savedUrl,
             modelName = savedModel,
-            providerLabel = savedProvider
+            providerLabel = savedProvider,
+            maxAgentLoops = savedMaxLoops
         )
     }
 
@@ -201,18 +205,21 @@ object AiConfigManager {
         apiKey: String,
         baseUrl: String,
         modelName: String,
-        providerLabel: String? = null
+        providerLabel: String? = null,
+        maxAgentLoops: Int = _config.value.maxAgentLoops
     ) {
         val cleanKey = apiKey.trim()
         val cleanUrl = baseUrl.trim().ifEmpty { DEFAULT_GEMINI_BASE_URL }
         val cleanModel = modelName.trim().ifEmpty { DEFAULT_GEMINI_MODEL }
         val determinedProvider = providerLabel ?: determineProviderName(cleanUrl, cleanModel)
+        val validMaxLoops = maxAgentLoops.coerceIn(0, 100)
 
         _config.value = AiConfig(
             apiKey = cleanKey,
             baseUrl = cleanUrl,
             modelName = cleanModel,
-            providerLabel = determinedProvider
+            providerLabel = determinedProvider,
+            maxAgentLoops = validMaxLoops
         )
 
         prefs?.edit()?.apply {
@@ -220,9 +227,16 @@ object AiConfigManager {
             putString(KEY_BASE_URL, cleanUrl)
             putString(KEY_MODEL_NAME, cleanModel)
             putString(KEY_PROVIDER_LABEL, determinedProvider)
+            putInt(KEY_MAX_AGENT_LOOPS, validMaxLoops)
             apply()
         }
         Log.i(TAG, "AI Config updated: provider=$determinedProvider, model=$cleanModel, url=$cleanUrl")
+    }
+
+    fun saveMaxAgentLoops(maxLoops: Int) {
+        val valid = maxLoops.coerceIn(0, 100)
+        _config.value = _config.value.copy(maxAgentLoops = valid)
+        prefs?.edit()?.putInt(KEY_MAX_AGENT_LOOPS, valid)?.apply()
     }
 
     fun applyPreset(preset: AiPreset) {

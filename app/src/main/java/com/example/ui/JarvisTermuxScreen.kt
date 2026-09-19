@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.termux.TermuxScripts
 import com.example.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @Composable
 fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
@@ -71,6 +73,148 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)
     ) {
+        // Quick 1-line setup banner
+        item {
+            var serviceOutput by remember { mutableStateOf<String?>(null) }
+            var isRunningServiceOp by remember { mutableStateOf(false) }
+            val coroutineScope = rememberCoroutineScope()
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("termux_service_controller_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisTeal.copy(alpha = 0.5f)))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CloudSync, contentDescription = null, tint = JarvisTeal, modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("TERMUX SERVICE & DAEMON CONTROL", color = JarvisTeal, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                        }
+
+                        Surface(
+                            color = if (com.example.service.AdbShizukuManager.isTermuxInstalled(context)) JarvisEmerald.copy(alpha = 0.2f) else JarvisAmber.copy(alpha = 0.2f),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Text(
+                                text = if (com.example.service.AdbShizukuManager.isTermuxInstalled(context)) "Termux Terpasang" else "Termux Belum Terdeteksi",
+                                color = if (com.example.service.AdbShizukuManager.isTermuxInstalled(context)) JarvisEmerald else JarvisAmber,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "AI JARVIS dapat mengontrol service background Termux, daemon Python, dan mengeksekusi utilitas Termux:API secara otonom.",
+                        color = JarvisTextSecondary,
+                        fontSize = 12.sp
+                    )
+
+                    // Action buttons row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                isRunningServiceOp = true
+                                coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    val res = com.example.service.AdbShizukuManager.manageTermuxService("status")
+                                    serviceOutput = res.result ?: res.message
+                                    isRunningServiceOp = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = JarvisBackground),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Cek Status", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = {
+                                isRunningServiceOp = true
+                                coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    val res = com.example.service.AdbShizukuManager.manageTermuxService("start")
+                                    serviceOutput = res.result ?: res.message
+                                    isRunningServiceOp = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = JarvisEmerald, contentColor = JarvisBackground),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Start Daemon", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                com.example.service.AdbShizukuManager.openTermux(context)
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTeal),
+                            contentPadding = PaddingValues(vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Buka Termux", fontSize = 11.sp)
+                        }
+                    }
+
+                    // Service Output Box
+                    if (serviceOutput != null) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, JarvisBorder, RoundedCornerShape(8.dp)),
+                            color = JarvisBackground
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Termux Service Response:", color = JarvisCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                    IconButton(
+                                        onClick = { serviceOutput = null },
+                                        modifier = Modifier.size(18.dp)
+                                    ) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear", tint = JarvisTextSecondary, modifier = Modifier.size(12.dp))
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = serviceOutput ?: "",
+                                    color = JarvisTextPrimary,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Quick 1-line setup banner
         item {
             Card(

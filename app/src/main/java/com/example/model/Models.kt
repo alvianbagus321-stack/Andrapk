@@ -81,6 +81,14 @@ data class SystemTelemetry(
     val currentAppTitle: String = ""
 )
 
+data class DeletionRequest(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val title: String,
+    val details: String,
+    val onConfirm: () -> Unit,
+    val onDeny: () -> Unit
+)
+
 enum class ChatSender {
     USER, AI, SYSTEM
 }
@@ -93,7 +101,10 @@ data class ChatMessage(
     val isExecutingAction: Boolean = false,
     val actionToolName: String? = null,
     val actionResult: String? = null,
-    val thinkingProcess: String? = null
+    val thinkingProcess: String? = null,
+    val attachmentUri: String? = null,
+    val attachmentName: String? = null,
+    val attachmentMimeType: String? = null
 )
 
 data class ChatSession(

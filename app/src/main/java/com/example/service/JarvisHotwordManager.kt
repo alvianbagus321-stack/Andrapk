@@ -144,21 +144,21 @@ object JarvisHotwordManager {
         }
     }
 
+    private var consecutiveSilenceTimeouts = 0
+
     private fun startContinuousListening(context: Context) {
         mainHandler.post {
             if (!_isHotwordEnabled.value) return@post
 
-            // If Jarvis is currently speaking through TTS or executing an AI task, do not listen
-            if (JarvisVoiceManager.isSpeaking.value || _isExecuting.value) {
+            // If Jarvis is currently speaking through TTS or executing an AI task or voice call is active, do not listen
+            if (JarvisVoiceManager.isSpeaking.value || _isExecuting.value || JarvisVoiceManager.isVoiceCallActive.value) {
                 mainHandler.postDelayed({
-                    if (_isHotwordEnabled.value && !JarvisVoiceManager.isSpeaking.value && !_isExecuting.value) {
+                    if (_isHotwordEnabled.value && !JarvisVoiceManager.isSpeaking.value && !_isExecuting.value && !JarvisVoiceManager.isVoiceCallActive.value) {
                         startContinuousListening(context)
                     }
-                }, 800)
+                }, 1200)
                 return@post
             }
-
-            destroySpeechRecognizer()
 
             if (!SpeechRecognizer.isRecognitionAvailable(context)) {
                 Log.e(TAG, "SpeechRecognizer is not available on this device")
@@ -166,71 +166,84 @@ object JarvisHotwordManager {
             }
 
             try {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                    setRecognitionListener(object : RecognitionListener {
-                        override fun onReadyForSpeech(params: Bundle?) {
-                            _isListeningActive.value = true
-                        }
-
-                        override fun onBeginningOfSpeech() {}
-
-                        override fun onRmsChanged(rmsdB: Float) {
-                            val normalized = ((rmsdB + 2) / 12f).coerceIn(0.05f, 1f)
-                            JarvisOverlayManager.updateAudioRms(normalized)
-                        }
-
-                        override fun onBufferReceived(buffer: ByteArray?) {}
-
-                        override fun onEndOfSpeech() {
-                            JarvisOverlayManager.updateAudioRms(0f)
-                        }
-
-                        override fun onError(error: Int) {
-                            _isListeningActive.value = false
-                            JarvisOverlayManager.updateAudioRms(0f)
-
-                            // Normal silence timeouts: schedule smooth restart
-                            val delayMs = when (error) {
-                                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 1000L
-                                SpeechRecognizer.ERROR_CLIENT -> 800L
-                                else -> 400L
+                if (speechRecognizer == null) {
+                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
+                        setRecognitionListener(object : RecognitionListener {
+                            override fun onReadyForSpeech(params: Bundle?) {
+                                _isListeningActive.value = true
                             }
 
-                            mainHandler.postDelayed({
-                                if (_isHotwordEnabled.value && !JarvisVoiceManager.isSpeaking.value && !_isExecuting.value) {
-                                    startContinuousListening(context)
+                            override fun onBeginningOfSpeech() {
+                                consecutiveSilenceTimeouts = 0
+                            }
+
+                            override fun onRmsChanged(rmsdB: Float) {
+                                val normalized = ((rmsdB + 2) / 12f).coerceIn(0.05f, 1f)
+                                JarvisOverlayManager.updateAudioRms(normalized)
+                            }
+
+                            override fun onBufferReceived(buffer: ByteArray?) {}
+
+                            override fun onEndOfSpeech() {
+                                JarvisOverlayManager.updateAudioRms(0f)
+                            }
+
+                            override fun onError(error: Int) {
+                                _isListeningActive.value = false
+                                JarvisOverlayManager.updateAudioRms(0f)
+
+                                // Smart backoff to avoid mic on/off thrashing
+                                val isSilence = error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH
+                                if (isSilence) {
+                                    consecutiveSilenceTimeouts++
+                                } else {
+                                    consecutiveSilenceTimeouts = 0
                                 }
-                            }, delayMs)
-                        }
 
-                        override fun onResults(results: Bundle?) {
-                            _isListeningActive.value = false
-                            JarvisOverlayManager.updateAudioRms(0f)
+                                val delayMs = when {
+                                    error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> 2000L
+                                    error == SpeechRecognizer.ERROR_CLIENT -> 1500L
+                                    consecutiveSilenceTimeouts > 3 -> 3000L
+                                    else -> 1200L
+                                }
 
-                            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            val text = matches?.firstOrNull()?.trim().orEmpty()
-
-                            if (text.isNotEmpty()) {
-                                handleRecognizedSpeech(context, text)
-                            } else {
-                                scheduleRestart(context, 350)
+                                mainHandler.postDelayed({
+                                    if (_isHotwordEnabled.value && !JarvisVoiceManager.isSpeaking.value && !_isExecuting.value && !JarvisVoiceManager.isVoiceCallActive.value) {
+                                        startContinuousListening(context)
+                                    }
+                                }, delayMs)
                             }
-                        }
 
-                        override fun onPartialResults(partialResults: Bundle?) {
-                            val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            val partial = matches?.firstOrNull()?.trim().orEmpty()
+                            override fun onResults(results: Bundle?) {
+                                _isListeningActive.value = false
+                                JarvisOverlayManager.updateAudioRms(0f)
+                                consecutiveSilenceTimeouts = 0
 
-                            if (partial.isNotEmpty()) {
-                                val lower = partial.lowercase()
-                                if (containsHotword(lower) || isAwaitingFollowupCommand) {
-                                    JarvisOverlayManager.onSpeechPartial(partial)
+                                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                val text = matches?.firstOrNull()?.trim().orEmpty()
+
+                                if (text.isNotEmpty()) {
+                                    handleRecognizedSpeech(context, text)
+                                } else {
+                                    scheduleRestart(context, 1000)
                                 }
                             }
-                        }
 
-                        override fun onEvent(eventType: Int, params: Bundle?) {}
-                    })
+                            override fun onPartialResults(partialResults: Bundle?) {
+                                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                                val partial = matches?.firstOrNull()?.trim().orEmpty()
+
+                                if (partial.isNotEmpty()) {
+                                    val lower = partial.lowercase()
+                                    if (containsHotword(lower) || isAwaitingFollowupCommand) {
+                                        JarvisOverlayManager.onSpeechPartial(partial)
+                                    }
+                                }
+                            }
+
+                            override fun onEvent(eventType: Int, params: Bundle?) {}
+                        })
+                    }
                 }
 
                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -241,18 +254,20 @@ object JarvisHotwordManager {
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 }
 
+                speechRecognizer?.cancel()
                 speechRecognizer?.startListening(intent)
                 _isListeningActive.value = true
             } catch (e: Exception) {
                 Log.e(TAG, "Error in startContinuousListening", e)
-                scheduleRestart(context, 1000)
+                destroySpeechRecognizer()
+                scheduleRestart(context, 2000)
             }
         }
     }
 
     private fun scheduleRestart(context: Context, delayMs: Long) {
         mainHandler.postDelayed({
-            if (_isHotwordEnabled.value && !JarvisVoiceManager.isSpeaking.value && !_isExecuting.value) {
+            if (_isHotwordEnabled.value && !JarvisVoiceManager.isSpeaking.value && !_isExecuting.value && !JarvisVoiceManager.isVoiceCallActive.value) {
                 startContinuousListening(context)
             }
         }, delayMs)
@@ -267,7 +282,7 @@ object JarvisHotwordManager {
 
     private fun destroySpeechRecognizer() {
         try {
-            speechRecognizer?.stopListening()
+            speechRecognizer?.cancel()
             speechRecognizer?.destroy()
         } catch (_: Exception) {}
         speechRecognizer = null
@@ -293,8 +308,8 @@ object JarvisHotwordManager {
         }
 
         if (!containsHotword(lower)) {
-            // Not addressed to Jarvis, silently keep listening
-            scheduleRestart(context, 300)
+            // Not addressed to Jarvis, silently keep listening with calm backoff
+            scheduleRestart(context, 800)
             return
         }
 
@@ -327,7 +342,7 @@ object JarvisHotwordManager {
             isAwaitingFollowupCommand = true
             JarvisOverlayManager.onHotwordTriggeredYes()
             JarvisVoiceManager.speak("Yes?") {
-                scheduleRestart(context, 150)
+                scheduleRestart(context, 250)
             }
         }
     }
@@ -349,14 +364,15 @@ object JarvisHotwordManager {
                 )
                 val currentSession = ChatSessionManager.currentSession.value
                 val existingMessages = currentSession?.messages ?: emptyList()
+                
+                // 2. Prepare conversation history BEFORE adding current prompt to avoid duplicate user turns
+                val history = existingMessages
+                    .filter { it.sender == ChatSender.USER || it.sender == ChatSender.AI }
+                    .takeLast(6)
+                    .map { (if (it.sender == ChatSender.USER) "user" else "assistant") to it.text }
+
                 val updatedWithUser = existingMessages + userMsg
                 ChatSessionManager.updateMessagesForCurrentSession(updatedWithUser)
-
-                // 2. Prepare conversation history
-                val history = updatedWithUser
-                    .filter { it.sender == ChatSender.USER || it.sender == ChatSender.AI }
-                    .takeLast(8)
-                    .map { (if (it.sender == ChatSender.USER) "user" else "assistant") to it.text }
 
                 // 3. Call AI Chat Service with live HUD status callbacks using configured Model & Endpoint
                 val currentAiConfig = com.example.data.AiConfigManager.config.value
@@ -397,7 +413,7 @@ object JarvisHotwordManager {
                 // 6. Speak response via TTS hands-free
                 JarvisVoiceManager.speak(response.replyText) {
                     _isExecuting.value = false
-                    scheduleRestart(context, 500)
+                    scheduleRestart(context, 800)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error executing autonomous AI command", e)
@@ -409,7 +425,7 @@ object JarvisHotwordManager {
                     replyText = "Maaf, terjadi kendala saat memproses perintah Anda: ${e.localizedMessage}"
                 )
                 JarvisVoiceManager.speak("Maaf, terjadi kendala saat memproses perintah.") {
-                    scheduleRestart(context, 500)
+                    scheduleRestart(context, 800)
                 }
             }
         }

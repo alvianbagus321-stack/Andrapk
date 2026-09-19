@@ -159,6 +159,8 @@ class JarvisViewModel : ViewModel() {
     private val _chatStatusText = MutableStateFlow("")
     val chatStatusText: StateFlow<String> = _chatStatusText.asStateFlow()
 
+    val liveThought: StateFlow<String?> = com.example.service.AiChatService.liveThoughtState.asStateFlow()
+
     init {
         viewModelScope.launch {
             com.example.data.AiConfigManager.config.collect { config ->
@@ -199,13 +201,23 @@ class JarvisViewModel : ViewModel() {
         com.example.data.ChatSessionManager.renameSession(sessionId, newTitle)
     }
 
-    fun sendChatMessage(userText: String) {
+    fun sendChatMessage(
+        userText: String,
+        attachmentUri: String? = null,
+        attachmentName: String? = null,
+        attachmentMimeType: String? = null
+    ) {
         val trimmed = userText.trim()
-        if (trimmed.isEmpty()) return
+        if (trimmed.isEmpty() && attachmentUri == null) return
+
+        val displayPrompt = trimmed.ifEmpty { "Mengirim lampiran: ${attachmentName ?: "Berkas"}" }
 
         val userMessage = com.example.model.ChatMessage(
             sender = com.example.model.ChatSender.USER,
-            text = trimmed
+            text = displayPrompt,
+            attachmentUri = attachmentUri,
+            attachmentName = attachmentName,
+            attachmentMimeType = attachmentMimeType
         )
         val updatedUserList = _chatMessages.value + userMessage
         _chatMessages.value = updatedUserList
@@ -220,11 +232,13 @@ class JarvisViewModel : ViewModel() {
                 .map { (if (it.sender == com.example.model.ChatSender.USER) "user" else "assistant") to it.text }
 
             val response = com.example.service.AiChatService.sendMessage(
-                userPrompt = trimmed,
+                userPrompt = displayPrompt,
                 apiKey = chatApiKey.value,
                 baseUrl = chatBaseUrl.value,
                 modelName = chatModelName.value,
                 history = history,
+                attachmentUri = attachmentUri,
+                attachmentMimeType = attachmentMimeType,
                 onStatusUpdate = { status ->
                     _chatStatusText.value = status
                 }
@@ -249,6 +263,19 @@ class JarvisViewModel : ViewModel() {
             // Trigger Voice Mode or Auto-Read TTS if active
             com.example.service.JarvisVoiceManager.onAiReplyReceived(response.replyText)
         }
+    }
+
+    fun stopAiExecution() {
+        com.example.service.AiChatService.stopCurrentExecution()
+        _isChatAiThinking.value = false
+        _chatStatusText.value = "Dihentikan oleh pengguna."
+        val stoppedMsg = com.example.model.ChatMessage(
+            sender = com.example.model.ChatSender.SYSTEM,
+            text = "🛑 Proses AI telah dihentikan oleh pengguna."
+        )
+        val finalMessages = _chatMessages.value + stoppedMsg
+        _chatMessages.value = finalMessages
+        com.example.data.ChatSessionManager.updateMessagesForCurrentSession(finalMessages)
     }
 
     fun startVoiceCall() {

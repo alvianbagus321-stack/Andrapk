@@ -71,6 +71,7 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
                 "active" -> tool.isEnabled
                 "builtin" -> tool.isBuiltIn
                 "custom" -> !tool.isBuiltIn
+                "termux" -> tool.category.contains("Termux", ignoreCase = true) || tool.id.startsWith("termux")
                 else -> true
             }
 
@@ -240,6 +241,11 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
                     selected = selectedFilter == "custom",
                     onClick = { selectedFilter = "custom" },
                     label = { Text("Custom & AI (${allTools.count { !it.isBuiltIn }})", fontSize = 11.sp) }
+                )
+                FilterChip(
+                    selected = selectedFilter == "termux",
+                    onClick = { selectedFilter = "termux" },
+                    label = { Text("Termux & Service (${allTools.count { it.category.contains("Termux", ignoreCase = true) || it.id.startsWith("termux") }})", fontSize = 11.sp) }
                 )
             }
 

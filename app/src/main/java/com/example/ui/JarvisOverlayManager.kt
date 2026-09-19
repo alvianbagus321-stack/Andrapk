@@ -13,7 +13,19 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
+import com.example.ui.theme.JarvisCyan
+import com.example.ui.theme.JarvisRed
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
@@ -348,5 +360,74 @@ object JarvisOverlayManager {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         context.startActivity(intent)
+    }
+
+    /**
+     * Renders a temporary glowing visual touch pointer / target circle at (x, y)
+     * whenever AI executes a gesture (tap/swipe) so the user sees where the AI clicks or moves.
+     */
+    fun showTapPointer(context: Context, x: Float, y: Float) {
+        if (!canDrawOverlay(context)) return
+        mainHandler.post {
+            try {
+                val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                val pointerView = ComposeView(context).apply {
+                    val owner = lifecycleOwner ?: OverlayLifecycleOwner()
+                    setViewTreeLifecycleOwner(owner)
+                    setViewTreeSavedStateRegistryOwner(owner)
+                    setContent {
+                        MyApplicationTheme {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.TopStart
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            translationX = x - 24
+                                            translationY = y - 24
+                                        }
+                                        .size(48.dp),
+                                    shape = CircleShape,
+                                    color = JarvisCyan.copy(alpha = 0.4f),
+                                    border = BorderStroke(2.dp, JarvisRed)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Surface(
+                                            modifier = Modifier.size(12.dp),
+                                            shape = CircleShape,
+                                            color = JarvisRed
+                                        ) {}
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val pointerParams = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                    else
+                        WindowManager.LayoutParams.TYPE_PHONE,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT
+                )
+
+                wm.addView(pointerView, pointerParams)
+
+                mainHandler.postDelayed({
+                    try {
+                        wm.removeView(pointerView)
+                    } catch (_: Exception) {}
+                }, 1200L)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to show tap pointer overlay", e)
+            }
+        }
     }
 }
