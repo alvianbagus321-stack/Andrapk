@@ -31,11 +31,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.example.service.JarvisCompanionService
 import com.example.service.ScreenshotManager
 import com.example.ui.JarvisChatScreen
 import com.example.ui.JarvisDashboardScreen
 import com.example.ui.JarvisSandboxScreen
 import com.example.ui.JarvisTermuxScreen
+import com.example.ui.JarvisToolsScreen
 import com.example.ui.JarvisViewModel
 import com.example.ui.theme.*
 
@@ -47,16 +49,17 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
-            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            val projection = projectionManager.getMediaProjection(result.resultCode, result.data!!)
-            if (projection != null) {
-                ScreenshotManager.setMediaProjection(this, projection)
-                Toast.makeText(this, "MediaProjection screenshot active!", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Could not acquire MediaProjection", Toast.LENGTH_SHORT).show()
+            try {
+                // In Android 14+ (API 34+), getMediaProjection must be called while a Foreground Service
+                // of type FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION is actively running.
+                JarvisCompanionService.startMediaProjection(this, result.resultCode, result.data!!)
+                Toast.makeText(this, "Screen Share berhasil diaktifkan!", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Error starting media projection service", e)
+                Toast.makeText(this, "Gagal mengaktifkan Screen Share: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         } else {
-            Toast.makeText(this, "Screen capture permission denied", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Izin Screen Share dibatalkan atau ditolak", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -104,8 +107,18 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestMediaProjection() {
-        val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                multiPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+            }
+        }
+        try {
+            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error launching screen capture intent", e)
+            Toast.makeText(this, "Gagal membuka dialog izin: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        }
     }
 }
 
@@ -244,6 +257,20 @@ fun JarvisMainApp(
                     ),
                     modifier = Modifier.testTag("nav_chat")
                 )
+                NavigationBarItem(
+                    selected = selectedTab == 4,
+                    onClick = { selectedTab = 4 },
+                    icon = { Icon(Icons.Default.Build, contentDescription = "Tools") },
+                    label = { Text("Tools", fontSize = 11.sp, fontWeight = if (selectedTab == 4) FontWeight.Bold else FontWeight.Normal) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = JarvisBackground,
+                        selectedTextColor = JarvisCyan,
+                        indicatorColor = JarvisCyan,
+                        unselectedIconColor = JarvisTextSecondary,
+                        unselectedTextColor = JarvisTextSecondary
+                    ),
+                    modifier = Modifier.testTag("nav_tools")
+                )
             }
         }
     ) { innerPadding ->
@@ -261,6 +288,7 @@ fun JarvisMainApp(
                     1 -> JarvisSandboxScreen(viewModel = viewModel)
                     2 -> JarvisTermuxScreen(viewModel = viewModel)
                     3 -> JarvisChatScreen(viewModel = viewModel)
+                    4 -> JarvisToolsScreen()
                 }
             }
         }

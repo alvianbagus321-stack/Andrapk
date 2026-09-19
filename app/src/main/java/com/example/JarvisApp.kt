@@ -19,7 +19,10 @@ class JarvisApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        com.example.data.AiConfigManager.init(this)
         _repository = CompanionRepository(this)
+        com.example.service.ToolManager.init(this)
+        com.example.service.JarvisHotwordManager.init(this)
 
         // Automatically start the companion background service & HTTP server
         JarvisCompanionService.start(this)

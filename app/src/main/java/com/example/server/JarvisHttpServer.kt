@@ -235,10 +235,15 @@ class JarvisHttpServer(
         val method = req.method
         val clientIp = req.clientIp
 
-        // Public setup scripts can be fetched with token as query param or header
+        // Public setup scripts and Termux scripts can be fetched directly from localhost
         if (path == "/setup.sh") {
             val script = TermuxScripts.getSetupScript(token, port)
             sendResponse(output, 200, script, "text/x-shellscript", method, path, clientIp, "Served setup.sh")
+            return
+        }
+
+        if (path.startsWith("/termux/")) {
+            handleTermuxDownload(path, output, method, clientIp)
             return
         }
 
@@ -567,14 +572,6 @@ class JarvisHttpServer(
                     sendResponse(output, 200, resp, "application/json", method, path, clientIp, "Checked ADB / Shizuku status")
                 }
 
-                // Termux code downloads
-                path == "/termux/agent.py" -> sendResponse(output, 200, TermuxScripts.agentPy, "text/plain", method, path, clientIp, "Downloaded agent.py")
-                path == "/termux/config.py" -> sendResponse(output, 200, TermuxScripts.getConfigPy(token, port), "text/plain", method, path, clientIp, "Downloaded config.py")
-                path == "/termux/memory.py" -> sendResponse(output, 200, TermuxScripts.memoryPy, "text/plain", method, path, clientIp, "Downloaded memory.py")
-                path == "/termux/android_tools.py" -> sendResponse(output, 200, TermuxScripts.androidToolsPy, "text/plain", method, path, clientIp, "Downloaded android_tools.py")
-                path == "/termux/termux_tools.py" -> sendResponse(output, 200, TermuxScripts.termuxToolsPy, "text/plain", method, path, clientIp, "Downloaded termux_tools.py")
-                path == "/termux/requirements.txt" -> sendResponse(output, 200, TermuxScripts.requirementsTxt, "text/plain", method, path, clientIp, "Downloaded requirements.txt")
-
                 else -> {
                     val err = errorJson(ErrorCodes.UNKNOWN_ERROR, "Endpoint '$path' not found on JARVIS Companion Server", false)
                     sendResponse(output, 404, err, "application/json", method, path, clientIp, "404 Not Found", true)
@@ -584,6 +581,27 @@ class JarvisHttpServer(
             Log.e(TAG, "Unhandled exception in endpoint $path", e)
             val err = errorJson(ErrorCodes.UNKNOWN_ERROR, "Internal server error: ${e.message}", false)
             sendResponse(output, 500, err, "application/json", method, path, clientIp, "500 Internal Error: ${e.message}", true)
+        }
+    }
+
+    private fun handleTermuxDownload(path: String, output: OutputStream, method: String, clientIp: String) {
+        when (path) {
+            "/termux/agent.py" -> sendResponse(output, 200, TermuxScripts.agentPy, "text/plain", method, path, clientIp, "Downloaded agent.py")
+            "/termux/config.py" -> sendResponse(output, 200, TermuxScripts.getConfigPy(token, port), "text/plain", method, path, clientIp, "Downloaded config.py")
+            "/termux/memory.py" -> sendResponse(output, 200, TermuxScripts.memoryPy, "text/plain", method, path, clientIp, "Downloaded memory.py")
+            "/termux/INSTRUCTION.md", "/termux/instruction.md" -> sendResponse(output, 200, TermuxScripts.instructionMd, "text/markdown", method, path, clientIp, "Downloaded INSTRUCTION.md")
+            "/termux/requirements.txt" -> sendResponse(output, 200, TermuxScripts.requirementsTxt, "text/plain", method, path, clientIp, "Downloaded requirements.txt")
+            "/termux/tools/__init__.py" -> sendResponse(output, 200, TermuxScripts.toolsInitPy, "text/plain", method, path, clientIp, "Downloaded tools/__init__.py")
+            "/termux/tools/android_tools.py", "/termux/android_tools.py" -> sendResponse(output, 200, TermuxScripts.androidToolsPy, "text/plain", method, path, clientIp, "Downloaded android_tools.py")
+            "/termux/tools/termux_tools.py", "/termux/termux_tools.py" -> sendResponse(output, 200, TermuxScripts.termuxToolsPy, "text/plain", method, path, clientIp, "Downloaded termux_tools.py")
+            "/termux/tools/custom/__init__.py" -> sendResponse(output, 200, TermuxScripts.customInitPy, "text/plain", method, path, clientIp, "Downloaded custom/__init__.py")
+            "/termux/tools/custom/cek_storage.py" -> sendResponse(output, 200, TermuxScripts.customCekStoragePy, "text/plain", method, path, clientIp, "Downloaded custom/cek_storage.py")
+            "/termux/tools/custom/buka_youtube.py" -> sendResponse(output, 200, TermuxScripts.customBukaYoutubePy, "text/plain", method, path, clientIp, "Downloaded custom/buka_youtube.py")
+            "/termux/tools/custom/cek_ram.py" -> sendResponse(output, 200, TermuxScripts.customCekRamPy, "text/plain", method, path, clientIp, "Downloaded custom/cek_ram.py")
+            else -> {
+                val err = errorJson(ErrorCodes.UNKNOWN_ERROR, "Termux asset '$path' not found", false)
+                sendResponse(output, 404, err, "application/json", method, path, clientIp, "404 Not Found", true)
+            }
         }
     }
 

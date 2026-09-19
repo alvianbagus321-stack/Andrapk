@@ -28,6 +28,7 @@ object ScreenshotManager {
     private var mediaProjection: MediaProjection? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var imageReader: ImageReader? = null
+    private var projectionCallback: MediaProjection.Callback? = null
     private var width = 720
     private var height = 1280
     private var densityDpi = 320
@@ -38,6 +39,21 @@ object ScreenshotManager {
     fun setMediaProjection(context: Context, projection: MediaProjection) {
         release()
         mediaProjection = projection
+
+        // Register callback BEFORE createVirtualDisplay (MANDATORY on Android 14+ / API 34+)
+        val callback = object : MediaProjection.Callback() {
+            override fun onStop() {
+                super.onStop()
+                Log.i(TAG, "MediaProjection session stopped by system")
+                release()
+            }
+        }
+        projectionCallback = callback
+        try {
+            projection.registerCallback(callback, Handler(Looper.getMainLooper()))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register MediaProjection callback: ${e.message}")
+        }
 
         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val metrics = DisplayMetrics()
@@ -56,35 +72,52 @@ object ScreenshotManager {
         height = ((metrics.heightPixels * scale).toInt() / 2) * 2
         densityDpi = (metrics.densityDpi * scale).toInt()
 
-        imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-        virtualDisplay = projection.createVirtualDisplay(
-            "JarvisScreenCapture",
-            width,
-            height,
-            densityDpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader?.surface,
-            null,
-            Handler(Looper.getMainLooper())
-        )
-
-        _isMediaProjectionActive.value = true
-        Log.i(TAG, "MediaProjection initialized: ${width}x${height} @ ${densityDpi}dpi")
+        try {
+            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+            virtualDisplay = projection.createVirtualDisplay(
+                "JarvisScreenCapture",
+                width,
+                height,
+                densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader?.surface,
+                null,
+                Handler(Looper.getMainLooper())
+            )
+            _isMediaProjectionActive.value = true
+            Log.i(TAG, "MediaProjection initialized: ${width}x${height} @ ${densityDpi}dpi")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize MediaProjection virtual display: ${e.message}", e)
+            release()
+        }
     }
 
     fun release() {
         try {
             virtualDisplay?.release()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing virtualDisplay", e)
+        }
+        try {
             imageReader?.close()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing imageReader", e)
+        }
+        try {
+            projectionCallback?.let { mediaProjection?.unregisterCallback(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error unregistering callback", e)
+        }
+        try {
             mediaProjection?.stop()
         } catch (e: Exception) {
-            Log.e(TAG, "Error releasing MediaProjection", e)
-        } finally {
-            virtualDisplay = null
-            imageReader = null
-            mediaProjection = null
-            _isMediaProjectionActive.value = false
+            Log.e(TAG, "Error stopping mediaProjection", e)
         }
+        projectionCallback = null
+        virtualDisplay = null
+        imageReader = null
+        mediaProjection = null
+        _isMediaProjectionActive.value = false
     }
 
     /**

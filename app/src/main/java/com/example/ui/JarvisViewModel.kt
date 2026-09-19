@@ -140,20 +140,17 @@ class JarvisViewModel : ViewModel() {
     }
 
     // =========================================================================
-    // AI Chat Window State & Actions
+    // AI Chat Window State & Actions (Backed by AiConfigManager)
     // =========================================================================
-    val chatApiKey = MutableStateFlow("")
-    val chatBaseUrl = MutableStateFlow(com.example.service.AiChatService.DEFAULT_GEMINI_BASE_URL)
-    val chatModelName = MutableStateFlow(com.example.service.AiChatService.DEFAULT_GEMINI_MODEL)
+    val aiConfig = com.example.data.AiConfigManager.config
+    val chatApiKey = MutableStateFlow(com.example.data.AiConfigManager.config.value.apiKey)
+    val chatBaseUrl = MutableStateFlow(com.example.data.AiConfigManager.config.value.baseUrl)
+    val chatModelName = MutableStateFlow(com.example.data.AiConfigManager.config.value.modelName)
 
-    private val _chatMessages = MutableStateFlow<List<com.example.model.ChatMessage>>(
-        listOf(
-            com.example.model.ChatMessage(
-                sender = com.example.model.ChatSender.SYSTEM,
-                text = "Halo! Saya JARVIS-HP AI Assistant. Anda dapat langsung mengobrol dan memberikan instruksi otomasi HP di sini (misal: 'Buka YouTube', 'Ketik halo', 'Cek baterai', dll.)."
-            )
-        )
-    )
+    val chatSessions = com.example.data.ChatSessionManager.sessions
+    val currentSession = com.example.data.ChatSessionManager.currentSession
+
+    private val _chatMessages = MutableStateFlow<List<com.example.model.ChatMessage>>(emptyList())
     val chatMessages: StateFlow<List<com.example.model.ChatMessage>> = _chatMessages.asStateFlow()
 
     private val _isChatAiThinking = MutableStateFlow(false)
@@ -161,6 +158,46 @@ class JarvisViewModel : ViewModel() {
 
     private val _chatStatusText = MutableStateFlow("")
     val chatStatusText: StateFlow<String> = _chatStatusText.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            com.example.data.AiConfigManager.config.collect { config ->
+                chatApiKey.value = config.apiKey
+                chatBaseUrl.value = config.baseUrl
+                chatModelName.value = config.modelName
+            }
+        }
+        viewModelScope.launch {
+            com.example.data.ChatSessionManager.currentSession.collect { session ->
+                if (session != null) {
+                    _chatMessages.value = session.messages
+                }
+            }
+        }
+    }
+
+    fun updateAiConfig(apiKey: String, baseUrl: String, modelName: String, providerLabel: String? = null) {
+        com.example.data.AiConfigManager.saveConfig(apiKey, baseUrl, modelName, providerLabel)
+        chatApiKey.value = apiKey
+        chatBaseUrl.value = baseUrl
+        chatModelName.value = modelName
+    }
+
+    fun createNewSession(title: String? = null) {
+        com.example.data.ChatSessionManager.createSession(title)
+    }
+
+    fun switchSession(sessionId: String) {
+        com.example.data.ChatSessionManager.switchSession(sessionId)
+    }
+
+    fun deleteSession(sessionId: String) {
+        com.example.data.ChatSessionManager.deleteSession(sessionId)
+    }
+
+    fun renameSession(sessionId: String, newTitle: String) {
+        com.example.data.ChatSessionManager.renameSession(sessionId, newTitle)
+    }
 
     fun sendChatMessage(userText: String) {
         val trimmed = userText.trim()
@@ -170,7 +207,9 @@ class JarvisViewModel : ViewModel() {
             sender = com.example.model.ChatSender.USER,
             text = trimmed
         )
-        _chatMessages.value = _chatMessages.value + userMessage
+        val updatedUserList = _chatMessages.value + userMessage
+        _chatMessages.value = updatedUserList
+        com.example.data.ChatSessionManager.updateMessagesForCurrentSession(updatedUserList)
 
         viewModelScope.launch(Dispatchers.IO) {
             _isChatAiThinking.value = true
@@ -180,7 +219,7 @@ class JarvisViewModel : ViewModel() {
                 .filter { it.sender == com.example.model.ChatSender.USER || it.sender == com.example.model.ChatSender.AI }
                 .map { (if (it.sender == com.example.model.ChatSender.USER) "user" else "assistant") to it.text }
 
-            val (aiReply, actionResult) = com.example.service.AiChatService.sendMessage(
+            val response = com.example.service.AiChatService.sendMessage(
                 userPrompt = trimmed,
                 apiKey = chatApiKey.value,
                 baseUrl = chatBaseUrl.value,
@@ -193,25 +232,71 @@ class JarvisViewModel : ViewModel() {
 
             val aiMessage = com.example.model.ChatMessage(
                 sender = com.example.model.ChatSender.AI,
-                text = aiReply,
-                isExecutingAction = actionResult != null,
-                actionToolName = if (actionResult != null) "Otomasi Perangkat" else null,
-                actionResult = actionResult?.let { if (it.status == "ok") (it.result ?: "Berhasil dieksekusi") else ("Gagal: " + (it.message ?: "Error")) }
+                text = response.replyText,
+                isExecutingAction = response.actionResult != null,
+                actionToolName = response.actionToolName ?: if (response.actionResult != null) "Otomasi Perangkat" else null,
+                actionResult = response.actionResult?.let { if (it.status == "ok") (it.result ?: "Berhasil dieksekusi") else ("Gagal: " + (it.message ?: "Error")) },
+                thinkingProcess = response.thinkingProcess
             )
 
-            _chatMessages.value = _chatMessages.value + aiMessage
+            val finalMessages = _chatMessages.value + aiMessage
+            _chatMessages.value = finalMessages
+            com.example.data.ChatSessionManager.updateMessagesForCurrentSession(finalMessages)
+
             _isChatAiThinking.value = false
             _chatStatusText.value = ""
+
+            // Trigger Voice Mode or Auto-Read TTS if active
+            com.example.service.JarvisVoiceManager.onAiReplyReceived(response.replyText)
         }
     }
 
+    fun startVoiceCall() {
+        com.example.service.JarvisVoiceManager.startVoiceCall { spokenInput ->
+            sendChatMessage(spokenInput)
+        }
+    }
+
+    fun endVoiceCall() {
+        com.example.service.JarvisVoiceManager.endVoiceCall()
+    }
+
+    fun speakMessage(text: String) {
+        com.example.service.JarvisVoiceManager.speak(text)
+    }
+
+    fun stopSpeech() {
+        com.example.service.JarvisVoiceManager.stopSpeaking()
+    }
+
+    fun toggleAutoRead() {
+        com.example.service.JarvisVoiceManager.toggleAutoRead()
+    }
+
+    // =========================================================================
+    // Background "Jarvis" Hotword & Floating HUD States
+    // =========================================================================
+    val isHotwordEnabled: StateFlow<Boolean> = com.example.service.JarvisHotwordManager.isHotwordEnabled
+    val isHotwordListeningActive: StateFlow<Boolean> = com.example.service.JarvisHotwordManager.isListeningActive
+    val isOverlayVisible: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.isOverlayVisible
+
+    fun toggleHotword(context: android.content.Context): Boolean {
+        val result = com.example.service.JarvisHotwordManager.toggleHotword(context)
+        com.example.service.JarvisCompanionService.updateNotification(context)
+        return result
+    }
+
+    fun setHotwordEnabled(context: android.content.Context, enabled: Boolean) {
+        com.example.service.JarvisHotwordManager.setHotwordEnabled(context, enabled)
+        com.example.service.JarvisCompanionService.updateNotification(context)
+    }
+
+    fun testTriggerHotword() {
+        com.example.service.JarvisHotwordManager.triggerImmediateListening()
+    }
+
     fun clearChat() {
-        _chatMessages.value = listOf(
-            com.example.model.ChatMessage(
-                sender = com.example.model.ChatSender.SYSTEM,
-                text = "Riwayat chat telah dibersihkan."
-            )
-        )
+        com.example.data.ChatSessionManager.clearCurrentSessionMessages()
     }
 }
 

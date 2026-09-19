@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,15 +35,30 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
     val token by viewModel.token.collectAsState()
 
     var selectedScriptTab by remember { mutableIntStateOf(0) }
-    val scriptTitles = listOf("agent.py", "config.py", "android_tools.py", "termux_tools.py", "memory.py", "setup.sh")
+    val scriptTitles = listOf(
+        "INSTRUCTION.md",
+        "tools/__init__.py",
+        "cek_storage.py",
+        "buka_youtube.py",
+        "cek_ram.py",
+        "agent.py",
+        "android_tools.py",
+        "termux_tools.py",
+        "config.py",
+        "setup.sh"
+    )
 
     val currentScriptCode = when (selectedScriptTab) {
-        0 -> TermuxScripts.agentPy
-        1 -> TermuxScripts.getConfigPy(token, port)
-        2 -> TermuxScripts.androidToolsPy
-        3 -> TermuxScripts.termuxToolsPy
-        4 -> TermuxScripts.memoryPy
-        5 -> TermuxScripts.getSetupScript(token, port)
+        0 -> TermuxScripts.instructionMd
+        1 -> TermuxScripts.toolsInitPy
+        2 -> TermuxScripts.customCekStoragePy
+        3 -> TermuxScripts.customBukaYoutubePy
+        4 -> TermuxScripts.customCekRamPy
+        5 -> TermuxScripts.agentPy
+        6 -> TermuxScripts.androidToolsPy
+        7 -> TermuxScripts.termuxToolsPy
+        8 -> TermuxScripts.getConfigPy(token, port)
+        9 -> TermuxScripts.getSetupScript(token, port)
         else -> ""
     }
 
@@ -69,11 +85,11 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Terminal, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(24.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("1-LINE TERMUX SETUP", color = JarvisCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("1-LINE TERMUX SETUP & 3-LAYER TOOL REGISTRY", color = JarvisCyan, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                     }
 
                     Text(
-                        text = "Jalankan perintah ini di Termux untuk mengunduh seluruh skrip, dependency python, database memory, dan konfigurasi otomatis:",
+                        text = "Jalankan perintah ini di Termux untuk menginstal JARVIS-HP Agent lengkap beserta 3-Layer Tool Registry, auto-scanner tools/custom/, dan database memory:",
                         color = JarvisTextSecondary,
                         fontSize = 12.sp
                     )
@@ -120,6 +136,126 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
             }
         }
 
+        // 3-Layer Architecture Overview Card
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisBorder))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Extension, contentDescription = null, tint = JarvisEmerald, modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("3-LAYER TOOL REGISTRY ARCHITECTURE", color = JarvisEmerald, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Text(
+                        text = "JARVIS-HP mengadopsi sistem modular sehingga kamu bisa memperluas kemampuan AI cukup dengan membuat file python di tools/custom/ tanpa mengedit agent.py.",
+                        color = JarvisTextSecondary,
+                        fontSize = 12.sp
+                    )
+
+                    // Visual 3 Layers
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            color = JarvisSurfaceVariant,
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Layer 1", color = JarvisCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("Android Tools", color = JarvisTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                Text("tap, swipe, read_screen via Companion APK", color = JarvisTextSecondary, fontSize = 9.sp)
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            color = JarvisSurfaceVariant,
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisEmerald.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Layer 2", color = JarvisEmerald, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("Termux Tools", color = JarvisTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                Text("shell, battery, clipboard via CLI & API", color = JarvisTextSecondary, fontSize = 9.sp)
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            color = JarvisSurfaceVariant,
+                            shape = RoundedCornerShape(8.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisTeal.copy(alpha = 0.3f))
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Layer 3", color = JarvisTeal, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text("Custom Tools", color = JarvisTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                Text("tools/custom/*.py ber-decorator @tool", color = JarvisTextSecondary, fontSize = 9.sp)
+                            }
+                        }
+                    }
+
+                    // How to add a new tool snippet
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(JarvisBackground)
+                            .padding(10.dp)
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Cara Membuat Tool Baru (@tool decorator):", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "from tools import tool\n\n@tool(name=\"get_storage\", description=\"Mendapatkan kapasitas HP\")\ndef get_storage():\n    return shutil.disk_usage('/')",
+                                color = JarvisEmerald,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                selectedScriptTab = 0 // jump to INSTRUCTION.md
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisCyan)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Buka INSTRUCTION.md", fontSize = 11.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                copyToClipboard(context, "Template Tool", TermuxScripts.customCekStoragePy)
+                                Toast.makeText(context, "Template @tool disalin ke clipboard!", Toast.LENGTH_SHORT).show()
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = JarvisEmerald, contentColor = JarvisBackground)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Salin Template", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
         // Execution Steps Guide
         item {
             Card(
@@ -133,23 +269,30 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
 
                     StepItem(
                         number = "1",
-                        title = "Buka Termux & Jalankan Setup",
+                        title = "Jalankan 1-Line Setup di Termux",
                         code = setupCommand,
                         onCopy = { copyToClipboard(context, "Step 1", setupCommand) }
                     )
 
                     StepItem(
                         number = "2",
-                        title = "Set API Key di Termux (Aman & Tidak di APK)",
+                        title = "Set API Key di Termux",
                         code = "export GEMINI_API_KEY=\"AIzaSy...\"",
                         onCopy = { copyToClipboard(context, "Step 2", "export GEMINI_API_KEY=\"\"") }
                     )
 
                     StepItem(
                         number = "3",
-                        title = "Jalankan Agent dengan Instruksi Anda",
-                        code = "cd ~/jarvis-hp && python agent.py \"Buka YouTube dan cari Minecraft\"",
-                        onCopy = { copyToClipboard(context, "Step 3", "cd ~/jarvis-hp && python agent.py \"Buka YouTube dan cari Minecraft\"") }
+                        title = "Jalankan Agent (Mendeteksi Semua Tool Otomatis)",
+                        code = "cd ~/jarvis-hp && python agent.py \"Cek kapasitas storage HP\"",
+                        onCopy = { copyToClipboard(context, "Step 3", "cd ~/jarvis-hp && python agent.py \"Cek kapasitas storage HP\"") }
+                    )
+
+                    StepItem(
+                        number = "4",
+                        title = "Tambah Tool Custom Baru",
+                        code = "nano ~/jarvis-hp/tools/custom/tool_baru.py",
+                        onCopy = { copyToClipboard(context, "Step 4", "nano ~/jarvis-hp/tools/custom/tool_baru.py") }
                     )
                 }
             }
@@ -171,7 +314,7 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("SOURCE CODE VIEWER", color = JarvisCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("SOURCE CODE & SPEC VIEWER", color = JarvisCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Button(
                             onClick = {
                                 copyToClipboard(context, scriptTitles[selectedScriptTab], currentScriptCode)
@@ -214,7 +357,7 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 180.dp, max = 320.dp)
+                            .heightIn(min = 200.dp, max = 360.dp)
                             .clip(RoundedCornerShape(8.dp))
                             .border(1.dp, JarvisBorder, RoundedCornerShape(8.dp)),
                         color = JarvisBackground

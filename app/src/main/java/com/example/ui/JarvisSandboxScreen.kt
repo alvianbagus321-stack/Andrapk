@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -357,7 +358,7 @@ fun JarvisSandboxScreen(viewModel: JarvisViewModel) {
                         colors = ButtonDefaults.buttonColors(containerColor = JarvisTeal, contentColor = JarvisBackground),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Icon(Icons.Default.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.AutoMirrored.Filled.Launch, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Open Application", fontWeight = FontWeight.Bold)
                     }

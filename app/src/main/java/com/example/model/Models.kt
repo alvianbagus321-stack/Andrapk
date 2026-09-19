@@ -92,5 +92,60 @@ data class ChatMessage(
     val timestamp: Long = System.currentTimeMillis(),
     val isExecutingAction: Boolean = false,
     val actionToolName: String? = null,
-    val actionResult: String? = null
+    val actionResult: String? = null,
+    val thinkingProcess: String? = null
+)
+
+data class ChatSession(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val title: String = "Sesi Baru",
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+    val messages: List<ChatMessage> = emptyList()
+)
+
+enum class ToolScriptType {
+    SHELL,
+    ACCESSIBILITY,
+    INTENT,
+    HTTP,
+    CUSTOM_LOGIC
+}
+
+enum class ToolRiskLevel {
+    SAFE,
+    LOW,
+    HIGH
+}
+
+data class CustomTool(
+    val id: String,
+    val name: String,
+    val description: String,
+    val category: String = "Custom",
+    val scriptType: ToolScriptType = ToolScriptType.SHELL,
+    val command: String = "",
+    val parametersSchema: String = "{}",
+    val riskLevel: ToolRiskLevel = ToolRiskLevel.LOW,
+    val isEnabled: Boolean = true,
+    val isBuiltIn: Boolean = false,
+    val createdByAi: Boolean = false,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+enum class AiPermissionMode {
+    SANDBOXED,
+    LOW_RISK,
+    FULL_ACCESS,
+    CUSTOM
+}
+
+data class CustomPermissionSettings(
+    val allowReadScreen: Boolean = true,
+    val allowTapSwipe: Boolean = true,
+    val allowTypeText: Boolean = true,
+    val allowOpenApp: Boolean = true,
+    val allowShellCommands: Boolean = false,
+    val allowCreateTools: Boolean = true,
+    val allowSystemKeys: Boolean = true
 )

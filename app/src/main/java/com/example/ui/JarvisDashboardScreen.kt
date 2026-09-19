@@ -1,11 +1,17 @@
 package com.example.ui
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +28,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -29,6 +36,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.model.ServerLogItem
 import com.example.ui.theme.*
 import java.text.SimpleDateFormat
@@ -48,7 +56,24 @@ fun JarvisDashboardScreen(
     val telemetry by viewModel.telemetry.collectAsState()
     val logs by viewModel.serverLogs.collectAsState()
 
+    val isHotwordEnabled by viewModel.isHotwordEnabled.collectAsState()
+    val isHotwordListening by viewModel.isHotwordListeningActive.collectAsState()
+    val isOverlayVisible by viewModel.isOverlayVisible.collectAsState()
+    val aiConfig by viewModel.aiConfig.collectAsState()
+
+    var showAiConfigDialog by remember { mutableStateOf(false) }
     var selectedLog by remember { mutableStateOf<ServerLogItem?>(null) }
+
+    val micLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.setHotwordEnabled(context, true)
+            Toast.makeText(context, "Asisten Suara 'Jarvis' aktif di latar belakang!", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Izin mikrofon dibutuhkan untuk mendengar suara 'Jarvis'", Toast.LENGTH_LONG).show()
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -57,6 +82,354 @@ fun JarvisDashboardScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)
     ) {
+        // ALWAYS-ON JARVIS BACKGROUND ASSISTANT CARD
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("background_voice_assistant_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = Brush.horizontalGradient(
+                        listOf(JarvisCyan.copy(alpha = 0.7f), JarvisTeal.copy(alpha = 0.4f))
+                    )
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                modifier = Modifier.size(38.dp),
+                                shape = CircleShape,
+                                color = if (isHotwordEnabled) JarvisCyan.copy(alpha = 0.2f) else JarvisSurfaceVariant,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (isHotwordEnabled) JarvisCyan else JarvisBorder
+                                )
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.RecordVoiceOver,
+                                        contentDescription = "Voice Assistant",
+                                        tint = if (isHotwordEnabled) JarvisCyan else JarvisTextSecondary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "ALWAYS-ON 'JARVIS'",
+                                        color = JarvisCyan,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 13.sp,
+                                        letterSpacing = 1.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = if (isHotwordEnabled) JarvisEmerald.copy(alpha = 0.2f) else JarvisSurfaceHighlight
+                                    ) {
+                                        Text(
+                                            text = if (isHotwordEnabled) "AKTIF" else "OFF",
+                                            color = if (isHotwordEnabled) JarvisEmerald else JarvisTextSecondary,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "Asisten Suara Latar Belakang & HUD Melayang",
+                                    color = JarvisTextSecondary,
+                                    fontSize = 10.5.sp
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isHotwordEnabled,
+                            onCheckedChange = { enable ->
+                                if (enable) {
+                                    val hasAudio = ContextCompat.checkSelfPermission(
+                                        context,
+                                        Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    if (!hasAudio) {
+                                        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    } else {
+                                        viewModel.setHotwordEnabled(context, true)
+                                        Toast.makeText(context, "Asisten Suara 'Jarvis' aktif di latar belakang!", Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    viewModel.setHotwordEnabled(context, false)
+                                    Toast.makeText(context, "Asisten Suara 'Jarvis' dinonaktifkan", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = JarvisCyan,
+                                checkedTrackColor = JarvisCyan.copy(alpha = 0.3f),
+                                uncheckedThumbColor = JarvisTextSecondary,
+                                uncheckedTrackColor = JarvisSurfaceHighlight
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = JarvisBorder.copy(alpha = 0.4f))
+
+                    // Description
+                    Text(
+                        text = if (isHotwordEnabled)
+                            "JARVIS mendengarkan kata 'Jarvis [perintah]' di latar belakang tanpa perlu membuka aplikasi. Setiap respon dan tool otomatis ditampilkan melalui HUD melayang."
+                        else
+                            "Aktifkan sakelar di atas agar aplikasi mendeteksi kata 'Jarvis [perintah]' saat di latar belakang seperti Google AI Assistant.",
+                        color = JarvisTextPrimary.copy(alpha = 0.85f),
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp
+                    )
+
+                    // Overlay Status Check
+                    val canDrawOverlay = JarvisOverlayManager.canDrawOverlay(context)
+                    if (!canDrawOverlay) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = JarvisAmber.copy(alpha = 0.15f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Izin Tampilkan di Atas Aplikasi Lain",
+                                        color = JarvisAmber,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Diperlukan agar HUD futuristik JARVIS dapat muncul saat Anda membuka app lain.",
+                                        color = JarvisTextSecondary,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                                Button(
+                                    onClick = {
+                                        try {
+                                            val intent = Intent(
+                                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                Uri.parse("package:${context.packageName}")
+                                            )
+                                            context.startActivity(intent)
+                                        } catch (_: Exception) {
+                                            context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = JarvisAmber, contentColor = Color.Black),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text("Beri Izin", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else if (isHotwordEnabled) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = JarvisEmerald.copy(alpha = 0.12f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisEmerald.copy(alpha = 0.4f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = JarvisEmerald,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "HUD Jendela Melayang (Overlay) Siap & Aktif di Layar",
+                                    color = JarvisEmerald,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    // Test Action & Battery Optimization Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                if (!isHotwordEnabled) {
+                                    viewModel.setHotwordEnabled(context, true)
+                                }
+                                viewModel.testTriggerHotword()
+                                Toast.makeText(context, "Mendengarkan... Silakan katakan instruksi Anda!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1.2f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisCyan),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.6f)),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Tes Suara Langsung", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "Buka Pengaturan Baterai untuk mengizinkan aplikasi tetap berjalan", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTextSecondary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                            contentPadding = PaddingValues(vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.BatteryChargingFull, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Baterai Aktif", fontSize = 10.5.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // AI MODEL & CUSTOM ENDPOINT CONFIGURATION CARD
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("ai_endpoint_config_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = Brush.horizontalGradient(
+                        listOf(JarvisTeal.copy(alpha = 0.6f), JarvisCyan.copy(alpha = 0.4f))
+                    )
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                modifier = Modifier.size(36.dp),
+                                shape = CircleShape,
+                                color = JarvisTeal.copy(alpha = 0.15f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisTeal)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Tune,
+                                        contentDescription = "AI Config",
+                                        tint = JarvisTeal,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "AI MODEL & ENDPOINT",
+                                    color = JarvisTeal,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = "Provider: ${aiConfig.providerLabel}",
+                                    color = JarvisTextSecondary,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = { showAiConfigDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = JarvisTeal.copy(alpha = 0.2f), contentColor = JarvisTeal),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisTeal.copy(alpha = 0.7f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Atur API", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = JarvisSurfaceVariant.copy(alpha = 0.6f),
+                        border = androidx.compose.foundation.BorderStroke(0.8.dp, JarvisBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = "Active Model:", color = JarvisTextSecondary, fontSize = 10.5.sp)
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = JarvisCyan.copy(alpha = 0.15f),
+                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, JarvisCyan.copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        text = aiConfig.modelName,
+                                        color = JarvisCyan,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(text = "Endpoint URL:", color = JarvisTextSecondary, fontSize = 10.5.sp)
+                                Text(
+                                    text = if (aiConfig.baseUrl.length > 28) aiConfig.baseUrl.take(26) + "..." else aiConfig.baseUrl,
+                                    color = JarvisTextPrimary,
+                                    fontSize = 10.5.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // Status overview cards
         item {
             Card(
@@ -122,11 +495,18 @@ fun JarvisDashboardScreen(
 
                     // Screen Capture MediaProjection
                     ServiceRow(
-                        title = "MediaProjection Screenshot",
-                        subtitle = if (isMediaProjActive) "Screen capture session active" else "Optional (Fallback to API 30+ screenshot)",
+                        title = "Screen Share / Capture",
+                        subtitle = if (isMediaProjActive) "Sesi screen share aktif • Siap untuk visi AI & tangkapan layar" else if (isAccessConnected) "Klik Aktifkan (atau otomatis fallback ke Aksesibilitas)" else "Izin tangkapan layar untuk inspeksi visual & AI",
                         isActive = isMediaProjActive,
-                        actionLabel = if (isMediaProjActive) "Active" else "Grant",
-                        onAction = onRequestMediaProjection
+                        actionLabel = if (isMediaProjActive) "Stop" else "Aktifkan",
+                        onAction = {
+                            if (isMediaProjActive) {
+                                com.example.service.JarvisCompanionService.stopMediaProjection(context)
+                                Toast.makeText(context, "Screen Share dinonaktifkan", Toast.LENGTH_SHORT).show()
+                            } else {
+                                onRequestMediaProjection()
+                            }
+                        }
                     )
 
                     // Storage & Files Access
@@ -388,6 +768,17 @@ fun JarvisDashboardScreen(
             },
             containerColor = JarvisSurface,
             shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showAiConfigDialog) {
+        AiConfigDialog(
+            currentConfig = aiConfig,
+            onSave = { apiKey, baseUrl, modelName, provider ->
+                viewModel.updateAiConfig(apiKey, baseUrl, modelName, provider)
+                showAiConfigDialog = false
+            },
+            onDismiss = { showAiConfigDialog = false }
         )
     }
 }
