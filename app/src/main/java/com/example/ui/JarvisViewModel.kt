@@ -241,6 +241,15 @@ class JarvisViewModel : ViewModel() {
                 attachmentMimeType = attachmentMimeType,
                 onStatusUpdate = { status ->
                     _chatStatusText.value = status
+                    val context = com.example.JarvisApp.instance
+                    if (com.example.ui.JarvisOverlayManager.canDrawOverlay(context)) {
+                        com.example.ui.JarvisOverlayManager.show(context)
+                        if (status.contains("eksekusi", ignoreCase = true) || status.contains("tool", ignoreCase = true)) {
+                            com.example.ui.JarvisOverlayManager.onExecutingTool(status)
+                        } else {
+                            com.example.ui.JarvisOverlayManager.onThinking(status)
+                        }
+                    }
                 }
             )
 
@@ -260,6 +269,16 @@ class JarvisViewModel : ViewModel() {
             _isChatAiThinking.value = false
             _chatStatusText.value = ""
 
+            val appContext = com.example.JarvisApp.instance
+            if (com.example.ui.JarvisOverlayManager.canDrawOverlay(appContext)) {
+                com.example.ui.JarvisOverlayManager.onResult(
+                    command = displayPrompt,
+                    tool = response.actionToolName,
+                    resultStatus = response.actionResult?.status,
+                    replyText = response.replyText
+                )
+            }
+
             // Trigger Voice Mode or Auto-Read TTS if active
             com.example.service.JarvisVoiceManager.onAiReplyReceived(response.replyText)
         }
@@ -267,6 +286,8 @@ class JarvisViewModel : ViewModel() {
 
     fun stopAiExecution() {
         com.example.service.AiChatService.stopCurrentExecution()
+        com.example.service.JarvisHotwordManager.cancelCurrentAction()
+        com.example.ui.JarvisOverlayManager.cancelAction()
         _isChatAiThinking.value = false
         _chatStatusText.value = "Dihentikan oleh pengguna."
         val stoppedMsg = com.example.model.ChatMessage(

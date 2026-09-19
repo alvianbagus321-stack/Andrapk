@@ -36,6 +36,29 @@ object ScreenshotManager {
     private val _isMediaProjectionActive = MutableStateFlow(false)
     val isMediaProjectionActive = _isMediaProjectionActive.asStateFlow()
 
+    data class ScreenMetrics(
+        val widthPixels: Int,
+        val heightPixels: Int,
+        val densityDpi: Int,
+        val density: Float
+    )
+
+    fun getScreenMetrics(context: Context): ScreenMetrics {
+        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+            val windowMetrics = windowManager.currentWindowMetrics
+            val bounds = windowMetrics.bounds
+            val densityDpi = context.resources.configuration.densityDpi
+            val density = context.resources.displayMetrics.density
+            ScreenMetrics(bounds.width(), bounds.height(), densityDpi, density)
+        } else {
+            val metrics = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            windowManager.defaultDisplay.getRealMetrics(metrics)
+            ScreenMetrics(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi, metrics.density)
+        }
+    }
+
     fun setMediaProjection(context: Context, projection: MediaProjection) {
         release()
         mediaProjection = projection
@@ -55,22 +78,11 @@ object ScreenshotManager {
             Log.w(TAG, "Failed to register MediaProjection callback: ${e.message}")
         }
 
-        val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        val metrics = DisplayMetrics()
-        @Suppress("DEPRECATION")
-        windowManager.defaultDisplay.getRealMetrics(metrics)
-
-        // Scale down for fast transfer & lower memory consumption in base64
-        val maxDim = 1080
-        val scale = if (metrics.widthPixels > maxDim || metrics.heightPixels > maxDim) {
-            maxDim.toFloat() / maxOf(metrics.widthPixels, metrics.heightPixels)
-        } else {
-            1.0f
-        }
-
-        width = ((metrics.widthPixels * scale).toInt() / 2) * 2 // ensure even number
-        height = ((metrics.heightPixels * scale).toInt() / 2) * 2
-        densityDpi = (metrics.densityDpi * scale).toInt()
+        // Use EXACT native hardware display metrics for virtualDisplay to prevent SurfaceFlinger top-cropping
+        val metrics = getScreenMetrics(context)
+        width = metrics.widthPixels
+        height = metrics.heightPixels
+        densityDpi = metrics.densityDpi
 
         try {
             imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
@@ -85,7 +97,7 @@ object ScreenshotManager {
                 Handler(Looper.getMainLooper())
             )
             _isMediaProjectionActive.value = true
-            Log.i(TAG, "MediaProjection initialized: ${width}x${height} @ ${densityDpi}dpi")
+            Log.i(TAG, "MediaProjection initialized 100% full screen: ${width}x${height} @ ${densityDpi}dpi")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize MediaProjection virtual display: ${e.message}", e)
             release()
@@ -198,7 +210,20 @@ object ScreenshotManager {
 
     private fun bitmapToBase64(bitmap: Bitmap): String {
         val stream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 75, stream)
+        val maxDim = 1280
+        val scaledBitmap = if (bitmap.width > maxDim || bitmap.height > maxDim) {
+            val scale = maxDim.toFloat() / maxOf(bitmap.width, bitmap.height)
+            val targetW = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val targetH = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+        } else {
+            bitmap
+        }
+
+        scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+        if (scaledBitmap != bitmap) {
+            scaledBitmap.recycle()
+        }
         val byteArray = stream.toByteArray()
         return Base64.encodeToString(byteArray, Base64.NO_WRAP)
     }

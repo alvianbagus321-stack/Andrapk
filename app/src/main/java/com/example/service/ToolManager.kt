@@ -403,6 +403,18 @@ object ToolManager {
             isBuiltIn = true
         ),
         CustomTool(
+            id = "get_device_resolution",
+            name = "Cek Resolusi & Layar Perangkat",
+            description = "Mendapatkan dimensi resolusi layar (Width x Height px), kepadatan piksel (DPI), dan orientasi layar agar koordinat gesture/klik akurat 100%",
+            category = "Sistem & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "get_device_resolution",
+            parametersSchema = "{}",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
             id = "list_apps",
             name = "Daftar Aplikasi Terinstal",
             description = "Mengambil daftar aplikasi terinstal pada perangkat",
@@ -792,23 +804,52 @@ object ToolManager {
                         ToolResult("error", message = err ?: "Gagal mengambil screenshot.")
                     }
                 } else if (cmdLower in listOf("read_screen", "get_ui_tree", "dump_ui")) {
+                    val metrics = ScreenshotManager.getScreenMetrics(context)
                     val elements = service.getScreenElements()
                     val summary = elements.joinToString("\n") { el ->
                         "- [${el.id}] '${el.text.ifBlank { el.contentDescription }}' (${el.className}) @ (${el.bounds.centerX}, ${el.bounds.centerY})"
                     }
-                    ToolResult("ok", result = "📱 Elemen UI di Layar saat ini (${elements.size} elemen):\n$summary")
-                } else if (params.has("x") && params.has("y")) {
-                    service.tapCoordinates(params.getDouble("x").toFloat(), params.getDouble("y").toFloat())
+                    ToolResult("ok", result = "📱 Resolusi Layar: ${metrics.widthPixels}x${metrics.heightPixels} px (${metrics.densityDpi} dpi)\n📱 Elemen UI di Layar saat ini (${elements.size} elemen):\n$summary")
+                } else if (params.has("x") || params.has("y") || params.has("x_percent") || params.has("y_percent")) {
+                    val metrics = ScreenshotManager.getScreenMetrics(context)
+                    val screenW = metrics.widthPixels.toFloat()
+                    val screenH = metrics.heightPixels.toFloat()
+
+                    val targetX = when {
+                        params.has("x_percent") -> (params.getDouble("x_percent") / 100.0 * screenW).toFloat()
+                        params.has("x") -> {
+                            val rx = params.getDouble("x").toFloat()
+                            if (rx > 0.0f && rx <= 1.0f) rx * screenW else rx.coerceIn(0f, screenW)
+                        }
+                        else -> screenW / 2f
+                    }
+
+                    val targetY = when {
+                        params.has("y_percent") -> (params.getDouble("y_percent") / 100.0 * screenH).toFloat()
+                        params.has("y") -> {
+                            val ry = params.getDouble("y").toFloat()
+                            if (ry > 0.0f && ry <= 1.0f) ry * screenH else ry.coerceIn(0f, screenH)
+                        }
+                        else -> screenH / 2f
+                    }
+
+                    service.tapCoordinates(targetX, targetY)
                 } else if (params.has("text") || params.has("value")) {
                     val text = params.optString("text", params.optString("value", ""))
                     val elId = if (params.has("element_id") && !params.isNull("element_id")) params.getString("element_id") else null
                     service.typeText(elId, text)
-                } else if (params.has("x1") && params.has("y1")) {
+                } else if (params.has("x1") || params.has("y1")) {
+                    val metrics = ScreenshotManager.getScreenMetrics(context)
+                    val screenW = metrics.widthPixels.toFloat()
+                    val screenH = metrics.heightPixels.toFloat()
+
+                    val x1 = params.optDouble("x1", (screenW * 0.5).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenW else it }
+                    val y1 = params.optDouble("y1", (screenH * 0.8).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenH else it }
+                    val x2 = params.optDouble("x2", (screenW * 0.5).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenW else it }
+                    val y2 = params.optDouble("y2", (screenH * 0.2).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenH else it }
+
                     service.swipeCoordinates(
-                        params.optDouble("x1", 500.0).toFloat(),
-                        params.optDouble("y1", 1500.0).toFloat(),
-                        params.optDouble("x2", 500.0).toFloat(),
-                        params.optDouble("y2", 500.0).toFloat(),
+                        x1, y1, x2, y2,
                         params.optLong("duration_ms", 300L)
                     )
                 } else if (tool.command.equals("open_app", ignoreCase = true) || params.has("package_name") || params.has("app")) {
@@ -944,6 +985,14 @@ object ToolManager {
             "summarize_memory" -> {
                 val result = com.example.data.JarvisMemoryManager.checkAndAutoArchiveMemory()
                 ToolResult("ok", result = result)
+            }
+
+            "get_device_resolution", "device_resolution", "screen_resolution" -> {
+                val metrics = ScreenshotManager.getScreenMetrics(context)
+                ToolResult(
+                    status = "ok",
+                    result = "📱 Resolusi & Matriks Layar Perangkat:\n- Width: ${metrics.widthPixels} px\n- Height: ${metrics.heightPixels} px\n- Density: ${metrics.densityDpi} dpi (${metrics.density}x)\n- Orientasi: ${if (metrics.widthPixels < metrics.heightPixels) "PORTRAIT" else "LANDSCAPE"}"
+                )
             }
 
             "screenshot", "take_screenshot", "screencap" -> {

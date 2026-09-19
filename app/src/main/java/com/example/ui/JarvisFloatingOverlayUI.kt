@@ -92,6 +92,8 @@ fun JarvisFloatingOverlayUI(
         label = "counterRotation"
     )
 
+    var isExpandedView by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .wrapContentSize()
@@ -123,28 +125,39 @@ fun JarvisFloatingOverlayUI(
                 )
             }
 
-            OverlayUiMode.THINKING -> {
-                LiquidGlassThinkingCard(
-                    userCommand = userCommand,
-                    statusText = statusText,
-                    rotationAngle = rotationAngle,
-                    modelName = aiConfig.modelName,
-                    onMinimize = onDismiss,
-                    onClose = onCloseOverlay,
-                    onCancel = onCancel
-                )
-            }
-
-            OverlayUiMode.EXECUTING -> {
-                LiquidGlassExecutingCard(
-                    userCommand = userCommand,
-                    toolName = toolName ?: "Otomasi Perangkat",
-                    statusText = statusText,
-                    rotationAngle = rotationAngle,
-                    onMinimize = onDismiss,
-                    onClose = onCloseOverlay,
-                    onCancel = onCancel
-                )
+            OverlayUiMode.THINKING, OverlayUiMode.EXECUTING -> {
+                if (!isExpandedView) {
+                    CompactTaskOverlayCard(
+                        isExecuting = (uiMode == OverlayUiMode.EXECUTING),
+                        userCommand = userCommand,
+                        statusText = statusText,
+                        toolName = toolName,
+                        onCancel = onCancel,
+                        onExpand = { isExpandedView = true }
+                    )
+                } else {
+                    if (uiMode == OverlayUiMode.THINKING) {
+                        LiquidGlassThinkingCard(
+                            userCommand = userCommand,
+                            statusText = statusText,
+                            rotationAngle = rotationAngle,
+                            modelName = aiConfig.modelName,
+                            onMinimize = { isExpandedView = false },
+                            onClose = onCloseOverlay,
+                            onCancel = onCancel
+                        )
+                    } else {
+                        LiquidGlassExecutingCard(
+                            userCommand = userCommand,
+                            toolName = toolName ?: "Otomasi Perangkat",
+                            statusText = statusText,
+                            rotationAngle = rotationAngle,
+                            onMinimize = { isExpandedView = false },
+                            onClose = onCloseOverlay,
+                            onCancel = onCancel
+                        )
+                    }
+                }
             }
 
             OverlayUiMode.RESULT -> {
@@ -958,6 +971,150 @@ private fun LiquidGlassResultCard(
                 Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Buka App", modifier = Modifier.size(15.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("Buka App", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+/**
+ * Compact Floating Task Overlay Pill/Bar:
+ * Displays active AI task cleanly on top of other apps (like WA, Chrome, etc.)
+ * with a prominent RED STOP button to halt execution instantly.
+ */
+@Composable
+private fun CompactTaskOverlayCard(
+    isExecuting: Boolean,
+    userCommand: String,
+    statusText: String,
+    toolName: String?,
+    onCancel: () -> Unit,
+    onExpand: () -> Unit
+) {
+    val themeColor = if (isExecuting) JarvisAmber else JarvisCyan
+    val titleText = if (isExecuting) "⚡ AI EXECUTING" else "🧠 AI THINKING"
+    
+    val subtitleText = when {
+        !toolName.isNullOrBlank() -> "Tool: $toolName"
+        statusText.isNotBlank() -> statusText
+        userCommand.isNotBlank() -> userCommand
+        else -> "Memproses..."
+    }
+
+    Surface(
+        modifier = Modifier
+            .widthIn(min = 260.dp, max = 310.dp)
+            .shadow(16.dp, RoundedCornerShape(22.dp), ambientColor = themeColor, spotColor = themeColor)
+            .clip(RoundedCornerShape(22.dp))
+            .testTag("jarvis_overlay_compact_task"),
+        shape = RoundedCornerShape(22.dp),
+        color = Color(0xF209101F),
+        border = BorderStroke(
+            1.2.dp,
+            Brush.horizontalGradient(
+                listOf(
+                    themeColor.copy(alpha = 0.9f),
+                    JarvisTeal.copy(alpha = 0.5f),
+                    themeColor.copy(alpha = 0.8f)
+                )
+            )
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 10.dp, vertical = 7.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Left: Icon + Text Column (tap to expand details)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { onExpand() }
+            ) {
+                Surface(
+                    modifier = Modifier.size(28.dp),
+                    shape = CircleShape,
+                    color = themeColor.copy(alpha = 0.2f),
+                    border = BorderStroke(1.dp, themeColor)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (isExecuting) {
+                            Icon(
+                                imageVector = Icons.Default.Bolt,
+                                contentDescription = null,
+                                tint = themeColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = themeColor,
+                                strokeWidth = 1.8.dp
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = titleText,
+                            color = themeColor,
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Black,
+                            letterSpacing = 0.8.sp
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.UnfoldMore,
+                            contentDescription = "Expand",
+                            tint = JarvisTextSecondary.copy(alpha = 0.6f),
+                            modifier = Modifier.size(11.dp)
+                        )
+                    }
+                    Text(
+                        text = subtitleText,
+                        color = JarvisTextPrimary,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            // Right: Prominent Red STOP Button
+            Button(
+                onClick = onCancel,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFDC2626),
+                    contentColor = Color.White
+                ),
+                contentPadding = PaddingValues(horizontal = 9.dp, vertical = 2.dp),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .height(30.dp)
+                    .testTag("stop_task_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Stop,
+                    contentDescription = "Hentikan AI",
+                    tint = Color.White,
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(modifier = Modifier.width(3.dp))
+                Text(
+                    text = "STOP",
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
             }
         }
     }

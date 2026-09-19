@@ -89,10 +89,26 @@ object AiChatService {
         }
         val currentPermissionMode = ToolManager.permissionMode.value
 
+        val context = com.example.JarvisApp.instance
+        val metrics = com.example.service.ScreenshotManager.getScreenMetrics(context)
+        val displayResolutionGuide = """
+            📱 DIMENSI & RESOLUSI LAYAR PERANGKAT (ACCESSIBILITY RESOLUTION GUIDE):
+            - Lebar Layar (Width): ${metrics.widthPixels} px
+            - Tinggi Layar (Height): ${metrics.heightPixels} px
+            - Kepadatan (Density): ${metrics.densityDpi} dpi (${metrics.density}x)
+            - PENTING UNTUK TAP/GESTURE AGAR KETUKAN AKURAT & TIDAK MISS:
+              • Selalu pastikan koordinat x ada di kisaran 0..${metrics.widthPixels} px dan y di kisaran 0..${metrics.heightPixels} px.
+              • Kamu bisa gunakan persentase: {"x_percent": 50, "y_percent": 50} untuk posisi tengah layar.
+              • Kamu bisa gunakan rasio desimal: {"x": 0.5, "y": 0.5}.
+              • Atau sebutkan element_id / teks tombol: {"element_id": "com.whatsapp:id/send"} atau {"element_id": "Kirim"}.
+        """.trimIndent()
+
         // Construct System Instructions for Autonomous Agent Loop & ReAct Step Execution
         val systemInstruction = """
             Kamu adalah JARVIS-HP, AI Agent otonom tingkat lanjut yang mengendalikan smartphone Android secara langsung melalui Shizuku, Termux, Android Intent, Shell, dan Accessibility Service.
             Mode Izin Keamanan saat ini: ${currentPermissionMode.name}.
+
+            $displayResolutionGuide
             
             PENTING (AKSES SISTEM & TOOLS):
             1. Kamu memiliki AKSES PENUH ke sistem smartphone Android melalui Shizuku, Termux, ADB, dan Accessibility.
@@ -160,7 +176,6 @@ object AiChatService {
 
         // Process file / image attachment if provided
         var imageBase64: String? = null
-        val context = com.example.JarvisApp.instance
         if (!attachmentUri.isNullOrEmpty()) {
             if (attachmentMimeType?.startsWith("image/") == true) {
                 imageBase64 = readUriAsBase64(context, attachmentUri)
