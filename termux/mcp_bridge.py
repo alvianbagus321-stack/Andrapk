@@ -33,6 +33,11 @@ BRIDGE_PORT = 9000
 SCOPE = "mcp:tools"
 MAX_TEXT = 8000
 
+# Mode autentikasi /mcp:
+#   False = TANPA auth (pilih "No authentication" di ChatGPT) — untuk testing pribadi.
+#   True  = wajib OAuth (halaman izin app) — lebih aman untuk pemakaian tetap.
+REQUIRE_OAUTH = False
+
 TOOLS = [
     {
         "name": "open_app",
@@ -294,9 +299,9 @@ class Handler(BaseHTTPRequestHandler):
             self._reply(404, {"error": "Endpoint tidak dikenal"})
             return
 
-        # ---- /mcp: wajib OAuth token valid (diverifikasi ke app) ----
+        # ---- /mcp: auth hanya bila REQUIRE_OAUTH aktif ----
         auth = self.headers.get("Authorization")
-        if not is_valid_oauth_token(auth):
+        if REQUIRE_OAUTH and not is_valid_oauth_token(auth):
             base = self._base_url()
             self._reply(401, {"jsonrpc": "2.0", "id": None, "error": {"code": -32001, "message": "Unauthorized: OAuth required"}},
                         extra={"WWW-Authenticate": f'Bearer resource_metadata="{base}/.well-known/oauth-protected-resource/mcp"'})
@@ -330,10 +335,11 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print("=" * 52)
-    print("🌉 Andra MCP Bridge v2 (dengan discovery OAuth)")
+    print("🌉 Andra MCP Bridge v2 (discovery OAuth + mode tanpa auth)")
     print(f"   App target : {APP_BASE}")
     print(f"   Bridge     : http://127.0.0.1:{BRIDGE_PORT}/mcp")
     print(f"   Tunnel     : cloudflared tunnel --url http://127.0.0.1:{BRIDGE_PORT}")
+    print(f"   Auth mode  : {'OAUTH (wajib)' if REQUIRE_OAUTH else 'TANPA AUTH (testing)'}")
     print("=" * 52)
 
     print("🔍 Self-test koneksi ke app...")
