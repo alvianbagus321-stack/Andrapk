@@ -690,7 +690,8 @@ object AiChatService {
         return actions
     }
 
-    private suspend fun executeActionLocally(toolName: String, params: JSONObject): ToolResult {
+    /** Eksekusi tool oleh client eksternal/MCP (publik, melewati semua pemeriksaan keamanan yang sama). */
+    suspend fun executeActionLocally(toolName: String, params: JSONObject): ToolResult {
         val lower = toolName.lowercase().trim()
 
         // 1. Check if tool is enabled

@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.model.ServerLogItem
+import com.example.ui.components.StatusPill
 import com.example.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -56,6 +57,7 @@ fun JarvisDashboardScreen(
     val logs by viewModel.serverLogs.collectAsState()
 
     val isHotwordEnabled by viewModel.isHotwordEnabled.collectAsState()
+    val networkExposed by viewModel.networkExposed.collectAsState()
     val isHotwordListening by viewModel.isHotwordListeningActive.collectAsState()
     val isOverlayVisible by viewModel.isOverlayVisible.collectAsState()
     val aiConfig by viewModel.aiConfig.collectAsState()
@@ -625,6 +627,202 @@ fun JarvisDashboardScreen(
                             Text("Copy", fontSize = 12.sp)
                         }
                     }
+                }
+            }
+        }
+
+        // AI EKSTERNAL (MCP) CARD
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("mcp_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = Brush.horizontalGradient(
+                        listOf(AuroraViolet.copy(alpha = 0.5f), JarvisCyan.copy(alpha = 0.4f))
+                    )
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                modifier = Modifier.size(36.dp),
+                                shape = CircleShape,
+                                color = AuroraViolet.copy(alpha = 0.15f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AuroraViolet)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Extension,
+                                        contentDescription = "MCP",
+                                        tint = AuroraViolet,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "AI EKSTERNAL (MCP)",
+                                    color = AuroraViolet,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = "Hubungkan ChatGPT / Claude / Cursor ke tools HP ini",
+                                    color = JarvisTextSecondary,
+                                    fontSize = 10.5.sp
+                                )
+                            }
+                        }
+                        StatusPill(
+                            text = if (isServerRunning) "SIAP" else "SERVER MATI",
+                            active = isServerRunning
+                        )
+                    }
+
+                    // Endpoint row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(JarvisSurfaceVariant)
+                            .border(1.dp, JarvisBorder, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("MCP ENDPOINT", color = JarvisTextSecondary, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "http://127.0.0.1:$port/mcp",
+                                color = JarvisCyan,
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                copyToClipboard(context, "MCP Endpoint", "http://127.0.0.1:$port/mcp")
+                                Toast.makeText(context, "Endpoint MCP dicopy!", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan.copy(alpha = 0.2f), contentColor = JarvisCyan),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(6.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Copy", fontSize = 11.sp)
+                        }
+                    }
+
+                    // Config JSON untuk klien MCP (Claude / Cursor / Cline, dll)
+                    val mcpConfigJson = """
+                        {
+                          "mcpServers": {
+                            "andra-control": {
+                              "url": "http://127.0.0.1:$port/mcp",
+                              "headers": { "X-Local-Token": "$token" }
+                            }
+                          }
+                        }
+                    """.trimIndent().replace("  ", "  ")
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                copyToClipboard(context, "MCP Config", mcpConfigJson)
+                                Toast.makeText(context, "Config MCP dicopy — paste ke client AI kamu", Toast.LENGTH_LONG).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = AuroraViolet.copy(alpha = 0.18f), contentColor = AuroraViolet),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, AuroraViolet.copy(alpha = 0.6f)),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Salin Config MCP", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                copyToClipboard(
+                                    context,
+                                    "Panduan MCP",
+                                    "1) Aktifkan server & 'Akses dari Jaringan' di kartu ini.\n" +
+                                        "2) Untuk AI lokal / di jaringan sama: daftarkan URL http://<IP-HP>:$port/mcp dengan header X-Local-Token: $token\n" +
+                                        "3) Untuk ChatGPT / Claude (cloud): buat tunnel HTTPS ke port $port (mis. cloudflared tunnel --url http://127.0.0.1:$port di Termux), lalu daftarkan URL tunnel + /mcp sebagai custom connector/app MCP di pengaturan AI.\n" +
+                                        "4) Tools list akan otomatis terbaca oleh AI: buka app, tap, swipe, shell, termux, decode gambar, dll."
+                                )
+                                Toast.makeText(context, "Panduan koneksi dicopy!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTextSecondary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Panduan", fontSize = 11.sp)
+                        }
+                    }
+
+                    HorizontalDivider(color = JarvisBorder.copy(alpha = 0.4f))
+
+                    // Toggle ekspos jaringan
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Akses dari Jaringan (0.0.0.0)",
+                                color = JarvisTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                if (networkExposed)
+                                    "Server dapat dijangkau LAN / tunnel — MATIKAN bila tidak dipakai (aman = 127.0.0.1 saja)"
+                                else
+                                    "Aman: hanya aplikasi di HP ini (127.0.0.1) yang bisa mengakses",
+                                color = JarvisTextSecondary,
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+                        Switch(
+                            checked = networkExposed,
+                            onCheckedChange = { enable ->
+                                viewModel.setNetworkExposed(enable)
+                                Toast.makeText(
+                                    context,
+                                    if (enable) "Server dibuka ke jaringan (restart otomatis)" else "Server kembali lokal-only (aman)",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = JarvisBackground,
+                                checkedTrackColor = JarvisAmber,
+                                uncheckedThumbColor = JarvisTextSecondary,
+                                uncheckedTrackColor = JarvisSurfaceHighlight
+                            )
+                        )
+                    }
+
+                    Text(
+                        text = "Protokol: MCP Streamable HTTP (JSON-RPC). Autentikasi: header X-Local-Token / Authorization Bearer / ?token=",
+                        color = JarvisTextSecondary.copy(alpha = 0.75f),
+                        fontSize = 9.5.sp,
+                        lineHeight = 13.sp
+                    )
                 }
             }
         }

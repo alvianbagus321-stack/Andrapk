@@ -54,6 +54,7 @@ class JarvisHttpServer(
     private val context: Context,
     val port: Int = 8765,
     var token: String = "jarvis-token-8765",
+    private val bindAllInterfaces: Boolean = false,
     private val onLog: (ServerLogItem) -> Unit
 ) {
 
@@ -79,8 +80,10 @@ class JarvisHttpServer(
         if (serverSocket != null && !serverSocket!!.isClosed) return true
 
         return try {
-            // Strict security: Bind strictly to 127.0.0.1 (localhost loopback) only!
-            val bindAddr = InetAddress.getByName("127.0.0.1")
+            // Default strict security: bind 127.0.0.1 (localhost loopback) only.
+            // bindAllInterfaces = true HANYA jika pengguna mengaktifkan ekspos jaringan
+            // (untuk tunnel HTTPS / akses LAN oleh AI eksternal via MCP).
+            val bindAddr = InetAddress.getByName(if (bindAllInterfaces) "0.0.0.0" else "127.0.0.1")
             val s = ServerSocket(port, 50, bindAddr)
             serverSocket = s
             _isRunning.value = true
@@ -236,6 +239,12 @@ class JarvisHttpServer(
         val method = req.method
         val clientIp = req.clientIp
 
+        // CORS preflight: balas sebelum auth (preflight tidak membawa token)
+        if (method == "OPTIONS") {
+            sendResponse(output, 204, "", "text/plain", method, path, clientIp, "CORS preflight OK")
+            return
+        }
+
         // Public setup scripts and Termux scripts can be fetched directly from localhost
         if (path == "/setup.sh") {
             val script = TermuxScripts.getSetupScript(token, port)
@@ -248,8 +257,11 @@ class JarvisHttpServer(
             return
         }
 
-        // Check authentication token
-        val authHeader = req.headers["x-local-token"]
+        // Check authentication token - MCP juga menerima standar Authorization: Bearer <token>
+        val bearer = req.headers["authorization"]?.takeIf {
+            it.startsWith("Bearer ", ignoreCase = true)
+        }?.substring(7)?.trim()
+        val authHeader = req.headers["x-local-token"] ?: bearer
         val queryToken = extractQueryParam(req.query, "token")
         val isAuthorized = authHeader == token || queryToken == token
 
@@ -265,6 +277,23 @@ class JarvisHttpServer(
         }
 
         val requestBody = req.body
+
+        // ===== MCP (Model Context Protocol) endpoint: /mcp =====
+        if (path == "/mcp") {
+            when (method) {
+                "POST" -> {
+                    val (status, body) = McpServer.handleRequest(requestBody)
+                    // Notifikasi JSON-RPC -> 202 Accepted (body kosong); lainnya respons penuh
+                    sendResponse(output, status, body ?: "", "application/json", method, path, clientIp, "MCP request -> $status")
+                }
+                else -> {
+                    // Streamable HTTP: GET (SSE stream) & DELETE (session) tidak ditawarkan server stateless ini
+                    val err = errorJson(ErrorCodes.INVALID_ARGUMENTS, "MCP server ini stateless: hanya POST /mcp yang didukung (metode $method tidak tersedia)", false)
+                    sendResponse(output, 405, err, "application/json", method, path, clientIp, "MCP 405 method not allowed", true)
+                }
+            }
+            return
+        }
 
         try {
             when {
@@ -693,9 +722,12 @@ class JarvisHttpServer(
             val bytes = body.toByteArray(Charsets.UTF_8)
             val statusText = when (statusCode) {
                 200 -> "OK"
+                202 -> "Accepted"
+                204 -> "No Content"
                 400 -> "Bad Request"
                 401 -> "Unauthorized"
                 404 -> "Not Found"
+                405 -> "Method Not Allowed"
                 500 -> "Internal Server Error"
                 503 -> "Service Unavailable"
                 else -> "Response"
@@ -706,6 +738,8 @@ class JarvisHttpServer(
             headerBuilder.append("Content-Type: ").append(contentType).append("; charset=utf-8\r\n")
             headerBuilder.append("Content-Length: ").append(bytes.size).append("\r\n")
             headerBuilder.append("Access-Control-Allow-Origin: *\r\n")
+            headerBuilder.append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
+            headerBuilder.append("Access-Control-Allow-Headers: Content-Type, X-Local-Token, Authorization, MCP-Protocol-Version, Mcp-Session-Id\r\n")
             headerBuilder.append("Connection: close\r\n")
             headerBuilder.append("\r\n")
 

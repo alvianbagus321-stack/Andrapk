@@ -26,6 +26,7 @@ class JarvisViewModel : ViewModel() {
     val telemetry: StateFlow<SystemTelemetry> = repository.telemetry
     val serverLogs: StateFlow<List<ServerLogItem>> = repository.serverLogs
     val inspectedElements: StateFlow<List<UiElementInfo>> = repository.inspectedElements
+    val networkExposed: StateFlow<Boolean> = repository.networkExposed
 
     private val _lastActionResult = MutableStateFlow<String?>(null)
     val lastActionResult = _lastActionResult.asStateFlow()
@@ -43,6 +44,11 @@ class JarvisViewModel : ViewModel() {
 
     fun clearLogs() {
         repository.clearLogs()
+    }
+
+    /** Toggle bind 0.0.0.0 agar AI eksternal (MCP via tunnel/LAN) dapat menjangkau server. */
+    fun setNetworkExposed(enabled: Boolean) {
+        repository.setNetworkExposed(enabled)
     }
 
     fun inspectScreen() {
