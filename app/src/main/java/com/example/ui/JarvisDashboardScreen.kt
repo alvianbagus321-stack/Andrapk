@@ -19,6 +19,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -63,6 +65,7 @@ fun JarvisDashboardScreen(
     val aiConfig by viewModel.aiConfig.collectAsState()
 
     var showAiConfigDialog by remember { mutableStateOf(false) }
+    var showMcpHelpDialog by remember { mutableStateOf(false) }
     var selectedLog by remember { mutableStateOf<ServerLogItem?>(null) }
 
     val micLauncher = rememberLauncherForActivityResult(
@@ -687,6 +690,17 @@ fun JarvisDashboardScreen(
                             text = if (isServerRunning) "SIAP" else "SERVER MATI",
                             active = isServerRunning
                         )
+                        IconButton(
+                            onClick = { showMcpHelpDialog = true },
+                            modifier = Modifier.size(30.dp).testTag("mcp_help_button")
+                        ) {
+                            Icon(
+                                Icons.Default.HelpOutline,
+                                contentDescription = "Panduan koneksi MCP",
+                                tint = JarvisTextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
 
                     // Endpoint row
@@ -960,6 +974,56 @@ fun JarvisDashboardScreen(
         )
     }
 
+    if (showMcpHelpDialog) {
+        AlertDialog(
+            onDismissRequest = { showMcpHelpDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.HelpOutline, contentDescription = null, tint = AuroraViolet, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Panduan Koneksi MCP", color = JarvisTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Hubungkan AI eksternal (ChatGPT, Claude, Cursor, dll) ke tools di HP ini via protokol MCP. Pilih mode sesuai letak AI-nya:",
+                        color = JarvisTextPrimary.copy(alpha = 0.85f),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+
+                    HelpStep("1", "Nyalakan Server", "Aktifkan sakelar di pojok kanan atas hingga status ONLINE / SIAP.")
+
+                    HelpStep("2", "Mode A — AI di HP yang sama", "Pakai endpoint: http://127.0.0.1:8765/mcp dengan header X-Local-Token (tombol 'Salin Config MCP' di kartu ini). Cocok untuk agent Termux atau aplikasi di perangkat yang sama.")
+
+                    HelpStep("3", "Mode B — Perangkat lain di WiFi yang sama", "Aktifkan 'Akses dari Jaringan' di kartu ini, lalu daftarkan URL http://<IP-HP>:8765/mcp di AI kamu. Cek IP HP di Pengaturan > Wi-Fi. Catatan: tambahkan http:// URL ini hanya untuk client yang mendukung HTTP lokal (bukan ChatGPT cloud).")
+
+                    HelpStep("4", "Mode C — ChatGPT / Claude (CLOUD)", "Karena AI-nya di internet, HP perlu tunnel:\n\n• Install di Termux: pkg install cloudflared\n• Jalankan: cloudflared tunnel --url http://127.0.0.1:8765\n• Salin URL https://xxxx.trycloudflare.com yang muncul\n• Di ChatGPT: Pengaturan > Connector > Tambah - tempel URL + '/mcp'\n• Saat menghubungkan, akan muncul HALAMAN IZIN (OAuth) dari aplikasi ini - tekan IZINKAN. Selesai! ChatGPT kini bisa memanggil tools HP kamu.\n\nAlternatif tunnel: Tailscale Funnel, ngrok (ngrok http 8765).")
+
+                    HelpStep("5", "Keamanan", "Token & OAuth adalah kunci masuk ke HP kamu. Matikan 'Akses dari Jaringan' saat tidak dipakai, dan segera regenerate token jika kecurigaan. Izin OAuth berlaku 24 jam lalu harus disetujui ulang.")
+
+                    Text(
+                        "Lisensi protokol: MCP Streamable HTTP + OAuth 2.0 (PKCE S256) + Dynamic Client Registration - kompatibel dengan spesifikasi resmi modelcontextprotocol.io",
+                        color = JarvisTextSecondary.copy(alpha = 0.7f),
+                        fontSize = 9.5.sp,
+                        lineHeight = 13.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMcpHelpDialog = false }) {
+                    Text("Mengerti", color = JarvisCyan, fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = JarvisSurface,
+            shape = RoundedCornerShape(18.dp)
+        )
+    }
+
     if (showAiConfigDialog) {
         AiConfigDialog(
             currentConfig = aiConfig,
@@ -1115,6 +1179,38 @@ fun LogItemRow(logItem: ServerLogItem, onClick: () -> Unit) {
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(timeStr, color = JarvisTextSecondary, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HelpStep(number: String, title: String, detail: String) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = JarvisSurfaceVariant.copy(alpha = 0.45f),
+        border = androidx.compose.foundation.BorderStroke(0.8.dp, JarvisBorder.copy(alpha = 0.6f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(modifier = Modifier.padding(10.dp)) {
+            Surface(
+                shape = CircleShape,
+                color = AuroraViolet.copy(alpha = 0.18f),
+                modifier = Modifier.size(22.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(number, color = AuroraViolet, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(title, color = JarvisTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    detail,
+                    color = JarvisTextSecondary,
+                    fontSize = 10.5.sp,
+                    lineHeight = 15.sp
+                )
             }
         }
     }

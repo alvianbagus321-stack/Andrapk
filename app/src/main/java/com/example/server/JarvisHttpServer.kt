@@ -257,13 +257,50 @@ class JarvisHttpServer(
             return
         }
 
+        val requestBody = req.body
+
+        // ===== OAuth 2.0 Authorization Server (PUBLIK — dipakai klien MCP: ChatGPT, Claude, dll) =====
+        if (path == "/.well-known/oauth-authorization-server" && method == "GET") {
+            val host = req.headers["host"] ?: "127.0.0.1:$port"
+            sendResponse(output, 200, OAuthManager.metadata(host).toString(), "application/json", method, path, clientIp, "OAuth metadata")
+            return
+        }
+        if (path == "/oauth/register" && method == "POST") {
+            val (status, respBody) = OAuthManager.registerClient(requestBody)
+            sendResponse(output, status, respBody.toString(), "application/json", method, path, clientIp, "OAuth client registration")
+            return
+        }
+        if (path == "/oauth/authorize" && method == "GET") {
+            val (status, content) = OAuthManager.createAuthorizePage(req.query)
+            val body = if (content is String) content else content.toString()
+            sendResponse(output, status, body, "text/html; charset=utf-8", method, path, clientIp, "OAuth approval page")
+            return
+        }
+        if (path == "/oauth/authorize/decision" && method == "GET") {
+            val reqId = extractQueryParam(req.query, "req")
+            val decision = extractQueryParam(req.query, "decision") ?: ""
+            val (status, target, isRedirect) = OAuthManager.decideAuthorization(reqId, decision == "allow")
+            if (isRedirect) {
+                sendRedirect(output, status, target, method, path, clientIp, "OAuth decision: $decision")
+            } else {
+                sendResponse(output, status, target, "text/html; charset=utf-8", method, path, clientIp, "OAuth decision error", true)
+            }
+            return
+        }
+        if (path == "/oauth/token" && method == "POST") {
+            val (status, respBody) = OAuthManager.exchangeToken(requestBody)
+            sendResponse(output, status, respBody.toString(), "application/json", method, path, clientIp, "OAuth token exchange")
+            return
+        }
+
         // Check authentication token - MCP juga menerima standar Authorization: Bearer <token>
         val bearer = req.headers["authorization"]?.takeIf {
             it.startsWith("Bearer ", ignoreCase = true)
         }?.substring(7)?.trim()
         val authHeader = req.headers["x-local-token"] ?: bearer
         val queryToken = extractQueryParam(req.query, "token")
-        val isAuthorized = authHeader == token || queryToken == token
+        val isAuthorized = authHeader == token || queryToken == token ||
+            (bearer != null && OAuthManager.isValidAccessToken(bearer))
 
         if (!isAuthorized) {
             val errJson = JSONObject().apply {
@@ -275,8 +312,6 @@ class JarvisHttpServer(
             sendResponse(output, 401, errJson, "application/json", method, path, clientIp, "401 Unauthorized", true)
             return
         }
-
-        val requestBody = req.body
 
         // ===== MCP (Model Context Protocol) endpoint: /mcp =====
         if (path == "/mcp") {
@@ -760,6 +795,41 @@ class JarvisHttpServer(
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error writing HTTP response", e)
+        }
+    }
+
+    private fun sendRedirect(
+        output: OutputStream,
+        statusCode: Int,
+        location: String,
+        method: String,
+        path: String,
+        clientIp: String,
+        summary: String
+    ) {
+        try {
+            val statusText = if (statusCode == 302) "Found" else "Redirect"
+            val header = StringBuilder()
+                .append("HTTP/1.1 ").append(statusCode).append(" ").append(statusText).append("\r\n")
+                .append("Location: ").append(location).append("\r\n")
+                .append("Content-Length: 0\r\n")
+                .append("Connection: close\r\n")
+                .append("\r\n")
+            output.write(header.toString().toByteArray(Charsets.UTF_8))
+            output.flush()
+            onLog(
+                ServerLogItem(
+                    method = method,
+                    path = path,
+                    statusCode = statusCode,
+                    clientIp = clientIp,
+                    summary = summary,
+                    isError = false,
+                    payloadPreview = location.take(200)
+                )
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing redirect response", e)
         }
     }
 

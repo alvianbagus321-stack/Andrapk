@@ -154,6 +154,16 @@ object AiConfigManager {
             description = "Model GPT-4o Mini standar OpenAI."
         ),
         AiPreset(
+            id = "qwen3_4b_local",
+            providerName = "Lokal (Termux)",
+            displayName = "Qwen3 4B (Offline di HP)",
+            baseUrl = "http://127.0.0.1:8080/v1",
+            defaultModel = "qwen3-4b",
+            isGeminiNative = false,
+            apiKeyPlaceholder = "kosongkan (lokal)",
+            description = "Qwen3 4B GGUF berjalan 100% offline di HP via llama-server (Termux). Tanpa API key, tanpa internet. Lihat panduan di tombol (?) kartu MCP."
+        ),
+        AiPreset(
             id = "custom_openai",
             providerName = "Custom / Self-Hosted",
             displayName = "Custom Endpoint Lainnya",
@@ -165,7 +175,13 @@ object AiConfigManager {
         )
     )
 
+    private const val KEY_CUSTOM_MODELS = "key_custom_models"
+
     private var prefs: SharedPreferences? = null
+
+    // ===== Model impor milik pengguna (Qwen, Llama GGUF, vLLM, apapun) =====
+    private val _customModels = MutableStateFlow<List<AiPreset>>(emptyList())
+    val customModels: StateFlow<List<AiPreset>> = _customModels.asStateFlow()
 
     private val _config = MutableStateFlow(
         AiConfig(
@@ -181,6 +197,87 @@ object AiConfigManager {
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             loadConfig()
+            loadCustomModels()
+        }
+    }
+
+    /** Semua pilihan model: preset bawaan + model impor milik pengguna. */
+    fun allModels(): List<AiPreset> = PRESETS + _customModels.value
+
+    /**
+     * Impor model LLM sendiri (mis. Qwen3 4B via llama.cpp/vLLM/Ollama lokal,
+     * atau endpoint OpenAI-compatible apa pun) dan simpan permanen.
+     */
+    fun addCustomModel(
+        displayName: String,
+        baseUrl: String,
+        modelId: String,
+        providerLabel: String = "Model Saya"
+    ): AiPreset {
+        val cleanUrl = baseUrl.trim().removeSuffix("/")
+        val preset = AiPreset(
+            id = "user_" + System.currentTimeMillis(),
+            providerName = providerLabel.trim().ifBlank { "Model Saya" },
+            displayName = displayName.trim().ifBlank { modelId.trim() },
+            baseUrl = cleanUrl,
+            defaultModel = modelId.trim(),
+            isGeminiNative = isGeminiEndpoint(cleanUrl),
+            apiKeyPlaceholder = "API key (opsional)",
+            description = "Model impor kustom: $modelId di $cleanUrl"
+        )
+        val updated = _customModels.value + preset
+        _customModels.value = updated
+        persistCustomModels(updated)
+        Log.i(TAG, "Custom model ditambahkan: ${preset.displayName} (${preset.id})")
+        return preset
+    }
+
+    fun removeCustomModel(id: String) {
+        val updated = _customModels.value.filterNot { it.id == id }
+        _customModels.value = updated
+        persistCustomModels(updated)
+    }
+
+    private fun persistCustomModels(list: List<AiPreset>) {
+        val arr = JSONArray()
+        list.forEach { p ->
+            arr.put(JSONObject().apply {
+                put("id", p.id)
+                put("providerName", p.providerName)
+                put("displayName", p.displayName)
+                put("baseUrl", p.baseUrl)
+                put("defaultModel", p.defaultModel)
+                put("isGeminiNative", p.isGeminiNative)
+                put("apiKeyPlaceholder", p.apiKeyPlaceholder)
+                put("description", p.description)
+            })
+        }
+        prefs?.edit()?.putString(KEY_CUSTOM_MODELS, arr.toString())?.apply()
+    }
+
+    private fun loadCustomModels() {
+        val str = prefs?.getString(KEY_CUSTOM_MODELS, null) ?: return
+        try {
+            val arr = JSONArray(str)
+            val list = mutableListOf<AiPreset>()
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                list.add(
+                    AiPreset(
+                        id = o.optString("id"),
+                        providerName = o.optString("providerName", "Model Saya"),
+                        displayName = o.optString("displayName"),
+                        baseUrl = o.optString("baseUrl"),
+                        defaultModel = o.optString("defaultModel"),
+                        isGeminiNative = o.optBoolean("isGeminiNative", false),
+                        apiKeyPlaceholder = o.optString("apiKeyPlaceholder", "API key (opsional)"),
+                        description = o.optString("description")
+                    )
+                )
+            }
+            _customModels.value = list
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal memuat custom models: ${e.message}")
         }
     }
 

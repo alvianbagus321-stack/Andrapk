@@ -127,7 +127,7 @@ fun AiConfigDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(AiConfigManager.PRESETS) { preset ->
+                        items(AiConfigManager.allModels()) { preset ->
                             val isSelected = (baseUrl == preset.baseUrl && modelName == preset.defaultModel) || (selectedPresetId == preset.id)
                             Surface(
                                 shape = RoundedCornerShape(10.dp),
@@ -159,6 +159,161 @@ fun AiConfigDialog(
                                 }
                             }
                         }
+                    }
+                }
+
+                // ===== IMPORT MODEL LLM SENDIRI (Qwen3, GGUF, vLLM, dll) =====
+                var showImportForm by remember { mutableStateOf(false) }
+                var importName by remember { mutableStateOf("") }
+                var importUrl by remember { mutableStateOf("") }
+                var importModel by remember { mutableStateOf("") }
+                val customModels by AiConfigManager.customModels.collectAsState()
+
+                if (customModels.isNotEmpty()) {
+                    Text(
+                        text = "MODEL SAYA:",
+                        color = AuroraViolet,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    customModels.forEach { cm ->
+                        val isSelected = selectedPresetId == cm.id
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) AuroraViolet.copy(alpha = 0.15f) else JarvisSurfaceVariant.copy(alpha = 0.6f),
+                            border = BorderStroke(1.dp, if (isSelected) AuroraViolet else JarvisBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedPresetId = cm.id
+                                    baseUrl = cm.baseUrl
+                                    modelName = cm.defaultModel
+                                    testResult = null
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(cm.displayName, color = if (isSelected) AuroraViolet else JarvisTextPrimary, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        cm.defaultModel + "  •  " + cm.baseUrl,
+                                        color = JarvisTextSecondary,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        AiConfigManager.removeCustomModel(cm.id)
+                                        if (selectedPresetId == cm.id) selectedPresetId = null
+                                    },
+                                    modifier = Modifier.size(26.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Hapus model", tint = JarvisRed.copy(alpha = 0.8f), modifier = Modifier.size(15.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = { showImportForm = !showImportForm },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AuroraViolet),
+                    border = BorderStroke(1.dp, AuroraViolet.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        if (showImportForm) Icons.Default.ExpandLess else Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Import Model LLM Sendiri", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+
+                AnimatedVisibility(visible = showImportForm) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = importName,
+                            onValueChange = { importName = it },
+                            placeholder = { Text("Nama tampilan (mis. Qwen3 4B Lokal)", color = JarvisTextSecondary.copy(alpha = 0.5f), fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AuroraViolet,
+                                unfocusedBorderColor = JarvisBorder,
+                                focusedTextColor = JarvisTextPrimary,
+                                unfocusedTextColor = JarvisTextPrimary
+                            )
+                        )
+                        OutlinedTextField(
+                            value = importUrl,
+                            onValueChange = { importUrl = it },
+                            placeholder = { Text("Base URL (mis. http://127.0.0.1:8080/v1)", color = JarvisTextSecondary.copy(alpha = 0.5f), fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AuroraViolet,
+                                unfocusedBorderColor = JarvisBorder,
+                                focusedTextColor = JarvisTextPrimary,
+                                unfocusedTextColor = JarvisTextPrimary
+                            )
+                        )
+                        OutlinedTextField(
+                            value = importModel,
+                            onValueChange = { importModel = it },
+                            placeholder = { Text("Model ID (mis. qwen3-4b)", color = JarvisTextSecondary.copy(alpha = 0.5f), fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AuroraViolet,
+                                unfocusedBorderColor = JarvisBorder,
+                                focusedTextColor = JarvisTextPrimary,
+                                unfocusedTextColor = JarvisTextPrimary
+                            )
+                        )
+                        Button(
+                            onClick = {
+                                if (importUrl.isNotBlank() && importModel.isNotBlank()) {
+                                    val saved = AiConfigManager.addCustomModel(
+                                        displayName = importName,
+                                        baseUrl = importUrl,
+                                        modelId = importModel
+                                    )
+                                    selectedPresetId = saved.id
+                                    baseUrl = saved.baseUrl
+                                    modelName = saved.defaultModel
+                                    importName = ""
+                                    importUrl = ""
+                                    importModel = ""
+                                    showImportForm = false
+                                    testResult = null
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = importUrl.isNotBlank() && importModel.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = AuroraViolet,
+                                contentColor = Color(0xFF231433)
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Simpan & Gunakan Model", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                        Text(
+                            text = "Cocok untuk llama.cpp (llama-server), vLLM, Ollama, LM Studio, atau endpoint OpenAI-compatible apa pun — lokal di HP maupun di jaringan.",
+                            color = JarvisTextSecondary,
+                            fontSize = 9.5.sp,
+                            lineHeight = 13.sp
+                        )
                     }
                 }
 
