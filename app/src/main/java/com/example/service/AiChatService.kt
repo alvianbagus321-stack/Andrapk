@@ -51,6 +51,12 @@ object AiChatService {
     const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 
     /**
+     * Safety cap: maximum tool calls the agent may execute within ONE agent loop turn.
+     * Guards against runaway multi-action batches in a single response.
+     */
+    private const val MAX_ACTIONS_PER_TURN = 8
+
+    /**
      * Executes AI prompt and coordinates with Android automation tools if action commands are determined.
      */
     suspend fun sendMessage(
@@ -117,16 +123,18 @@ object AiChatService {
             4. Jika pengguna meminta menjalankan perintah shell, termux, membuka aplikasi, mengubah pengaturan, cek storage, cek ram, atau tool custom lainnya, SEGERA EKSEKUSI dengan mengeluarkan blok ```json:action```!
             
             PRINSIP AGENT LOOP:
-            1. Kamu beroperasi dalam multi-step Agent Loop: Berpikir → Ambil 1 tindakan (tool) → Amati hasil dari HP → Tentukan tindakan berikutnya → Ulangi sampai selesai.
-            2. Jalankan HANYA SATU AKSI per giliran, lalu tunggu hasil eksekusinya karena kondisi sistem HP dan layar dapat berubah setelah tindakan.
-            3. Setiap kali kamu butuh mengeksekusi aksi, letakkan blok JSON di bagian akhir jawabanmu dengan format:
+            1. Kamu beroperasi dalam multi-step Agent Loop: Berpikir → Eksekusi satu ATAU beberapa tindakan (tool) → Amati hasil dari HP → Tentukan tindakan berikutnya → Ulangi sampai selesai.
+            2. MULTI-AKSI PER GILIRAN: Dalam satu giliran kamu BOLEH mengeluarkan LEBIH DARI SATU blok ```json:action``` (usahakan maksimal 5 blok). Semua blok akan dieksekusi secara BERURUTAN sesuai urutan penulisan.
+               - GUNAKAN multi-aksi jika beberapa tool saling melengkapi dan kamu SUDAH MENGETAHUI semua parameternya tanpa perlu membaca hasil aksi sebelumnya (contoh: cek_ram + get_storage + shell 'date', tap + type_text + press_key ENTER, termux_api + clipboard_set).
+               - GUNAKAN SATU aksi saja per giliran jika aksi berikutnya BERGANTUNG pada hasil/output/perubahan layar dari aksi sebelumnya (contoh: open_app lalu read_screen, read_screen lalu tap ke elemen yang baru terdeteksi, screenshot untuk menentukan koordinat berikutnya).
+            3. Setiap kali kamu butuh mengeksekusi aksi, letakkan blok JSON di bagian akhir jawabanmu dengan format (boleh lebih dari satu blok):
             ```json:action
             {
               "tool": "nama_tool",
               "params": { ... }
             }
             ```
-            4. Setelah aksi dieksekusi oleh sistem Android, hasilnya (stdout / output / status) akan langsung dikirimkan kembali kepadamu pada giliran berikutnya.
+            4. Setelah SEMUA blok aksi dieksekusi oleh sistem Android, hasilnya (stdout / output / status) akan langsung dikirimkan kembali kepadamu pada giliran berikutnya, diurutkan sesuai urutan eksekusi (Aksi 1, Aksi 2, dst).
             5. KETIKA SEMUA TUGAS SELESAI atau pengguna hanya bertanya tanpa perlu aksi di HP, berikan jawaban akhir yang ramah, informatif, dan solutif TANPA blok ```json:action```.
 
             ARSITEKTUR TOOL (3-LAYER MODULAR REGISTRY):
@@ -248,54 +256,83 @@ object AiChatService {
                 liveThoughtState.value = "[$stepLabel]\n$combinedThought"
             }
 
-            // Parse action JSON
-            val parsedAction = extractActionJson(textWithoutThought)
+            // Parse action JSON — supports one or multiple tool calls per turn
+            val parsedActions = extractActionJsonList(textWithoutThought)
 
-            if (parsedAction != null) {
-                val toolName = parsedAction.optString("tool", "").trim()
-                val params = parsedAction.optJSONObject("params") ?: JSONObject()
-                lastActionName = toolName
+            if (parsedActions.isNotEmpty()) {
+                loopHistory.add("assistant" to textWithoutThought)
 
-                onStatusUpdate("$stepLabel: Mengeksekusi '$toolName'...")
+                val turnResultBlocks = mutableListOf<String>()
+                val turnExecutedCount = mutableListOf<Pair<String, ToolResult>>()
+                var turnScreenshotB64: String? = null
+                val wasTruncated = parsedActions.size >= MAX_ACTIONS_PER_TURN
 
-                // Execute tool locally
-                val executionResult = executeActionLocally(toolName, params)
-                lastToolResult = executionResult
-                executedTools.add(toolName to executionResult)
+                // Execute every action requested this turn, sequentially in order
+                for ((actionIdx, parsedAction) in parsedActions.withIndex()) {
+                    if (isCancelled) break
 
-                // Check if tool produced a new screenshot Base64 for Vision analysis
-                val toolScreenshotB64 = executionResult.extra["screenshot_b64"] as? String
-                if (!toolScreenshotB64.isNullOrBlank()) {
-                    activeStepImageBase64 = toolScreenshotB64
+                    val toolName = parsedAction.optString("tool", parsedAction.optString("name", "")).trim()
+                    val params = parsedAction.optJSONObject("params") ?: parsedAction.optJSONObject("arguments") ?: JSONObject()
+
+                    if (toolName.isEmpty()) {
+                        val skippedRes = ToolResult("error", message = "Blok aksi dilewati karena tidak memiliki field 'tool'.")
+                        turnExecutedCount.add("(tidak_dikenal)" to skippedRes)
+                        turnResultBlocks.add("Aksi ${actionIdx + 1}\nStatus: error\nOutput:\n${skippedRes.message}")
+                        continue
+                    }
+
+                    val batchLabel = if (parsedActions.size > 1) "$stepLabel | Aksi ${actionIdx + 1}/${parsedActions.size}" else stepLabel
+                    onStatusUpdate("$batchLabel: Mengeksekusi '$toolName'...")
+
+                    // Execute tool locally
+                    val executionResult = executeActionLocally(toolName, params)
+                    lastToolResult = executionResult
+                    lastActionName = toolName
+                    turnExecutedCount.add(toolName to executionResult)
+                    executedTools.add(toolName to executionResult)
+
+                    // Check if tool produced a new screenshot Base64 for Vision analysis (latest screenshot wins)
+                    val toolScreenshotB64 = executionResult.extra["screenshot_b64"] as? String
+                    if (!toolScreenshotB64.isNullOrBlank()) {
+                        turnScreenshotB64 = toolScreenshotB64
+                    }
+
+                    val resultOutputStr = executionResult.result ?: executionResult.message ?: if (executionResult.status == "ok") "Berhasil (OK)" else "Gagal"
+                    val briefResult = if (resultOutputStr.length > 300) resultOutputStr.take(300) + "..." else resultOutputStr
+                    stepSummary.add("$stepLabel: $toolName → ${executionResult.status.uppercase()}: $briefResult")
+
+                    turnResultBlocks.add("Aksi ${actionIdx + 1} — Tool: $toolName\nStatus: ${executionResult.status}\nOutput:\n$resultOutputStr")
+
+                    // Natural delay for UI transitions (e.g. app launching or layout animations)
+                    if (toolName.equals("open_app", ignoreCase = true)) {
+                        kotlinx.coroutines.delay(1500L)
+                    } else if (toolName.lowercase() in listOf("tap", "type_text", "press_key", "swipe")) {
+                        kotlinx.coroutines.delay(500L)
+                    }
+                }
+
+                // Send the latest screenshot (if any) for Vision analysis on the next step
+                if (!turnScreenshotB64.isNullOrBlank()) {
+                    activeStepImageBase64 = turnScreenshotB64
                     activeStepImageMimeType = "image/jpeg"
                     onStatusUpdate("$stepLabel: Tangkapan layar berhasil dikirim ke Analisis Visi AI...")
                 }
 
-                val resultOutputStr = executionResult.result ?: executionResult.message ?: if (executionResult.status == "ok") "Berhasil (OK)" else "Gagal"
-                val briefResult = if (resultOutputStr.length > 300) resultOutputStr.take(300) + "..." else resultOutputStr
-                stepSummary.add("$stepLabel: $toolName → ${executionResult.status.uppercase()}: $briefResult")
-
-                // Natural delay for UI transitions (e.g. app launching or layout animations)
-                if (toolName.equals("open_app", ignoreCase = true)) {
-                    kotlinx.coroutines.delay(1500L)
-                } else if (toolName in listOf("tap", "type_text", "press_key", "swipe")) {
-                    kotlinx.coroutines.delay(500L)
+                // Formulate feedback prompt for next step in agent loop (contains ALL results, in execution order)
+                currentPrompt = buildString {
+                    appendLine("[Hasil Eksekusi Tool $stepLabel — ${turnExecutedCount.size} aksi dieksekusi berurutan]")
+                    turnResultBlocks.forEachIndexed { idx, block ->
+                        appendLine(block)
+                        if (idx < turnResultBlocks.lastIndex) appendLine()
+                    }
+                    if (wasTruncated) {
+                        appendLine()
+                        appendLine("⚠️ Batas $MAX_ACTIONS_PER_TURN aksi per giliran tercapai; sebagian blok aksi tidak dieksekusi.")
+                    }
+                    appendLine()
+                    appendLine("Instruksi Pengguna Awal: \"$userPrompt\"")
+                    append("Silakan evaluasi hasil di atas dan tentukan langkah berikutnya (atau berikan respon akhir jika tugas telah selesai).")
                 }
-
-                // Add agent's response to history
-                loopHistory.add("assistant" to textWithoutThought)
-
-                // Formulate feedback prompt for next step in agent loop
-                currentPrompt = """
-                    [Hasil Eksekusi Tool $stepLabel]
-                    Tool: $toolName
-                    Status: ${executionResult.status}
-                    Output:
-                    $resultOutputStr
-
-                    Instruksi Pengguna Awal: "$userPrompt"
-                    Silakan evaluasi hasil di atas dan tentukan langkah berikutnya (atau berikan respon akhir jika tugas telah selesai).
-                """.trimIndent()
 
             } else {
                 // AI decided no further tool action is needed -> Task Complete!
@@ -572,15 +609,58 @@ object AiChatService {
         }
     }
 
-    private fun extractActionJson(text: String): JSONObject? {
-        val regex = Regex("```json:action([\\s\\S]*?)```")
-        val match = regex.find(text) ?: return null
-        val rawJson = match.groupValues[1].trim()
-        return try {
-            JSONObject(rawJson)
-        } catch (_: Exception) {
-            null
+    /**
+     * Extracts one or more action objects from the AI response.
+     * Supported formats:
+     * 1. Multiple ```json:action { ... } ``` blocks in a single response (executed sequentially by the agent loop).
+     * 2. A single block containing a batch object: { "actions": [ {...}, {...} ] } or { "tools": [...] }.
+     * 3. A single block containing a raw JSON array: [ {...}, {...} ].
+     * 4. Legacy single-action block (backward compatible).
+     * Returns at most [MAX_ACTIONS_PER_TURN] actions.
+     */
+    private fun extractActionJsonList(text: String): List<JSONObject> {
+        val actions = mutableListOf<JSONObject>()
+        fun atCapacity() = actions.size >= MAX_ACTIONS_PER_TURN
+
+        val regex = Regex("```json:action([\\s\\S]*?)```", RegexOption.IGNORE_CASE)
+        for (match in regex.findAll(text)) {
+            if (atCapacity()) break
+            val rawJson = match.groupValues[1].trim()
+
+            val obj: JSONObject? = try {
+                JSONObject(rawJson)
+            } catch (_: Exception) {
+                null
+            }
+
+            if (obj != null) {
+                // Batch format: {"actions": [...]} / {"tools": [...]}
+                val batchArray = obj.optJSONArray("actions") ?: obj.optJSONArray("tools")
+                if (batchArray != null) {
+                    for (i in 0 until batchArray.length()) {
+                        val item = batchArray.optJSONObject(i) ?: continue
+                        actions.add(item)
+                        if (atCapacity()) break
+                    }
+                } else {
+                    actions.add(obj)
+                }
+                continue
+            }
+
+            // Fallback: block may contain a raw JSON array of actions: [{...}, {...}]
+            try {
+                val arr = JSONArray(rawJson)
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    actions.add(item)
+                    if (atCapacity()) break
+                }
+            } catch (_: Exception) {
+                // Skip malformed block
+            }
         }
+        return actions
     }
 
     private suspend fun executeActionLocally(toolName: String, params: JSONObject): ToolResult {

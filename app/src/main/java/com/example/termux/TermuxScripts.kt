@@ -821,6 +821,7 @@ init_db()
 # ==========================================================
 import sys
 import json
+import re
 import time
 import requests
 from config import (
@@ -903,20 +904,45 @@ def run_agent_loop(user_instruction: str):
             text_response = candidate.get("parts", [{}])[0].get("text", "")
             print(f"🧠 AI Thought/Response:\n{text_response}")
             
-            # Look for JSON action block
-            if "```json:action" in text_response:
-                block = text_response.split("```json:action")[1].split("```")[0].strip()
-                action_data = json.loads(block)
-                tool_name = action_data.get("tool")
-                tool_params = action_data.get("params", {})
-                
-                print(f"⚡ Executing selected tool: {tool_name}({tool_params})")
-                exec_result = execute_tool(tool_name, tool_params)
-                print(f"📥 Execution Output: {json.dumps(exec_result)}")
-                
-                # Append to history so AI knows tool result
+            # Look for JSON action block(s) — supports multiple tool calls per turn
+            action_blocks = re.findall(r"```json:action([\s\S]*?)```", text_response)
+            if action_blocks:
+                # Parse every block: single object, batch object {"actions": [...]}, or raw array
+                actions = []
+                for raw_block in action_blocks:
+                    try:
+                        parsed = json.loads(raw_block.strip())
+                    except Exception:
+                        continue
+                    if isinstance(parsed, list):
+                        actions.extend([a for a in parsed if isinstance(a, dict)])
+                    elif isinstance(parsed, dict):
+                        batch = parsed.get("actions") or parsed.get("tools")
+                        if isinstance(batch, list):
+                            actions.extend([a for a in batch if isinstance(a, dict)])
+                        else:
+                            actions.append(parsed)
+                actions = actions[:8]
+
+                # Append model turn once, then execute all actions sequentially
                 history.append({"role": "model", "parts": [{"text": text_response}]})
-                history.append({"role": "user", "parts": [{"text": f"Tool '{tool_name}' result: {json.dumps(exec_result)}"}]})
+
+                result_lines = []
+                for idx, action_data in enumerate(actions, start=1):
+                    tool_name = action_data.get("tool")
+                    tool_params = action_data.get("params", {})
+                    if not tool_name:
+                        result_lines.append(f"Action {idx}: skipped (missing 'tool' field)")
+                        continue
+                    label = f"Action {idx}/{len(actions)}" if len(actions) > 1 else "Action"
+                    print(f"⚡ Executing selected tool [{label}]: {tool_name}({tool_params})")
+                    exec_result = execute_tool(tool_name, tool_params)
+                    print(f"📥 Execution Output: {json.dumps(exec_result)}")
+                    result_lines.append(f"Action {idx} - tool '{tool_name}' result: {json.dumps(exec_result)}")
+
+                # Send all results back so AI can evaluate each action outcome
+                if result_lines:
+                    history.append({"role": "user", "parts": [{"text": "\n".join(result_lines)}]})
                 continue
             
             if "selesai" in text_response.lower() or "completed" in text_response.lower():
