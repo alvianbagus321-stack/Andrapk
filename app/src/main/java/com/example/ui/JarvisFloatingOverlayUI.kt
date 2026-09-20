@@ -62,7 +62,13 @@ fun JarvisFloatingOverlayUI(
     // Smooth continuous animations for Arc Reactor
     val infiniteTransition = rememberInfiniteTransition(label = "hud_cyber_loop")
 
-    val pulseAlpha by infiniteTransition.animateFloat(
+    // OPTIMASI 60fps: State-nya selalu ada, tapi .value hanya dibaca saat HUD
+    // benar-benar aktif (listening/thinking/executing). Saat standby (mini pill)
+    // & hasil, nilai statis dipakai -> tidak ada observer animasi -> TIDAK ada
+    // redraw per frame (hemat baterai & menjaga layar tetap mulus).
+    val isAnimActive = uiMode != OverlayUiMode.MINI_PILL && uiMode != OverlayUiMode.RESULT
+
+    val pulseState = infiniteTransition.animateFloat(
         initialValue = 0.35f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
@@ -72,7 +78,7 @@ fun JarvisFloatingOverlayUI(
         label = "pulseAlpha"
     )
 
-    val rotationAngle by infiniteTransition.animateFloat(
+    val rotationState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
@@ -82,7 +88,7 @@ fun JarvisFloatingOverlayUI(
         label = "rotation"
     )
 
-    val counterRotationAngle by infiniteTransition.animateFloat(
+    val counterRotationState = infiniteTransition.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
@@ -91,6 +97,10 @@ fun JarvisFloatingOverlayUI(
         ),
         label = "counterRotation"
     )
+
+    val pulseAlpha = if (isAnimActive) pulseState.value else 1f
+    val rotationAngle = if (isAnimActive) rotationState.value else 0f
+    val counterRotationAngle = if (isAnimActive) counterRotationState.value else 0f
 
     var isExpandedView by remember { mutableStateOf(false) }
 

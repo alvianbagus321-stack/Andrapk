@@ -21,6 +21,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.JarvisApp
 import com.example.model.*
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -452,8 +453,13 @@ object ToolManager {
 
     fun init(context: Context) {
         sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        loadCustomTools()
+        // Permission settings: baca prefs kecil, cepat — aman di main thread.
         loadPermissionSettings()
+        // Parsing JSON custom tools bisa besar (tools buatan AI) — jangan blokir
+        // main thread saat startup; hasil di-update lewat StateFlow saat siap.
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            loadCustomTools()
+        }
     }
 
     fun setPermissionMode(mode: AiPermissionMode) {

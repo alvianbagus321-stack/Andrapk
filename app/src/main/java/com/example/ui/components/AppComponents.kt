@@ -25,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -46,9 +48,22 @@ import com.example.ui.theme.JarvisTextSecondary
  * Aurora Design System — komponen bersama agar seluruh layar punya bahasa visual konsisten.
  */
 
+// Brush backdrop pra-alokasi (top-level): tidak pernah dialokasi ulang saat
+// recomposition/draw sehingga nol alokasi per frame — penting untuk 60fps.
+private val BackdropBaseBrush = Brush.verticalGradient(
+    listOf(Color(0xFF05060E), Color(0xFF0A0E20), Color(0xFF070A16))
+)
+private val BackdropGlowTopBrush = Brush.radialGradient(
+    colors = listOf(JarvisCyan.copy(alpha = 0.10f), Color.Transparent)
+)
+private val BackdropGlowBottomBrush = Brush.radialGradient(
+    colors = listOf(AuroraViolet.copy(alpha = 0.09f), Color.Transparent)
+)
+
 /**
  * Latar belakang "deep space": gradasi vertikal gelap dengan pendaran aurora
- * lembut di sudut atas dan bawah. Dipakai sebagai backdrop konten utama.
+ * lembut di sudut atas dan bawah. Digambar dalam SATU pass drawBehind
+ * (bukan bertumpuk Box) supaya minim overdraw dan ringan di GPU.
  */
 @Composable
 fun AuroraBackdrop(
@@ -58,42 +73,25 @@ fun AuroraBackdrop(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF05060E), Color(0xFF0A0E20), Color(0xFF070A16))
+            .drawBehind {
+                val w = size.width
+                val h = size.height
+                // Latar dasar
+                drawRect(BackdropBaseBrush)
+                // Pendaran aurora atas (cyan) — pusat di kiri-atas
+                drawCircle(
+                    brush = BackdropGlowTopBrush,
+                    radius = size.minDimension * 1.1f,
+                    center = Offset(w * 0.12f, h * 0.02f)
                 )
-            )
+                // Pendaran aurora bawah (violet) — pusat di kanan-bawah
+                drawCircle(
+                    brush = BackdropGlowBottomBrush,
+                    radius = size.minDimension * 1.25f,
+                    center = Offset(w * 0.92f, h * 0.98f)
+                )
+            }
     ) {
-        // Pendaran aurora atas (cyan-indigo)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            JarvisCyan.copy(alpha = 0.10f),
-                            Color.Transparent
-                        ),
-                        center = androidx.compose.ui.geometry.Offset(0.12f, 0.02f),
-                        radius = 900f
-                    )
-                )
-        )
-        // Pendaran aurora bawah (violet-indigo)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            AuroraViolet.copy(alpha = 0.09f),
-                            Color.Transparent
-                        ),
-                        center = androidx.compose.ui.geometry.Offset(0.92f, 0.98f),
-                        radius = 1000f
-                    )
-                )
-        )
         content()
     }
 }

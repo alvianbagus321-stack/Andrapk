@@ -105,9 +105,11 @@ class CompanionRepository(private val context: Context) {
 
     private fun startTelemetryLoop() {
         scope.launch {
+            // Tunda poll pertama agar tidak bersaing dengan render startup.
+            delay(2000)
             while (isActive) {
                 updateTelemetry()
-                delay(3000)
+                delay(5000)
             }
         }
     }
@@ -134,13 +136,18 @@ class CompanionRepository(private val context: Context) {
 
             val curApp = JarvisAccessibilityService.currentApp.value
 
-            _telemetry.value = SystemTelemetry(
+            val newTelemetry = SystemTelemetry(
                 batteryLevel = pct,
                 isCharging = isCharging,
                 wifiConnected = isWifi,
                 wifiSsid = ssid,
                 currentAppPackage = curApp
             )
+            // Hanya emit bila datanya benar-benar berubah, agar UI tidak
+            // recompose tiap 5 detik tanpa alasan (hemat frame, layar mulus).
+            if (newTelemetry != _telemetry.value) {
+                _telemetry.value = newTelemetry
+            }
         } catch (_: Exception) {}
     }
 }

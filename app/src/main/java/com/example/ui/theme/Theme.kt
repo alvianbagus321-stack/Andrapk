@@ -55,6 +55,16 @@ val GlassBorderBrush = androidx.compose.ui.graphics.Brush.linearGradient(
     )
 )
 
+/** Border kartu hero cyan → violet (pra-alokasi, bebas alokasi per frame). */
+val CardBorderCyanViolet = androidx.compose.ui.graphics.Brush.horizontalGradient(
+    listOf(JarvisCyan.copy(alpha = 0.45f), AuroraViolet.copy(alpha = 0.40f))
+)
+
+/** Border kartu sekunder teal → violet (pra-alokasi). */
+val CardBorderTealViolet = androidx.compose.ui.graphics.Brush.horizontalGradient(
+    listOf(JarvisTeal.copy(alpha = 0.50f), AuroraViolet.copy(alpha = 0.40f))
+)
+
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = true,

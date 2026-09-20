@@ -89,12 +89,8 @@ fun JarvisDashboardScreen(
                     .fillMaxWidth()
                     .testTag("background_voice_assistant_card"),
                 shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = JarvisSurface.copy(alpha = 0.92f)),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = Brush.horizontalGradient(
-                        listOf(JarvisCyan.copy(alpha = 0.45f), AuroraViolet.copy(alpha = 0.40f))
-                    )
-                )
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = CardBorderCyanViolet)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
@@ -324,12 +320,8 @@ fun JarvisDashboardScreen(
                     .fillMaxWidth()
                     .testTag("ai_endpoint_config_card"),
                 shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = JarvisSurface.copy(alpha = 0.92f)),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = Brush.horizontalGradient(
-                        listOf(JarvisTeal.copy(alpha = 0.5f), AuroraViolet.copy(alpha = 0.4f))
-                    )
-                )
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = CardBorderTealViolet)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -835,7 +827,7 @@ fun TelemetryChip(
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = JarvisSurface.copy(alpha = 0.92f)),
+        colors = CardDefaults.cardColors(containerColor = JarvisSurface),
         border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisBorder.copy(alpha = 0.85f)))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
