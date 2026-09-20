@@ -80,9 +80,18 @@ object OAuthManager {
     // 1. Metadata (RFC 8414)
     // ==========================================================
 
+    /**
+     * Deteksi scheme (http/https). Cloudflared & proxy umumnya mengirim
+     * X-Forwarded-Proto — dipakai agar URL metadata menjadi https saat lewat tunnel.
+     */
+    fun detectScheme(headers: Map<String, String>): String {
+        val proto = headers["x-forwarded-proto"] ?: headers["X-Forwarded-Proto"]
+        return proto?.split(",")?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() } ?: "http"
+    }
+
     /** host diambil dari header "host" request agar sesuai domain tunnel/LAN klien. */
-    fun metadata(host: String): JSONObject {
-        val base = "http://$host"
+    fun metadata(host: String, scheme: String = "http"): JSONObject {
+        val base = "$scheme://$host"
         return JSONObject().apply {
             put("issuer", base)
             put("authorization_endpoint", "$base/oauth/authorize")
@@ -94,6 +103,17 @@ object OAuthManager {
             put("token_endpoint_auth_methods_supported", JSONArray().put("none"))
             put("scopes_supported", JSONArray().put(SCOPE))
         }
+    }
+
+    /**
+     * RFC 9728 — Protected Resource Metadata untuk /mcp.
+     * Dipakai klien (ChatGPT/Claude) menemukan authorization server kita.
+     */
+    fun protectedResourceMetadata(host: String, scheme: String = "http"): JSONObject = JSONObject().apply {
+        put("resource", "$scheme://$host/mcp")
+        put("authorization_servers", JSONArray().put("$scheme://$host"))
+        put("scopes_supported", JSONArray().put(SCOPE))
+        put("bearer_methods_supported", JSONArray().put("header"))
     }
 
     // ==========================================================

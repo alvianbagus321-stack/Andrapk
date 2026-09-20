@@ -267,7 +267,14 @@ class JarvisHttpServer(
         // ===== OAuth 2.0 Authorization Server (PUBLIK — dipakai klien MCP: ChatGPT, Claude, dll) =====
         if (path == "/.well-known/oauth-authorization-server" && method == "GET") {
             val host = req.headers["host"] ?: "127.0.0.1:$port"
-            sendResponse(output, 200, OAuthManager.metadata(host).toString(), "application/json", method, path, clientIp, "OAuth metadata")
+            val scheme = OAuthManager.detectScheme(req.headers)
+            sendResponse(output, 200, OAuthManager.metadata(host, scheme).toString(), "application/json", method, path, clientIp, "OAuth metadata")
+            return
+        }
+        if ((path == "/.well-known/oauth-protected-resource" || path == "/.well-known/oauth-protected-resource/mcp") && method == "GET") {
+            val host = req.headers["host"] ?: "127.0.0.1:$port"
+            val scheme = OAuthManager.detectScheme(req.headers)
+            sendResponse(output, 200, OAuthManager.protectedResourceMetadata(host, scheme).toString(), "application/json", method, path, clientIp, "OAuth protected resource metadata")
             return
         }
         if (path == "/oauth/register" && method == "POST") {
@@ -314,7 +321,14 @@ class JarvisHttpServer(
                 put("message", "Unauthorized. Provide correct X-Local-Token header or ?token= query parameter.")
                 put("retryable", false)
             }.toString()
-            sendResponse(output, 401, errJson, "application/json", method, path, clientIp, "401 Unauthorized", true)
+            val extra = if (path == "/mcp") {
+                val host = req.headers["host"] ?: "127.0.0.1:$port"
+                val scheme = OAuthManager.detectScheme(req.headers)
+                mapOf("WWW-Authenticate" to "Bearer resource_metadata=\"$scheme://$host/.well-known/oauth-protected-resource/mcp\"")
+            } else {
+                emptyMap()
+            }
+            sendResponse(output, 401, errJson, "application/json", method, path, clientIp, "401 Unauthorized", true, extra)
             return
         }
 
@@ -756,7 +770,8 @@ class JarvisHttpServer(
         path: String,
         clientIp: String,
         summary: String,
-        isError: Boolean = false
+        isError: Boolean = false,
+        extraHeaders: Map<String, String> = emptyMap()
     ) {
         try {
             val bytes = body.toByteArray(Charsets.UTF_8)
@@ -781,6 +796,9 @@ class JarvisHttpServer(
             headerBuilder.append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
             headerBuilder.append("Access-Control-Allow-Headers: Content-Type, X-Local-Token, Authorization, MCP-Protocol-Version, Mcp-Session-Id\r\n")
             headerBuilder.append("Connection: close\r\n")
+            for ((k, v) in extraHeaders) {
+                headerBuilder.append(k).append(": ").append(v).append("\r\n")
+            }
             headerBuilder.append("\r\n")
 
             output.write(headerBuilder.toString().toByteArray(Charsets.UTF_8))
