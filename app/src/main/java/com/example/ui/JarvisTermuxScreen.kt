@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -65,6 +66,7 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
     }
 
     val setupCommand = "curl -s http://127.0.0.1:$port/setup.sh | bash"
+    val mcpSetupCommand = "curl -s http://127.0.0.1:$port/setup-mcp.sh | bash"
 
     LazyColumn(
         modifier = Modifier
@@ -276,6 +278,78 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // MCP Bridge Setup Card
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("termux_mcp_setup_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(AuroraViolet.copy(alpha = 0.5f)))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Extension, contentDescription = null, tint = AuroraViolet, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("MCP SERVER & TUNNEL SETUP", color = AuroraViolet, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                    }
+
+                    Text(
+                        text = "MCP server berjalan di dalam aplikasi ini (endpoint /mcp). Perintah berikut menyiapkan Termux sebagai jembatannya: izin otomasi, cloudflared (tunnel HTTPS untuk ChatGPT/Claude), helper scripts ~/mcp/, dan self-test koneksi:",
+                        color = JarvisTextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .border(1.dp, JarvisBorder, RoundedCornerShape(8.dp)),
+                        color = JarvisSurfaceVariant
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = mcpSetupCommand,
+                                color = JarvisEmerald,
+                                fontSize = 11.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    copyToClipboard(context, "MCP Setup Command", mcpSetupCommand)
+                                    Toast.makeText(context, "Command MCP setup copied!", Toast.LENGTH_SHORT).show()
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = AuroraViolet, contentColor = Color(0xFF231433)),
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Copy", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Setelah selesai, tersedia di Termux:\n• bash ~/mcp/tunnel.sh → jalankan tunnel HTTPS\n• bash ~/mcp/stop.sh → hentikan tunnel\n• bash ~/mcp/status.sh → cek MCP server & URL tunnel",
+                        color = JarvisTextSecondary.copy(alpha = 0.85f),
+                        fontSize = 10.5.sp,
+                        lineHeight = 15.sp
+                    )
                 }
             }
         }

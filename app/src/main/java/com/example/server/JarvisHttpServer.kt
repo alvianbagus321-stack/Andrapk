@@ -251,6 +251,11 @@ class JarvisHttpServer(
             sendResponse(output, 200, script, "text/x-shellscript", method, path, clientIp, "Served setup.sh")
             return
         }
+        if (path == "/setup-mcp.sh") {
+            val script = TermuxScripts.getMcpSetupScript(token, port)
+            sendResponse(output, 200, script, "text/x-shellscript", method, path, clientIp, "Served setup-mcp.sh")
+            return
+        }
 
         if (path.startsWith("/termux/")) {
             handleTermuxDownload(path, output, method, clientIp)

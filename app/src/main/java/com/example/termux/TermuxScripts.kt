@@ -965,6 +965,119 @@ requests>=2.28.0
 urllib3>=1.26.0
 """.trimIndent()
 
+    /**
+     * Script setup khusus MCP Bridge untuk Termux: izin RUN_COMMAND, cloudflared,
+     * helper scripts ~/mcp/{tunnel,stop,status}.sh, dan self-test ke MCP server app.
+     * Diambil via: curl -s http://127.0.0.1:<port>/setup-mcp.sh | bash
+     */
+    fun getMcpSetupScript(token: String, port: Int): String {
+        return """
+#!/data/data/com.termux/files/usr/bin/bash
+# ==========================================================
+# Andra Control — MCP Bridge Setup untuk Termux
+# MCP server berjalan DI DALAM aplikasi Android (endpoint /mcp).
+# Script ini menyiapkan Termux sebagai jembatannya:
+#   1. Izin allow-external-apps (agar app bisa auto-jalankan tunnel)
+#   2. cloudflared — tunnel HTTPS ke ChatGPT / Claude
+#   3. Helper scripts: ~/mcp/{tunnel,stop,status}.sh
+#   4. Self-test koneksi ke MCP server
+# ==========================================================
+set -e
+
+APP_PORT="__PORT__"
+APP_TOKEN="__TOKEN__"
+
+echo "=================================================="
+echo "🔌 Andra Control — MCP Bridge Setup (Termux)"
+echo "=================================================="
+
+echo "⚙️  [1/4] Menyetel izin allow-external-apps..."
+mkdir -p ~/.termux
+touch ~/.termux/termux.properties
+grep -q "allow-external-apps" ~/.termux/termux.properties 2>/dev/null || echo "allow-external-apps=true" >> ~/.termux/termux.properties
+termux-reload-settings 2>/dev/null || true
+termux-setup-storage >/dev/null 2>&1 || true
+
+echo "⚙️  [2/4] Menginstall cloudflared (tunnel HTTPS)..."
+command -v cloudflared >/dev/null 2>&1 || pkg install -y cloudflared
+
+echo "⚙️  [3/4] Membuat helper scripts di ~/mcp/..."
+mkdir -p ~/mcp
+
+cat > ~/mcp/tunnel.sh << 'ZEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+# Jalankan tunnel HTTPS publik -> MCP server di app Andra Control
+APP_PORT="${'$'}{1:-8765}"
+pkill -f 'cloudflared tunnel' 2>/dev/null; sleep 1
+echo "🚀 Menjalankan tunnel ke http://127.0.0.1:${'$'}APP_PORT ..."
+echo "   URL https://xxxx.trycloudflare.com akan muncul di bawah."
+echo "   Endpoint MCP untuk ChatGPT/Claude = URL itu + /mcp"
+cloudflared tunnel --url "http://127.0.0.1:${'$'}APP_PORT" 2>&1 | tee ~/mcp/tunnel.log
+ZEOF
+
+cat > ~/mcp/stop.sh << 'ZEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+pkill -f 'cloudflared tunnel' 2>/dev/null && echo "🛑 Tunnel dihentikan" || echo "Tidak ada tunnel yang berjalan"
+ZEOF
+
+cat > ~/mcp/status.sh << 'ZEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+APP_PORT="${'$'}{1:-8765}"
+APP_TOKEN="${'$'}{2:-}"
+echo "📡 Cek MCP server (http://127.0.0.1:${'$'}APP_PORT/mcp)..."
+RESP=${'$'}(curl -s -m 5 -X POST "http://127.0.0.1:${'$'}APP_PORT/mcp" \
+  -H "Content-Type: application/json" \
+  -H "X-Local-Token: ${'$'}APP_TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"termux-selftest"}}}' || true)
+if echo "${'$'}RESP" | grep -q "andra-control"; then
+  echo "✅ MCP server ONLINE dan merespons"
+  TOOLS=${'$'}(curl -s -m 5 -X POST "http://127.0.0.1:${'$'}APP_PORT/mcp" \
+    -H "Content-Type: application/json" \
+    -H "X-Local-Token: ${'$'}APP_TOKEN" \
+    -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' || true)
+  COUNT=${'$'}(echo "${'$'}TOOLS" | grep -o '"name"' | wc -l)
+  echo "🧰 Perkiraan jumlah tools terdaftar: ${'$'}COUNT"
+else
+  echo "❌ MCP server tidak merespons. Pastikan app terbuka & server ON (status ONLINE)."
+fi
+if [ -f ~/mcp/tunnel.log ] && grep -q "trycloudflare.com" ~/mcp/tunnel.log 2>/dev/null; then
+  URL=${'$'}(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' ~/mcp/tunnel.log | tail -1)
+  echo "🌐 Tunnel aktif: ${'$'}URL"
+  echo "   Endpoint MCP cloud = ${'$'}URL/mcp"
+else
+  echo "🌐 Tunnel: belum berjalan (jalankan: bash ~/mcp/tunnel.sh)"
+fi
+ZEOF
+
+chmod +x ~/mcp/*.sh
+
+echo "⚙️  [4/4] Self-test koneksi ke MCP server..."
+RESP=${'$'}(curl -s -m 5 -X POST "http://127.0.0.1:${'$'}APP_PORT/mcp" \
+  -H "Content-Type: application/json" \
+  -H "X-Local-Token: ${'$'}APP_TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"termux-setup"}}}' || true)
+if echo "${'$'}RESP" | grep -q "andra-control"; then
+  echo "✅ MCP server terdeteksi & merespons dengan benar!"
+else
+  echo "⚠️  MCP server belum merespons — buka app Andra Control dan pastikan toggle server ONLINE, lalu jalankan ulang script ini."
+fi
+
+echo ""
+echo "=================================================="
+echo "✅ Setup MCP Bridge selesai!"
+echo "=================================================="
+echo "Perintah yang tersedia sekarang:"
+echo "  bash ~/mcp/tunnel.sh   -> jalankan tunnel (untuk ChatGPT/Claude)"
+echo "  bash ~/mcp/stop.sh     -> hentikan tunnel"
+echo "  bash ~/mcp/status.sh   -> cek server & URL tunnel"
+echo ""
+echo "Endpoint MCP lokal : http://127.0.0.1:${'$'}APP_PORT/mcp"
+echo "Autentikasi        : header X-Local-Token: ${'$'}APP_TOKEN"
+echo "=================================================="
+
+        """.replace("__PORT__", port.toString()).replace("__TOKEN__", token).trimIndent() + "\n"
+    }
+
     fun getSetupScript(token: String, port: Int): String {
         return """
 #!/data/data/com.termux/files/usr/bin/bash

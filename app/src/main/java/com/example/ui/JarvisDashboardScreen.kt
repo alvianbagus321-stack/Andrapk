@@ -1128,7 +1128,7 @@ fun JarvisDashboardScreen(
 
                     HelpStep("3", "Mode B — Perangkat lain di WiFi yang sama", "Aktifkan 'Akses dari Jaringan' di kartu ini, lalu daftarkan URL http://<IP-HP>:8765/mcp di AI kamu. Cek IP HP di Pengaturan > Wi-Fi. Catatan: tambahkan http:// URL ini hanya untuk client yang mendukung HTTP lokal (bukan ChatGPT cloud).")
 
-                    HelpStep("4", "Mode C — ChatGPT / Claude (CLOUD)", "Karena AI-nya di internet, HP perlu tunnel HTTPS. Cara termudah: tombol 'JALANKAN TUNNEL' di Metode 2 kartu ini — app menjalankan cloudflared via Termux dan URL publik muncul otomatis.\n\nManual (alternatif):\n• Di Termux: pkg install cloudflared\n• cloudflared tunnel --url http://127.0.0.1:8765\n\nLalu di ChatGPT: Pengaturan > Connector > Tambah — tempel URL tunnel + '/mcp'. Saat menghubungkan akan muncul HALAMAN IZIN (OAuth) — tekan IZINKAN. Selesai!")
+                    HelpStep("4", "Mode C — ChatGPT / Claude (CLOUD)", "Karena AI-nya di internet, HP perlu tunnel HTTPS. Cara termudah: tombol 'JALANKAN TUNNEL' di Metode 2 kartu ini — app menjalankan cloudflared via Termux dan URL publik muncul otomatis.\n\nManual (alternatif): di Termux jalankan 'curl -s http://127.0.0.1:8765/setup-mcp.sh | bash' — menginstall cloudflared + helper ~/mcp/tunnel.sh, lalu 'bash ~/mcp/tunnel.sh'.\n\nLalu di ChatGPT: Pengaturan > Connector > Tambah — tempel URL tunnel + '/mcp'. Saat menghubungkan akan muncul HALAMAN IZIN (OAuth) — tekan IZINKAN. Selesai!")
 
                     HelpStep("5", "Keamanan", "Token & OAuth adalah kunci masuk ke HP kamu. Matikan 'Akses dari Jaringan' saat tidak dipakai, dan segera regenerate token jika kecurigaan. Izin OAuth berlaku 24 jam lalu harus disetujui ulang.")
 
