@@ -1,0 +1,21 @@
+// Devcontainer untuk build APK di GitHub Codespaces (atau VS Code Dev Containers).
+// Saat container dibuat: JDK 21 dipasang oleh feature, lalu `./build.sh setup`
+// otomatis mengunduh Android SDK + Gradle + membuat .env & debug.keystore.
+// Setelah itu build tinggal: ./build.sh
+{
+  "name": "Andra Control (Android)",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/java:1": {
+      "version": "21",
+      "installGradle": false,
+      "installMaven": false
+    }
+  },
+  "postCreateCommand": "./build.sh setup",
+  "customizations": {
+    "vscode": {
+      "extensions": ["fwcd.kotlin"]
+    }
+  }
+}

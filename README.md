@@ -6,10 +6,11 @@ Aplikasi Android AI companion dengan **server MCP bawaan** (OAuth + HTTP di port
 
 ## 🔨 Cara Build APK
 
-Ada 2 cara — pilih salah satu:
+Ada 3 cara — pilih salah satu:
 
 - **Cara A — Otomatis lewat script `build.sh`** (disarankan, tanpa Android Studio)
 - **Cara B — Android Studio** (cara klasik)
+- **Cara C — GitHub Codespaces** ☁️ (build dari browser, tanpa install apa pun — bisa bahkan dari HP)
 
 > Script `build.sh` akan menyiapkan **semua** yang dibutuhkan: JDK, Android SDK, Gradle, license, sampai keystore. Kamu tinggal jalankan satu perintah.
 
@@ -108,6 +109,49 @@ Hasilnya: `app/build/outputs/apk/release/app-release.apk`
 
 ---
 
+## Cara C — Build via GitHub Codespaces ☁️
+
+Build **tanpa install apa pun di komputer** — cukup browser (bahkan dari HP). Codespace = komputer Linux di cloud milik GitHub, jadi `build.sh` jalan langsung.
+
+### 1. Buat Codespace
+
+1. Buka repo ini di github.com (login).
+2. Tekan tombol **Code** → tab **Codespaces** → **Create codespaces on...** → pilih branch yang berisi kode terbaru.
+3. Tunggu proses **post-create** selesai (±5–10 menit, sekali saja per codespace) — otomatis memasang **JDK 21 + Android SDK + Gradle** lewat `.devcontainer/devcontainer.json` + `./build.sh setup`.
+
+### 2. Build
+
+Di terminal Codespace:
+
+```bash
+./build.sh            # APK debug
+./build.sh release    # atau APK release
+```
+
+> Machine default (2-core/8 GB) sudah cukup. Build pertama ±15–25 menit (unduh dependensi), berikutnya jauh lebih cepat. Ingin lebih cepat? Buat codespace baru dengan machine 4-core.
+
+### 3. Ambil APK-nya — pilih salah satu
+
+**a. Unduh langsung dari editor:**
+Explorer → buka `app/build/outputs/apk/debug/` → klik kanan `app-debug.apk` → **Download**.
+
+**b. Lewat GitHub Releases (praktis kalau build dari HP):**
+
+```bash
+gh release create apk-$(date +%Y%m%d-%H%M) app/build/outputs/apk/debug/app-debug.apk --generate-notes
+```
+
+Lalu buka halaman **Releases** repo ini dari HP → unduh APK-nya → pasang.
+
+### 4. Hemat kuota ⏳
+
+- Akun personal gratis: **120 core-hour/bulan** (machine 2-core = **60 jam**).
+- **Stop** codespace saat selesai (tab Codespaces → `...` → **Stop**) — kuota hanya berjalan saat aktif.
+- Codespace yang dibiarkan tetap **auto-stop** setelah idle 30 menit (default).
+- Codespace yang tak dipakai bisa dihapus (tab Codespaces → `...` → **Delete**) — hasil build yang belum diambil akan hilang, jadi **unduh/publish APK dulu**.
+
+---
+
 ## Build via Terminal (setelah wrapper ada)
 
 Setelah `./build.sh` sukses pertama kali, script otomatis membuat **`gradlew`**. Sejak itu build bisa juga lewat cara standar:
@@ -180,4 +224,5 @@ Untuk APK lama yang belum ada OAuth in-app, tetap bisa pakai bridge standalone: 
 | `app/src/main/java/com/example/server/` | HTTP server MCP + OAuth (`JarvisHttpServer.kt`, `OAuthManager.kt`) |
 | `termux/mcp_bridge.py` | Bridge standalone untuk APK lama (stdlib-only, port 9000) |
 | `build.sh` | Script build otomatis all-in-one |
+| `.devcontainer/devcontainer.json` | Konfigurasi GitHub Codespaces (JDK 21 + auto-setup build) |
 | `gradle/libs.versions.toml` | Katalog versi dependensi |
