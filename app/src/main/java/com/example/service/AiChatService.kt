@@ -583,7 +583,7 @@ object AiChatService {
         }
         if (baseUrl.contains("openrouter.ai")) {
             reqBuilder.addHeader("HTTP-Referer", "https://ai.studio/build")
-            reqBuilder.addHeader("X-Title", "JARVIS Companion")
+            reqBuilder.addHeader("X-Title", "Andra Control")
         }
 
         return try {

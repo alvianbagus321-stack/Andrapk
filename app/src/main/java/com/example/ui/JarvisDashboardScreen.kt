@@ -67,12 +67,12 @@ fun JarvisDashboardScreen(
     val micLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
-            viewModel.setHotwordEnabled(context, true)
-            Toast.makeText(context, "Asisten Suara 'Jarvis' aktif di latar belakang!", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(context, "Izin mikrofon dibutuhkan untuk mendengar suara 'Jarvis'", Toast.LENGTH_LONG).show()
-        }
+                                        if (granted) {
+                                            viewModel.setHotwordEnabled(context, true)
+                                            Toast.makeText(context, "Asisten suara aktif di latar belakang!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Izin mikrofon dibutuhkan untuk asisten suara", Toast.LENGTH_LONG).show()
+                                        }
     }
 
     LazyColumn(
@@ -82,17 +82,17 @@ fun JarvisDashboardScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)
     ) {
-        // ALWAYS-ON JARVIS BACKGROUND ASSISTANT CARD
+        // ASISTEN SUARA & HUD CARD
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("background_voice_assistant_card"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface.copy(alpha = 0.92f)),
                 border = CardDefaults.outlinedCardBorder().copy(
                     brush = Brush.horizontalGradient(
-                        listOf(JarvisCyan.copy(alpha = 0.7f), JarvisTeal.copy(alpha = 0.4f))
+                        listOf(JarvisCyan.copy(alpha = 0.45f), AuroraViolet.copy(alpha = 0.40f))
                     )
                 )
             ) {
@@ -125,7 +125,7 @@ fun JarvisDashboardScreen(
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "ALWAYS-ON 'JARVIS'",
+                                        text = "ASISTEN SUARA",
                                         color = JarvisCyan,
                                         fontWeight = FontWeight.Black,
                                         fontSize = 13.sp,
@@ -165,11 +165,11 @@ fun JarvisDashboardScreen(
                                         micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     } else {
                                         viewModel.setHotwordEnabled(context, true)
-                                        Toast.makeText(context, "Asisten Suara 'Jarvis' aktif di latar belakang!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Asisten suara aktif di latar belakang!", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
                                     viewModel.setHotwordEnabled(context, false)
-                                    Toast.makeText(context, "Asisten Suara 'Jarvis' dinonaktifkan", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Asisten suara dinonaktifkan", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             colors = SwitchDefaults.colors(
@@ -186,9 +186,9 @@ fun JarvisDashboardScreen(
                     // Description
                     Text(
                         text = if (isHotwordEnabled)
-                            "JARVIS mendengarkan kata 'Jarvis [perintah]' di latar belakang tanpa perlu membuka aplikasi. Setiap respon dan tool otomatis ditampilkan melalui HUD melayang."
+                            "Asisten mendengarkan kata aktivasi 'Jarvis [perintah]' di latar belakang tanpa perlu membuka aplikasi. Setiap respon dan tool otomatis ditampilkan melalui HUD melayang."
                         else
-                            "Aktifkan sakelar di atas agar aplikasi mendeteksi kata 'Jarvis [perintah]' saat di latar belakang seperti Google AI Assistant.",
+                            "Aktifkan sakelar di atas agar aplikasi mendeteksi kata aktivasi saat berjalan di latar belakang, seperti asisten bawaan perangkat.",
                         color = JarvisTextPrimary.copy(alpha = 0.85f),
                         fontSize = 11.5.sp,
                         lineHeight = 16.sp
@@ -216,7 +216,7 @@ fun JarvisDashboardScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "Diperlukan agar HUD futuristik JARVIS dapat muncul saat Anda membuka app lain.",
+                                        text = "Diperlukan agar HUD asisten dapat muncul saat Anda membuka aplikasi lain.",
                                         color = JarvisTextSecondary,
                                         fontSize = 10.sp
                                     )
@@ -260,7 +260,7 @@ fun JarvisDashboardScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "HUD Jendela Melayang (Overlay) Siap & Aktif di Layar",
+                                    text = "HUD melayang (overlay) siap & aktif di layar",
                                     color = JarvisEmerald,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium
@@ -317,17 +317,17 @@ fun JarvisDashboardScreen(
             }
         }
 
-        // AI MODEL & CUSTOM ENDPOINT CONFIGURATION CARD
+        // MODEL & CUSTOM ENDPOINT CONFIGURATION CARD
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("ai_endpoint_config_card"),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface.copy(alpha = 0.92f)),
                 border = CardDefaults.outlinedCardBorder().copy(
                     brush = Brush.horizontalGradient(
-                        listOf(JarvisTeal.copy(alpha = 0.6f), JarvisCyan.copy(alpha = 0.4f))
+                        listOf(JarvisTeal.copy(alpha = 0.5f), AuroraViolet.copy(alpha = 0.4f))
                     )
                 )
             ) {
@@ -356,7 +356,7 @@ fun JarvisDashboardScreen(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "AI MODEL & ENDPOINT",
+                                    text = "MODEL & ENDPOINT",
                                     color = JarvisTeal,
                                     fontWeight = FontWeight.Black,
                                     fontSize = 13.sp,
@@ -395,7 +395,7 @@ fun JarvisDashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = "Active Model:", color = JarvisTextSecondary, fontSize = 10.5.sp)
+                                Text(text = "Model Aktif:", color = JarvisTextSecondary, fontSize = 10.5.sp)
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
                                     color = JarvisCyan.copy(alpha = 0.15f),
@@ -417,7 +417,7 @@ fun JarvisDashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = "Endpoint URL:", color = JarvisTextSecondary, fontSize = 10.5.sp)
+                                Text(text = "Endpoint:", color = JarvisTextSecondary, fontSize = 10.5.sp)
                                 Text(
                                     text = if (aiConfig.baseUrl.length > 28) aiConfig.baseUrl.take(26) + "..." else aiConfig.baseUrl,
                                     color = JarvisTextPrimary,
@@ -447,7 +447,7 @@ fun JarvisDashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "SYSTEM ENGINE STATUS",
+                            text = "STATUS LAYANAN SISTEM",
                             color = JarvisCyan,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
@@ -553,7 +553,7 @@ fun JarvisDashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "SECURITY CREDENTIALS (X-Local-Token)",
+                            text = "KREDENSIAL LOKAL (X-Local-Token)",
                             color = JarvisTeal,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
@@ -571,7 +571,7 @@ fun JarvisDashboardScreen(
                     }
 
                     Text(
-                        text = "Komunikasi Termux ↔ Android diamankan dengan token ini. API key AI HANYA disimpan di Termux (config.py/env var), tidak pernah di APK.",
+                        text = "Komunikasi Termux ↔ Android diamankan dengan token ini. API key HANYA disimpan di Termux (config.py/env var), tidak pernah di APK.",
                         color = JarvisTextSecondary,
                         fontSize = 12.sp,
                         lineHeight = 16.sp
@@ -677,7 +677,7 @@ fun JarvisDashboardScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "LIVE AGENT ACTIVITY STREAM",
+                        text = "AKTIVITAS REQUEST LIVE",
                         color = JarvisTextPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
@@ -721,7 +721,7 @@ fun JarvisDashboardScreen(
                     ) {
                         Icon(Icons.Default.Sensors, contentDescription = null, tint = JarvisCyan.copy(alpha = 0.5f), modifier = Modifier.size(36.dp))
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("Waiting for Termux Agent calls...", color = JarvisTextSecondary, fontSize = 13.sp)
+                        Text("Menunggu panggilan dari Termux Agent...", color = JarvisTextSecondary, fontSize = 13.sp)
                         Text("Requests to http://127.0.0.1:$port will appear here in real time.", color = JarvisTextSecondary.copy(alpha = 0.7f), fontSize = 11.sp)
                     }
                 }
@@ -834,18 +834,38 @@ fun TelemetryChip(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisBorder))
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = JarvisSurface.copy(alpha = 0.92f)),
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisBorder.copy(alpha = 0.85f)))
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(title, color = JarvisTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(JarvisCyan.copy(alpha = 0.13f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(14.dp))
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    title,
+                    color = JarvisTextSecondary,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.6.sp
+                )
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(value, color = JarvisTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                value,
+                color = JarvisTextPrimary,
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
             Text(detail, color = JarvisTextSecondary, fontSize = 10.sp, maxLines = 1)
         }
     }

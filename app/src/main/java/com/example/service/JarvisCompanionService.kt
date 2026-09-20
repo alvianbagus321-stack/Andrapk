@@ -224,7 +224,7 @@ class JarvisCompanionService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "JARVIS Companion Background Engine",
+                "Andra Control Background Engine",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Keeps the local HTTP server, voice assistant, and accessibility agent alive in background"
@@ -252,7 +252,7 @@ class JarvisCompanionService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_manage)
-            .setContentTitle("JARVIS AI Companion Online")
+            .setContentTitle("Andra Control Online")
             .setContentText(actualText)
             .setContentIntent(pendingIntent)
             .setOngoing(true)

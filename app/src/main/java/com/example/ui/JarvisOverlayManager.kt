@@ -259,7 +259,7 @@ object JarvisOverlayManager {
             _toolName.value = null
             _toolResult.value = null
             _aiReply.value = "Yes?"
-            _statusText.value = "JARVIS: Yes? (Mendengarkan...)"
+            _statusText.value = "Asisten: Ada yang bisa dibantu? (Mendengarkan...)"
             _uiMode.value = OverlayUiMode.LISTENING
         }
     }
@@ -310,7 +310,7 @@ object JarvisOverlayManager {
             _toolResult.value = resultStatus
             _aiReply.value = replyText
             _uiMode.value = OverlayUiMode.RESULT
-            _statusText.value = if (tool != null) "Selesai Dieksekusi" else "JARVIS Menjawab"
+            _statusText.value = if (tool != null) "Selesai Dieksekusi" else "Asisten Menjawab"
             scheduleAutoDismiss(9000)
         }
     }
@@ -319,7 +319,7 @@ object JarvisOverlayManager {
         mainHandler.post {
             cancelAutoDismiss()
             _uiMode.value = OverlayUiMode.MINI_PILL
-            _statusText.value = "JARVIS • Standby"
+            _statusText.value = "Asisten • Standby"
         }
     }
 

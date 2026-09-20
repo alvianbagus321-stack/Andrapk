@@ -248,7 +248,7 @@ private fun LiquidGlassMiniPill(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "JARVIS",
+                            text = "ASISTEN",
                             color = JarvisCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
@@ -436,7 +436,7 @@ private fun LiquidGlassListeningCard(
                 Spacer(modifier = Modifier.width(6.dp))
                 Column {
                     Text(
-                        text = "JARVIS // ONLINE",
+                        text = "ASISTEN // ONLINE",
                         color = JarvisCyan,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Black,
@@ -531,7 +531,7 @@ private fun LiquidGlassListeningCard(
                 if (aiReply.isNotBlank()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "JARVIS:",
+                            text = "ASISTEN:"
                             color = JarvisCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -621,7 +621,7 @@ private fun LiquidGlassThinkingCard(
                 Spacer(modifier = Modifier.width(6.dp))
                 Column {
                     Text(
-                        text = "JARVIS • REASONING",
+                        text = "ASISTEN • MEMPROSES",
                         color = JarvisTeal,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Black,
@@ -742,7 +742,7 @@ private fun LiquidGlassExecutingCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "JARVIS • EKSEKUSI OTOMASI",
+                    text = "ASISTEN • EKSEKUSI OTOMASI",
                     color = JarvisAmber,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Black,
@@ -868,7 +868,7 @@ private fun LiquidGlassResultCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = "JARVIS RESPON",
+                        text = "RESPON ASISTEN",
                         color = JarvisCyan,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Black,
@@ -933,7 +933,7 @@ private fun LiquidGlassResultCard(
                 .verticalScroll(scrollState)
         ) {
             Text(
-                text = aiReply.ifBlank { "Tugas telah selesai diproses oleh JARVIS." },
+                text = aiReply.ifBlank { "Tugas telah selesai diproses oleh asisten." },
                 color = JarvisTextPrimary,
                 fontSize = 12.sp,
                 lineHeight = 16.5.sp
@@ -991,7 +991,7 @@ private fun CompactTaskOverlayCard(
     onExpand: () -> Unit
 ) {
     val themeColor = if (isExecuting) JarvisAmber else JarvisCyan
-    val titleText = if (isExecuting) "⚡ AI EXECUTING" else "🧠 AI THINKING"
+    val titleText = if (isExecuting) "EKSEKUSI" else "MEMPROSES"
     
     val subtitleText = when {
         !toolName.isNullOrBlank() -> "Tool: $toolName"

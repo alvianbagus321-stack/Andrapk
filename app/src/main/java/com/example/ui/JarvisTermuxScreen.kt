@@ -114,7 +114,7 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
                     }
 
                     Text(
-                        text = "AI JARVIS dapat mengontrol service background Termux, daemon Python, dan mengeksekusi utilitas Termux:API secara otonom.",
+                        text = "Asisten perangkat dapat mengontrol service background Termux, daemon Python, dan mengeksekusi utilitas Termux:API secara otonom.",
                         color = JarvisTextSecondary,
                         fontSize = 12.sp
                     )
@@ -233,7 +233,7 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
                     }
 
                     Text(
-                        text = "Jalankan perintah ini di Termux untuk menginstal JARVIS-HP Agent lengkap beserta 3-Layer Tool Registry, auto-scanner tools/custom/, dan database memory:",
+                        text = "Jalankan perintah ini di Termux untuk menginstal Agent lengkap beserta 3-Layer Tool Registry, auto-scanner tools/custom/, dan database memory:",
                         color = JarvisTextSecondary,
                         fontSize = 12.sp
                     )
@@ -296,7 +296,7 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
                     }
 
                     Text(
-                        text = "JARVIS-HP mengadopsi sistem modular sehingga kamu bisa memperluas kemampuan AI cukup dengan membuat file python di tools/custom/ tanpa mengedit agent.py.",
+                        text = "Aplikasi mengadopsi sistem modular sehingga kamu bisa memperluas kemampuan cukup dengan membuat file python di tools/custom/ tanpa mengedit agent.py.",
                         color = JarvisTextSecondary,
                         fontSize = 12.sp
                     )

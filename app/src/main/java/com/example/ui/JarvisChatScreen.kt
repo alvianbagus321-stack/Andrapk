@@ -167,7 +167,7 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Column {
                         Text(
-                            text = "AI Chat Window",
+                            text = "Asisten Perangkat",
                             color = JarvisTextPrimary,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
@@ -225,8 +225,8 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                                     val newState = viewModel.toggleHotword(context)
                                     Toast.makeText(
                                         context,
-                                        if (newState) "Always-On 'Jarvis' Aktif di Latar Belakang! Katakan 'Jarvis' di mana saja"
-                                        else "Always-On 'Jarvis' Dinonaktifkan",
+                                        if (newState) "Asisten suara aktif di latar belakang!"
+                                        else "Asisten suara dinonaktifkan",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
@@ -239,13 +239,13 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                         ) {
                             Icon(
                                 Icons.Default.RecordVoiceOver,
-                                contentDescription = "Always-on Jarvis Assistant",
+                                contentDescription = "Asisten suara latar belakang",
                                 tint = if (isHotwordEnabled) JarvisEmerald else JarvisTextSecondary,
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = if (isHotwordEnabled) "JARVIS: ON" else "JARVIS: OFF",
+                                text = if (isHotwordEnabled) "SUARA: ON" else "SUARA: OFF",
                                 color = if (isHotwordEnabled) JarvisEmerald else JarvisTextSecondary,
                                 fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
@@ -651,7 +651,7 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                                     Icon(Icons.Default.Psychology, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "🧠 Pikiran AI Realtime (Live Thought)",
+                                        text = "Proses Berpikir Realtime",
                                         color = JarvisCyan,
                                         fontSize = 11.5.sp,
                                         fontWeight = FontWeight.Bold
@@ -839,7 +839,7 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
         }
     }
 
-    // Hands-free Voice Call Dialog (JARVIS Live Voice Mode)
+    // Hands-free Voice Call Dialog (Live Voice Mode)
     if (showVoiceCallDialog || isVoiceCallActive) {
         JarvisVoiceCallDialog(
             onDismiss = {
@@ -1177,7 +1177,7 @@ fun ChatBubble(
                         .size(13.dp)
                         .clickable {
                             val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            val clip = android.content.ClipData.newPlainText("JARVIS Message", message.text)
+                            val clip = android.content.ClipData.newPlainText("Pesan Asisten", message.text)
                             clipboard.setPrimaryClip(clip)
                             Toast.makeText(context, "Pesan disalin ke clipboard 📋", Toast.LENGTH_SHORT).show()
                         }
@@ -1259,7 +1259,7 @@ fun ThinkingTraceCard(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Proses Berpikir JARVIS",
+                        text = "Proses Berpikir",
                         color = JarvisAmber,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
@@ -1329,7 +1329,7 @@ fun ThinkingTraceCard(
                             modifier = Modifier
                                 .clickable {
                                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("JARVIS Reasoning", thinking))
+                                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Proses Berpikir", thinking))
                                     android.widget.Toast.makeText(context, "Proses berpikir disalin", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                                 .padding(4.dp)

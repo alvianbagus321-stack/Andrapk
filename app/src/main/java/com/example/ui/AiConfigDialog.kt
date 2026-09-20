@@ -337,7 +337,7 @@ fun AiConfigDialog(
                     )
                     Text(
                         text = if (maxAgentLoops == 0)
-                            "✨ Mode Otomatis Aktif: AI akan beriterasi secara fleksibel sebanyak yang diperlukan hingga tugas selesai sepenuhnya."
+                            "Mode Otomatis Aktif: asisten akan beriterasi secara fleksibel sebanyak yang diperlukan hingga tugas selesai sepenuhnya."
                         else
                             "💡 Mengontrol berapa kali AI agent dapat beriterasi secara manual (1 - 50 langkah) saat mengeksekusi multi-step task.",
                         color = JarvisTextSecondary,

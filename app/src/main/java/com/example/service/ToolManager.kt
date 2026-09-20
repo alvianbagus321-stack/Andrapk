@@ -1136,12 +1136,12 @@ object ToolManager {
 
             "send_notification" -> {
                 try {
-                    val title = params.optString("title", "JARVIS-HP")
+                    val title = params.optString("title", "Andra Control")
                     val message = params.optString("message", params.optString("text", "Notifikasi dari JARVIS"))
                     val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     val channelId = "jarvis_tools_channel"
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        val channel = NotificationChannel(channelId, "JARVIS Notifications", NotificationManager.IMPORTANCE_DEFAULT)
+                        val channel = NotificationChannel(channelId, "Notifikasi Aplikasi", NotificationManager.IMPORTANCE_DEFAULT)
                         nm.createNotificationChannel(channel)
                     }
                     val notification = NotificationCompat.Builder(context, channelId)

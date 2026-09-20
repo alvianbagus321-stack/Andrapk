@@ -14,18 +14,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -39,6 +37,9 @@ import com.example.ui.JarvisSandboxScreen
 import com.example.ui.JarvisTermuxScreen
 import com.example.ui.JarvisToolsScreen
 import com.example.ui.JarvisViewModel
+import com.example.ui.components.AppLogoMark
+import com.example.ui.components.AuroraBackdrop
+import com.example.ui.components.StatusPill
 import com.example.ui.theme.*
 
 class MainActivity : ComponentActivity() {
@@ -138,35 +139,22 @@ fun JarvisMainApp(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            modifier = Modifier.size(36.dp),
-                            shape = CircleShape,
-                            color = JarvisCyan.copy(alpha = 0.2f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Default.Bolt,
-                                    contentDescription = null,
-                                    tint = JarvisCyan,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
+                        AppLogoMark(size = 38.dp, iconSize = 20.dp)
                         Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
-                                text = "JARVIS-HP",
+                                text = "Andra Control",
                                 color = JarvisTextPrimary,
                                 fontSize = 16.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.sp
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.3.sp
                             )
                             Text(
-                                text = "Agent Engine & Companion",
+                                text = "Device Automation Suite",
                                 color = JarvisCyan,
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 0.8.sp
                             )
                         }
                     }
@@ -174,8 +162,13 @@ fun JarvisMainApp(
                 actions = {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(end = 8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(end = 12.dp)
                     ) {
+                        StatusPill(
+                            text = if (isServerRunning) "ONLINE" else "OFFLINE",
+                            active = isServerRunning
+                        )
                         Switch(
                             checked = isServerRunning,
                             onCheckedChange = { viewModel.toggleServer() },
@@ -190,87 +183,54 @@ fun JarvisMainApp(
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = JarvisSurface,
+                    containerColor = JarvisBackground.copy(alpha = 0.6f),
                     titleContentColor = JarvisTextPrimary
                 )
             )
         },
         bottomBar = {
             NavigationBar(
-                containerColor = JarvisSurface,
-                tonalElevation = 8.dp,
+                containerColor = JarvisSurface.copy(alpha = 0.96f),
+                tonalElevation = 0.dp,
                 windowInsets = WindowInsets.navigationBars
             ) {
-                NavigationBarItem(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-                    label = { Text("Dashboard", fontSize = 11.sp, fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = JarvisBackground,
-                        selectedTextColor = JarvisCyan,
-                        indicatorColor = JarvisCyan,
-                        unselectedIconColor = JarvisTextSecondary,
-                        unselectedTextColor = JarvisTextSecondary
-                    ),
-                    modifier = Modifier.testTag("nav_dashboard")
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    icon = { Icon(Icons.Default.TouchApp, contentDescription = "Sandbox") },
-                    label = { Text("Sandbox", fontSize = 11.sp, fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = JarvisBackground,
-                        selectedTextColor = JarvisCyan,
-                        indicatorColor = JarvisCyan,
-                        unselectedIconColor = JarvisTextSecondary,
-                        unselectedTextColor = JarvisTextSecondary
-                    ),
-                    modifier = Modifier.testTag("nav_sandbox")
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    icon = { Icon(Icons.Default.Terminal, contentDescription = "Termux Agent") },
-                    label = { Text("Termux", fontSize = 11.sp, fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = JarvisBackground,
-                        selectedTextColor = JarvisCyan,
-                        indicatorColor = JarvisCyan,
-                        unselectedIconColor = JarvisTextSecondary,
-                        unselectedTextColor = JarvisTextSecondary
-                    ),
-                    modifier = Modifier.testTag("nav_termux")
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 3,
-                    onClick = { selectedTab = 3 },
-                    icon = { Icon(Icons.Default.Forum, contentDescription = "AI Chat") },
-                    label = { Text("AI Chat", fontSize = 11.sp, fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = JarvisBackground,
-                        selectedTextColor = JarvisCyan,
-                        indicatorColor = JarvisCyan,
-                        unselectedIconColor = JarvisTextSecondary,
-                        unselectedTextColor = JarvisTextSecondary
-                    ),
-                    modifier = Modifier.testTag("nav_chat")
-                )
-                NavigationBarItem(
-                    selected = selectedTab == 4,
-                    onClick = { selectedTab = 4 },
-                    icon = { Icon(Icons.Default.Build, contentDescription = "Tools") },
-                    label = { Text("Tools", fontSize = 11.sp, fontWeight = if (selectedTab == 4) FontWeight.Bold else FontWeight.Normal) },
-                    colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = JarvisBackground,
-                        selectedTextColor = JarvisCyan,
-                        indicatorColor = JarvisCyan,
-                        unselectedIconColor = JarvisTextSecondary,
-                        unselectedTextColor = JarvisTextSecondary
-                    ),
-                    modifier = Modifier.testTag("nav_tools")
-                )
+                listOf(
+                    Triple(0, Icons.Default.Dashboard, "Dashboard"),
+                    Triple(1, Icons.Default.TouchApp, "Sandbox"),
+                    Triple(2, Icons.Default.Terminal, "Termux"),
+                    Triple(3, Icons.AutoMirrored.Filled.Chat, "Asisten"),
+                    Triple(4, Icons.Default.Build, "Tools")
+                ).forEach { (index, icon, label) ->
+                    NavigationBarItem(
+                        selected = selectedTab == index,
+                        onClick = { selectedTab = index },
+                        icon = { Icon(icon, contentDescription = label) },
+                        label = {
+                            Text(
+                                label,
+                                fontSize = 10.5.sp,
+                                fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
+                                letterSpacing = 0.2.sp
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = JarvisCyan,
+                            selectedTextColor = JarvisCyan,
+                            indicatorColor = JarvisCyan.copy(alpha = 0.14f),
+                            unselectedIconColor = JarvisTextSecondary,
+                            unselectedTextColor = JarvisTextSecondary
+                        ),
+                        modifier = Modifier.testTag(
+                            when (index) {
+                                0 -> "nav_dashboard"
+                                1 -> "nav_sandbox"
+                                2 -> "nav_termux"
+                                3 -> "nav_chat"
+                                else -> "nav_tools"
+                            }
+                        )
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -279,16 +239,18 @@ fun JarvisMainApp(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            Crossfade(targetState = selectedTab, label = "tab_transition") { tab ->
-                when (tab) {
-                    0 -> JarvisDashboardScreen(
-                        viewModel = viewModel,
-                        onRequestMediaProjection = onRequestMediaProjection
-                    )
-                    1 -> JarvisSandboxScreen(viewModel = viewModel)
-                    2 -> JarvisTermuxScreen(viewModel = viewModel)
-                    3 -> JarvisChatScreen(viewModel = viewModel)
-                    4 -> JarvisToolsScreen()
+            AuroraBackdrop {
+                Crossfade(targetState = selectedTab, label = "tab_transition") { tab ->
+                    when (tab) {
+                        0 -> JarvisDashboardScreen(
+                            viewModel = viewModel,
+                            onRequestMediaProjection = onRequestMediaProjection
+                        )
+                        1 -> JarvisSandboxScreen(viewModel = viewModel)
+                        2 -> JarvisTermuxScreen(viewModel = viewModel)
+                        3 -> JarvisChatScreen(viewModel = viewModel)
+                        4 -> JarvisToolsScreen()
+                    }
                 }
             }
         }
