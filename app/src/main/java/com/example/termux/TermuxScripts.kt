@@ -981,6 +981,14 @@ echo "=================================================="
 pkg update -y || true
 pkg install -y python python-pip sqlite termux-api curl || true
 
+# ===== MCP: izinkan RUN_COMMAND dari app + siapkan cloudflared (tunnel) =====
+mkdir -p ~/.termux
+touch ~/.termux/termux.properties
+grep -q "allow-external-apps" ~/.termux/termux.properties 2>/dev/null || echo "allow-external-apps=true" >> ~/.termux/termux.properties
+termux-reload-settings 2>/dev/null || true
+termux-setup-storage >/dev/null 2>&1 || true
+command -v cloudflared >/dev/null 2>&1 || pkg install -y cloudflared || true
+
 PROJECT_DIR="${'$'}HOME/jarvis-hp"
 mkdir -p "${'$'}PROJECT_DIR/tools/custom"
 cd "${'$'}PROJECT_DIR"

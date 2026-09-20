@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.model.ServerLogItem
+import com.example.service.TunnelManager
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.*
 import java.text.SimpleDateFormat
@@ -60,6 +61,10 @@ fun JarvisDashboardScreen(
 
     val isHotwordEnabled by viewModel.isHotwordEnabled.collectAsState()
     val networkExposed by viewModel.networkExposed.collectAsState()
+    val tunnelUrl by TunnelManager.tunnelUrl.collectAsState()
+    val tunnelStatus by TunnelManager.tunnelStatus.collectAsState()
+    val isTunnelStarting by TunnelManager.isTunnelStarting.collectAsState()
+    val deviceIp by remember { mutableStateOf(TunnelManager.getDeviceIpAddress()) }
     val isHotwordListening by viewModel.isHotwordListeningActive.collectAsState()
     val isOverlayVisible by viewModel.isOverlayVisible.collectAsState()
     val aiConfig by viewModel.aiConfig.collectAsState()
@@ -703,40 +708,40 @@ fun JarvisDashboardScreen(
                         }
                     }
 
-                    // Endpoint row
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(JarvisSurfaceVariant)
-                            .border(1.dp, JarvisBorder, RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("MCP ENDPOINT", color = JarvisTextSecondary, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "http://127.0.0.1:$port/mcp",
-                                color = JarvisCyan,
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold
-                            )
+                    // ================= METODE 1: URL LANGSUNG =================
+                    Text(
+                        text = "METODE 1 — URL LANGSUNG (LOKAL / LAN)",
+                        color = JarvisCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "Untuk AI/agent di HP ini atau perangkat lain di WiFi yang sama.",
+                        color = JarvisTextSecondary,
+                        fontSize = 10.sp
+                    )
+
+                    // Endpoint lokal (di HP ini)
+                    EndpointRow(
+                        label = "Endpoint (HP ini)",
+                        url = "http://127.0.0.1:$port/mcp",
+                        onCopy = {
+                            copyToClipboard(context, "MCP Endpoint", "http://127.0.0.1:$port/mcp")
+                            Toast.makeText(context, "Endpoint MCP dicopy!", Toast.LENGTH_SHORT).show()
                         }
-                        Button(
-                            onClick = {
-                                copyToClipboard(context, "MCP Endpoint", "http://127.0.0.1:$port/mcp")
-                                Toast.makeText(context, "Endpoint MCP dicopy!", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan.copy(alpha = 0.2f), contentColor = JarvisCyan),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Copy", fontSize = 11.sp)
-                        }
+                    )
+
+                    // Endpoint LAN (perangkat lain)
+                    if (deviceIp != null) {
+                        EndpointRow(
+                            label = "Endpoint (LAN / WiFi sama)",
+                            url = "http://$deviceIp:$port/mcp",
+                            onCopy = {
+                                copyToClipboard(context, "MCP Endpoint LAN", "http://$deviceIp:$port/mcp")
+                                Toast.makeText(context, "Endpoint LAN dicopy!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
                     }
 
                     // Config JSON untuk klien MCP (Claude / Cursor / Cline, dll)
@@ -749,7 +754,7 @@ fun JarvisDashboardScreen(
                             }
                           }
                         }
-                    """.trimIndent().replace("  ", "  ")
+                    """.trimIndent()
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(
@@ -770,10 +775,9 @@ fun JarvisDashboardScreen(
                                 copyToClipboard(
                                     context,
                                     "Panduan MCP",
-                                    "1) Aktifkan server & 'Akses dari Jaringan' di kartu ini.\n" +
-                                        "2) Untuk AI lokal / di jaringan sama: daftarkan URL http://<IP-HP>:$port/mcp dengan header X-Local-Token: $token\n" +
-                                        "3) Untuk ChatGPT / Claude (cloud): buat tunnel HTTPS ke port $port (mis. cloudflared tunnel --url http://127.0.0.1:$port di Termux), lalu daftarkan URL tunnel + /mcp sebagai custom connector/app MCP di pengaturan AI.\n" +
-                                        "4) Tools list akan otomatis terbaca oleh AI: buka app, tap, swipe, shell, termux, decode gambar, dll."
+                                    "MODE A (Lokal): URL http://127.0.0.1:$port/mcp + header X-Local-Token: $token\n" +
+                                        "MODE B (LAN): aktifkan Akses Jaringan, pakai URL http://$deviceIp:$port/mcp\n" +
+                                        "MODE C (ChatGPT/Claude cloud): jalankan Tunnel (Metode 2) di kartu ini, daftarkan URL tunnel + /mcp sebagai connector di pengaturan AI, lalu tekan IZINKAN di halaman OAuth."
                                 )
                                 Toast.makeText(context, "Panduan koneksi dicopy!", Toast.LENGTH_SHORT).show()
                             },
@@ -787,9 +791,7 @@ fun JarvisDashboardScreen(
                         }
                     }
 
-                    HorizontalDivider(color = JarvisBorder.copy(alpha = 0.4f))
-
-                    // Toggle ekspos jaringan
+                    // Toggle ekspos jaringan (dibutuhkan Mode LAN)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -831,8 +833,132 @@ fun JarvisDashboardScreen(
                         )
                     }
 
+                    HorizontalDivider(color = JarvisBorder.copy(alpha = 0.4f))
+
+                    // ================= METODE 2: TUNNEL HTTPS =================
                     Text(
-                        text = "Protokol: MCP Streamable HTTP (JSON-RPC). Autentikasi: header X-Local-Token / Authorization Bearer / ?token=",
+                        text = "METODE 2 — TUNNEL HTTPS (CHATGPT / CLAUDE CLOUD)",
+                        color = AuroraViolet,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "Menjalankan tunnel (cloudflared) di Termux langsung dari sini. URL publik HTTPS muncul otomatis — tinggal daftarkan ke AI cloud.",
+                        color = JarvisTextSecondary,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp
+                    )
+
+                    if (tunnelUrl != null) {
+                        EndpointRow(
+                            label = "URL Tunnel (ChatGPT/Claude)",
+                            url = TunnelManager.buildMcpTunnelUrl(tunnelUrl ?: ""),
+                            urlColor = AuroraViolet,
+                            onCopy = {
+                                copyToClipboard(context, "MCP Tunnel URL", TunnelManager.buildMcpTunnelUrl(tunnelUrl ?: ""))
+                                Toast.makeText(context, "URL tunnel dicopy — daftarkan di ChatGPT/Claude!", Toast.LENGTH_LONG).show()
+                            }
+                        )
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = JarvisSurfaceVariant.copy(alpha = 0.6f),
+                            border = androidx.compose.foundation.BorderStroke(0.8.dp, JarvisBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (isTunnelStarting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = AuroraViolet
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Text(
+                                    tunnelStatus,
+                                    color = JarvisTextSecondary,
+                                    fontSize = 10.5.sp,
+                                    lineHeight = 14.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (tunnelUrl == null) {
+                            Button(
+                                onClick = {
+                                    val res = TunnelManager.startTunnel(context, port)
+                                    Toast.makeText(
+                                        context,
+                                        res.result ?: res.message ?: "Perintah tunnel terkirim",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                },
+                                modifier = Modifier.weight(1f),
+                                enabled = !isTunnelStarting,
+                                colors = ButtonDefaults.buttonColors(containerColor = AuroraViolet, contentColor = Color(0xFF231433)),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    if (isTunnelStarting) "Menjalankan…" else "Jalankan Tunnel",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(tunnelUrl ?: ""))
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = JarvisEmerald.copy(alpha = 0.2f), contentColor = JarvisEmerald),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisEmerald.copy(alpha = 0.5f)),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Tunnel Aktif", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                TunnelManager.stopTunnel(context)
+                                Toast.makeText(context, "Tunnel dihentikan", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(0.55f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTextSecondary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Stop", fontSize = 11.sp)
+                        }
+                    }
+
+                    Text(
+                        text = "Butuh Termux (install otomatis di dalamnya saat pertama kali) + internet. Setiap start menghasilkan URL baru — daftarkan ulang bila URL berubah.",
+                        color = JarvisTextSecondary.copy(alpha = 0.7f),
+                        fontSize = 9.5.sp,
+                        lineHeight = 13.sp
+                    )
+
+                    Text(
+                        text = "Protokol: MCP Streamable HTTP (JSON-RPC). Autentikasi: OAuth 2.0 / X-Local-Token / Authorization Bearer / ?token=",
                         color = JarvisTextSecondary.copy(alpha = 0.75f),
                         fontSize = 9.5.sp,
                         lineHeight = 13.sp
@@ -1002,7 +1128,7 @@ fun JarvisDashboardScreen(
 
                     HelpStep("3", "Mode B — Perangkat lain di WiFi yang sama", "Aktifkan 'Akses dari Jaringan' di kartu ini, lalu daftarkan URL http://<IP-HP>:8765/mcp di AI kamu. Cek IP HP di Pengaturan > Wi-Fi. Catatan: tambahkan http:// URL ini hanya untuk client yang mendukung HTTP lokal (bukan ChatGPT cloud).")
 
-                    HelpStep("4", "Mode C — ChatGPT / Claude (CLOUD)", "Karena AI-nya di internet, HP perlu tunnel:\n\n• Install di Termux: pkg install cloudflared\n• Jalankan: cloudflared tunnel --url http://127.0.0.1:8765\n• Salin URL https://xxxx.trycloudflare.com yang muncul\n• Di ChatGPT: Pengaturan > Connector > Tambah - tempel URL + '/mcp'\n• Saat menghubungkan, akan muncul HALAMAN IZIN (OAuth) dari aplikasi ini - tekan IZINKAN. Selesai! ChatGPT kini bisa memanggil tools HP kamu.\n\nAlternatif tunnel: Tailscale Funnel, ngrok (ngrok http 8765).")
+                    HelpStep("4", "Mode C — ChatGPT / Claude (CLOUD)", "Karena AI-nya di internet, HP perlu tunnel HTTPS. Cara termudah: tombol 'JALANKAN TUNNEL' di Metode 2 kartu ini — app menjalankan cloudflared via Termux dan URL publik muncul otomatis.\n\nManual (alternatif):\n• Di Termux: pkg install cloudflared\n• cloudflared tunnel --url http://127.0.0.1:8765\n\nLalu di ChatGPT: Pengaturan > Connector > Tambah — tempel URL tunnel + '/mcp'. Saat menghubungkan akan muncul HALAMAN IZIN (OAuth) — tekan IZINKAN. Selesai!")
 
                     HelpStep("5", "Keamanan", "Token & OAuth adalah kunci masuk ke HP kamu. Matikan 'Akses dari Jaringan' saat tidak dipakai, dan segera regenerate token jika kecurigaan. Izin OAuth berlaku 24 jam lalu harus disetujui ulang.")
 
@@ -1180,6 +1306,47 @@ fun LogItemRow(logItem: ServerLogItem, onClick: () -> Unit) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(timeStr, color = JarvisTextSecondary, fontSize = 10.sp)
             }
+        }
+    }
+}
+
+@Composable
+private fun EndpointRow(
+    label: String,
+    url: String,
+    onCopy: () -> Unit,
+    urlColor: Color = JarvisCyan
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(JarvisSurfaceVariant)
+            .border(1.dp, JarvisBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = JarvisTextSecondary, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                url,
+                color = urlColor,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
+        Button(
+            onClick = onCopy,
+            colors = ButtonDefaults.buttonColors(containerColor = urlColor.copy(alpha = 0.2f), contentColor = urlColor),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(6.dp)
+        ) {
+            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Copy", fontSize = 11.sp)
         }
     }
 }
