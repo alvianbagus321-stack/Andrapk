@@ -146,6 +146,7 @@ object AiChatService {
                - press_key: Menekan tombol sistem (params: {"keycode": "ENTER"|"BACK"|"HOME"|"RECENTS"|"VOLUME_UP"|"VOLUME_DOWN"})
                - swipe: Menggeser layar (params: {"x1": 500, "y1": 1500, "x2": 500, "y2": 500, "duration_ms": 300})
                - screenshot: Mengambil tangkapan layar perangkat
+               - decode_image: Mendekode gambar (params: {"source": "last_screenshot"} atau {"base64": "..."} / {"path": "..."} / {"uri": "..."}) menjadi TEKS lengkap: dimensi, warna dominan, kecerahan, tingkat detail, peta bentuk ASCII, dan OCR teks. WAJIB dipakai untuk "melihat" isi gambar/screenshot jika kamu tidak mendukung input gambar (non-vision).
                - send_notification: Mengirim notifikasi lokal ke status bar (params: {"title": "Judul", "message": "Pesan"})
                - flashlight_toggle: Menyalakan/mematikan senter (params: {"enable": true})
             2. Termux Service, API & Shell Layer:
@@ -193,6 +194,18 @@ object AiChatService {
                     currentPrompt = "[LAMPIRAN BERKAS TERHUBUNG]\n```\n$fileText\n```\n\n$userPrompt"
                 }
             }
+        }
+
+        // AI NON-VISION (endpoint OpenAI-compatible tanpa dukungan gambar):
+        // dekode lampiran gambar menjadi deskripsi tekstual agar tetap bisa "dibaca" model.
+        if (!isGemini && imageBase64 != null) {
+            onStatusUpdate("Menganalisa lampiran gambar menjadi teks (mode non-vision)...")
+            val analysis = ImageDecodeManager.analyzeBase64(imageBase64)
+            val analysisText = analysis.result ?: analysis.message
+            if (!analysisText.isNullOrBlank()) {
+                currentPrompt = "[LAMPIRAN GAMBAR — didekode otomatis menjadi deskripsi tekstual]\n$analysisText\n\n$userPrompt"
+            }
+            imageBase64 = null
         }
 
         liveThoughtState.value = ""
@@ -291,10 +304,23 @@ object AiChatService {
                     turnExecutedCount.add(toolName to executionResult)
                     executedTools.add(toolName to executionResult)
 
-                    // Check if tool produced a new screenshot Base64 for Vision analysis (latest screenshot wins)
+                    // Check if tool produced a new screenshot Base64 (latest screenshot wins)
                     val toolScreenshotB64 = executionResult.extra["screenshot_b64"] as? String
+                    var screenAnalysisText: String? = null
                     if (!toolScreenshotB64.isNullOrBlank()) {
-                        turnScreenshotB64 = toolScreenshotB64
+                        ImageDecodeManager.rememberScreenshot(toolScreenshotB64)
+                        if (isGemini) {
+                            // Model vision: kirim gambar asli pada langkah berikutnya
+                            turnScreenshotB64 = toolScreenshotB64
+                        } else {
+                            // Model non-vision: ubah screenshot menjadi deskripsi tekstual
+                            onStatusUpdate("$batchLabel: Menganalisa screenshot menjadi teks (mode non-vision)...")
+                            val analysis = ImageDecodeManager.analyzeBase64(toolScreenshotB64)
+                            val analysisText = analysis.result ?: analysis.message
+                            if (!analysisText.isNullOrBlank()) {
+                                screenAnalysisText = "[Analisa Otomatis Screenshot]\n$analysisText"
+                            }
+                        }
                     }
 
                     val resultOutputStr = executionResult.result ?: executionResult.message ?: if (executionResult.status == "ok") "Berhasil (OK)" else "Gagal"
@@ -302,6 +328,7 @@ object AiChatService {
                     stepSummary.add("$stepLabel: $toolName → ${executionResult.status.uppercase()}: $briefResult")
 
                     turnResultBlocks.add("Aksi ${actionIdx + 1} — Tool: $toolName\nStatus: ${executionResult.status}\nOutput:\n$resultOutputStr")
+                    screenAnalysisText?.let { turnResultBlocks.add(it) }
 
                     // Natural delay for UI transitions (e.g. app launching or layout animations)
                     if (toolName.equals("open_app", ignoreCase = true)) {
@@ -766,6 +793,22 @@ object AiChatService {
             return ToolManager.executeCustomTool(customTool, params)
         }
 
+        // Media analysis: decode gambar menjadi teks kaya (untuk AI non-vision)
+        if (lower == "decode_image" || lower == "analyze_image") {
+            val withOcr = params.optBoolean("with_ocr", params.optBoolean("ocr", true))
+            val source = params.optString("source", params.optString("src", "")).trim().lowercase()
+            val b64 = params.optString("base64", params.optString("image_base64", params.optString("image", "")))
+            val filePath = params.optString("path", params.optString("file", ""))
+            val uri = params.optString("uri", params.optString("content_uri", ""))
+            return when {
+                b64.isNotBlank() -> ImageDecodeManager.analyzeBase64(b64, withOcr)
+                source == "last_screenshot" || source == "screenshot" -> ImageDecodeManager.analyzeLastScreenshot(withOcr)
+                filePath.isNotBlank() -> ImageDecodeManager.analyzePath(filePath, withOcr)
+                uri.isNotBlank() -> ImageDecodeManager.analyzeUri(com.example.JarvisApp.instance, uri, withOcr)
+                else -> ToolResult("error", message = "Parameter gambar tidak ditemukan. Gunakan {\"source\":\"last_screenshot\"}, {\"base64\":\"...\"}, {\"path\":\"...\"}, atau {\"uri\":\"...\"}.")
+            }
+        }
+
         val service = JarvisAccessibilityService.instance
         return when (lower) {
             "open_app" -> {
@@ -853,7 +896,12 @@ object AiChatService {
             "screenshot" -> {
                 val (base64, errorMsg) = ScreenshotManager.captureBase64(com.example.JarvisApp.instance)
                 if (base64 != null) {
-                    ToolResult("ok", result = "Tangkapan layar berhasil diambil (${base64.length / 1024} KB)")
+                    ImageDecodeManager.rememberScreenshot(base64)
+                    ToolResult(
+                        "ok",
+                        result = "Tangkapan layar berhasil diambil (${base64.length / 1024} KB). Gunakan tool decode_image dengan {\"source\":\"last_screenshot\"} untuk membaca isinya sebagai teks.",
+                        extra = mapOf("screenshot_b64" to base64)
+                    )
                 } else {
                     ToolResult("error", message = errorMsg ?: "Gagal mengambil tangkapan layar. Pastikan Screen Share atau Accessibility aktif.")
                 }

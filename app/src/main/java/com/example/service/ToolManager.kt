@@ -438,6 +438,18 @@ object ToolManager {
             riskLevel = ToolRiskLevel.HIGH,
             isEnabled = true,
             isBuiltIn = true
+        ),
+        CustomTool(
+            id = "decode_image",
+            name = "Dekode Gambar (Base64 ke Teks)",
+            description = "Mendekode gambar base64/file/uri/screenshot terakhir menjadi deskripsi tekstual lengkap (dimensi, warna dominan, kecerahan, tingkat detail, peta bentuk ASCII, dan OCR teks) sehingga AI tanpa kemampuan vision pun dapat membaca isi gambar",
+            category = "Media & Analisis",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "decode_image",
+            parametersSchema = """{"source": "last_screenshot", "base64": "opsional", "path": "opsional", "with_ocr": true}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
         )
     )
 

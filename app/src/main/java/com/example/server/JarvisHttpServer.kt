@@ -20,6 +20,7 @@ import androidx.core.app.NotificationCompat
 import com.example.model.ErrorCodes
 import com.example.model.ServerLogItem
 import com.example.model.ToolResult
+import com.example.service.ImageDecodeManager
 import com.example.service.JarvisAccessibilityService
 import com.example.service.ScreenshotManager
 import com.example.termux.TermuxScripts
@@ -337,6 +338,34 @@ class JarvisHttpServer(
                     } else {
                         val err = errorJson(ErrorCodes.PERMISSION_DENIED, errorMsg ?: "Failed to capture screenshot", false)
                         sendResponse(output, 500, err, "application/json", method, path, clientIp, "Screenshot error: $errorMsg", true)
+                    }
+                }
+
+                // Image decode endpoint: ubah gambar (base64/file/screenshot terakhir) menjadi deskripsi tekstual + OCR
+                path == "/image/decode" && method == "POST" -> {
+                    val json = safeParseJson(requestBody)
+                    val withOcr = json.optBoolean("with_ocr", true)
+                    val source = json.optString("source", "").trim().lowercase()
+                    val b64 = json.optString("base64", json.optString("image_base64", ""))
+                    val filePath = json.optString("path", "")
+                    val result = when {
+                        b64.isNotBlank() -> ImageDecodeManager.analyzeBase64(b64, withOcr)
+                        source == "last_screenshot" || source == "screenshot" -> ImageDecodeManager.analyzeLastScreenshot(withOcr)
+                        filePath.isNotBlank() -> ImageDecodeManager.analyzePath(filePath, withOcr)
+                        else -> ToolResult("error", errorCode = ErrorCodes.INVALID_ARGUMENTS, message = "Missing image source: provide 'base64', 'source':'last_screenshot', or 'path'")
+                    }
+                    val resp = JSONObject().apply {
+                        put("status", result.status)
+                        if (result.status == "ok") {
+                            put("analysis", result.result ?: "")
+                        } else {
+                            put("error", result.message ?: "decode failed")
+                        }
+                    }.toString()
+                    if (result.status == "ok") {
+                        sendResponse(output, 200, resp, "application/json", method, path, clientIp, "Decoded image to text")
+                    } else {
+                        sendResponse(output, 400, resp, "application/json", method, path, clientIp, "Image decode failed", true)
                     }
                 }
 
