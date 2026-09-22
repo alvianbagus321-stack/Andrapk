@@ -162,6 +162,60 @@ fun JarvisDashboardScreen(
             }
         }
 
+        // AI QUIZ ANALYZER — toggle overlay penganalisis soal di layar
+        item {
+            val quizOn by viewModel.quizOverlayEnabled.collectAsState()
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("quiz_analyzer_card"),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.Bolt, contentDescription = null, tint = JarvisCyan)
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("AI Quiz Analyzer", style = MaterialTheme.typography.titleMedium, color = JarvisTextPrimary)
+                        Text(
+                            "Overlay kecil untuk memindai & menjawab soal di layar (screenshot + OCR + AI)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisTextSecondary
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Switch(
+                        checked = quizOn,
+                        onCheckedChange = {
+                            val ok = viewModel.toggleQuizOverlay(context)
+                            if (!ok) {
+                                Toast.makeText(context, "Izin 'Tampil di atas aplikasi lain' dibutuhkan", Toast.LENGTH_LONG).show()
+                                try {
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            Uri.parse("package:$(context.packageName)")
+                                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                } catch (_: Exception) {
+                                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                }
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    if (quizOn) "Quiz Analyzer dimatikan" else "Quiz Analyzer aktif — lihat overlay di layar",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
         // ASISTEN SUARA & HUD CARD
         item {
             Card(

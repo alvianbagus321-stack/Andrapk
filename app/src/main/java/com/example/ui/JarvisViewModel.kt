@@ -334,6 +334,14 @@ class JarvisViewModel : ViewModel() {
     val isHotwordListeningActive: StateFlow<Boolean> = com.example.service.JarvisHotwordManager.isListeningActive
     val isOverlayVisible: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.isOverlayVisible
 
+    val quizOverlayEnabled: StateFlow<Boolean> = com.example.quiz.QuizOverlayManager.isEnabled
+
+    /** Toggle overlay AI Quiz Analyzer. Return false bila izin overlay belum diberikan. */
+    fun toggleQuizOverlay(context: android.content.Context): Boolean {
+        val ok = com.example.quiz.QuizOverlayManager.toggle(context)
+        return ok
+    }
+
     val voiceOverlayEnabled: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.voiceOverlayEnabled
     val taskOverlayEnabled: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.taskOverlayEnabled
 

@@ -459,6 +459,32 @@ object AiChatService {
         }
     }
 
+    /**
+     * Panggilan AI mentah untuk fitur lain (mis. AI Quiz Analyzer) — MEMAKAI
+     * client & konfigurasi yang sudah ada (tanpa API key baru).
+     * @return Pair(teks jawaban, pesan error) — teks null bila gagal.
+     */
+    suspend fun rawCompletion(
+        systemInstruction: String,
+        prompt: String,
+        imageBase64: String? = null
+    ): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        val cfg = com.example.data.AiConfigManager.config.value
+        if (cfg.apiKey.isBlank()) {
+            return@withContext null to "API key AI belum diisi. Buka pengaturan AI di app untuk mengisinya."
+        }
+        val (text, _) = if (cfg.isGeminiNative) {
+            callGeminiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt, imageBase64)
+        } else {
+            // Provider OpenAI-compatible: teks saja (gambar tidak didukung jalur ini)
+            callOpenAiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt) to null
+        }
+        val isErrorPrefix = text.startsWith("Gagal menghubungi") ||
+                text.startsWith("Koneksi gagal") ||
+                text.startsWith("Tidak ada teks balasan")
+        if (isErrorPrefix) null to text else text to null
+    }
+
     private fun callGeminiRest(
         baseUrl: String,
         model: String,
