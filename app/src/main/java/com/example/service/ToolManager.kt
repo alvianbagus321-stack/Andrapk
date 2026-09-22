@@ -572,6 +572,30 @@ object ToolManager {
             isBuiltIn = true
         ),
         CustomTool(
+            id = "record_screen",
+            name = "Rekam Layar (Video MP4)",
+            description = "Merekam layar perangkat menjadi video MP4 — untuk debugging multi-step atau dokumentasi otomasi. Params {\"action\": \"start\"|\"stop\"|\"status\"}; otomatis berhenti maksimal 3 menit; hasil berupa path file video",
+            category = "Media & Analisis",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "record_screen",
+            parametersSchema = """{"action": "start"}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "adb_via_shizuku",
+            name = "ADB Shell via Shizuku",
+            description = "Menjalankan perintah shell level ADB (uid shell) via Shizuku — membuka akses pm grant, am force-stop, uiautomator dump, dumpsys penuh, dll yang diblokir bagi uid aplikasi biasa. Butuh app Shizuku aktif + izin diberikan",
+            category = "Sistem & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "adb_via_shizuku",
+            parametersSchema = """{"command": "pm list packages -3", "action": "exec"}""",
+            riskLevel = ToolRiskLevel.HIGH,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
             id = "input_swipe_bezier",
             name = "Swipe Kurva Bezier (Manusiawi)",
             description = "Swipe mengikuti kurva Bezier — menyerupai gerakan jari manusia, berguna untuk UI yang mengabaikan swipe garis lurus (carousel, map, drawer). Param bend (-1.0..1.0) mengatur kelengkungan",
@@ -1439,6 +1463,41 @@ object ToolManager {
                     return ToolResult("error", message = "Parameter 'element_id' atau 'text' wajib diisi.")
                 }
                 service.tapElement(ident)
+            }
+
+            "record_screen" -> {
+                val action = params.optString("action", params.optString("act", "start")).lowercase().trim()
+                when (action) {
+                    "stop" -> ScreenRecordManager.stop()
+                    "status" -> ScreenRecordManager.status()
+                    "start" -> ScreenRecordManager.start(context)
+                    else -> ToolResult("error", message = "Aksi '$action' tidak dikenali. Pilih: start, stop, status")
+                }
+            }
+
+            "adb_via_shizuku", "shizuku_shell" -> {
+                val action = params.optString("action", params.optString("act", "exec")).lowercase().trim()
+                when (action) {
+                    "status", "check" -> {
+                        val alive = AdbShizukuManager.isShizukuBinderAlive()
+                        val granted = AdbShizukuManager.shizukuPermissionGranted()
+                        ToolResult(
+                            status = "ok",
+                            result = "🩸 Shizuku binder: ${if (alive) "AKTIF" else "TIDAK AKTIF"} | Izin app: ${if (granted) "DIBERIKAN" else "BELUM"}\n" +
+                                    (if (!alive) "Buka app Shizuku → Start (Wireless Debugging), lalu ulangi." else if (!granted) "Panggil {\"action\":\"permission\"} untuk meminta izin." else "Siap dipakai: {\"command\":\"<perintah adb>\"}")
+                        )
+                    }
+                    "permission", "grant" -> AdbShizukuManager.requestShizukuPermission()
+                    "exec", "run", "shell" -> {
+                        val cmd = params.optString("command", params.optString("cmd", ""))
+                        if (cmd.isBlank()) {
+                            ToolResult("error", message = "Parameter 'command' wajib diisi untuk action=exec.")
+                        } else {
+                            AdbShizukuManager.executeShizukuShell(cmd)
+                        }
+                    }
+                    else -> ToolResult("error", message = "Aksi '$action' tidak dikenali. Pilih: exec, status, permission")
+                }
             }
 
             "ocr_region" -> {

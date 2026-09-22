@@ -9,6 +9,7 @@ import android.os.Environment
 import android.util.Log
 import com.example.JarvisApp
 import com.example.model.ToolResult
+import dev.rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -131,6 +132,87 @@ object AdbShizukuManager {
                 }
                 context.startActivity(webIntent)
             }
+        }
+    }
+
+    // =====================================================================
+    // Shizuku: eksekusi shell level ADB (uid 2000/shell) tanpa root.
+    // Membuka akses pm grant, am force-stop, uiautomator dump, dll yang
+    // diblokir saat shell dijalankan sebagai uid aplikasi biasa.
+    // =====================================================================
+
+    fun isShizukuBinderAlive(): Boolean = try {
+        Shizuku.pingBinder()
+    } catch (_: Throwable) {
+        false
+    }
+
+    fun shizukuPermissionGranted(): Boolean = try {
+        isShizukuBinderAlive() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+    } catch (_: Throwable) {
+        false
+    }
+
+    fun requestShizukuPermission(): ToolResult {
+        if (!isShizukuBinderAlive()) {
+            return ToolResult("error", message =
+                "❌ Shizuku tidak aktif. Buka app Shizuku → Start (via Wireless Debugging) atau jalankan di PC, lalu ulangi.\n" +
+                "Pasang Shizuku: https://shizuku.rikka.app/")
+        }
+        return try {
+            Shizuku.requestPermission(0)
+            ToolResult("ok", result = "🔑 Dialog izin Shizuku diminta — setujui di layar, lalu panggil adb_via_shizuku lagi.")
+        } catch (e: Throwable) {
+            ToolResult("error", message = "Gagal meminta izin Shizuku: ${e.message}")
+        }
+    }
+
+    /** Jalankan perintah dengan uid shell (setara adb shell) via Shizuku. */
+    fun executeShizukuShell(command: String): ToolResult {
+        val cleanCmd = command.trim()
+        if (cleanCmd.isEmpty()) {
+            return ToolResult("error", message = "Perintah shell tidak boleh kosong")
+        }
+        if (!isShizukuBinderAlive()) {
+            return ToolResult("error", errorCode = "SHIZUKU_NOT_ACTIVE", message =
+                "❌ Shizuku tidak aktif / tidak terpasang.\n" +
+                "1. Pasang Shizuku dari Play Store atau https://shizuku.rikka.app/\n" +
+                "2. Buka Shizuku → Start (Wireless Debugging di pengaturan developer, atau via PC)\n" +
+                "3. Panggil {"action":"permission"} lalu ulangi perintah.")
+        }
+        if (!shizukuPermissionGranted()) {
+            return ToolResult("error", errorCode = "SHIZUKU_PERMISSION", message =
+                "❌ Izin Shizuku untuk app ini belum diberikan. Panggil {"tool":"adb_via_shizuku","params":{"action":"permission"}} lalu setujui dialognya, kemudian ulangi perintah.")
+        }
+        return try {
+            val process = Shizuku.newProcess(arrayOf("sh", "-c", cleanCmd), null, null)
+            val output = StringBuilder()
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val errReader = BufferedReader(InputStreamReader(process.errorStream))
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                output.appendLine(line)
+                if (output.length > 20000) { output.appendLine("... [output dipotong]"); break }
+            }
+            var errLine: String?
+            while (errReader.readLine().also { errLine = it } != null) {
+                output.appendLine(errLine)
+                if (output.length > 20000) break
+            }
+            val finished = process.waitFor(25, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                return ToolResult("error", message = "Perintah timeout setelah 25 detik.")
+            }
+            val exitCode = process.exitValue()
+            val text = output.toString().trim()
+            if (exitCode == 0) {
+                ToolResult(status = "ok", result = if (text.isNotBlank()) text else "(sukses, tanpa output)")
+            } else {
+                ToolResult("error", errorCode = "SHIZUKU_EXIT_$exitCode", message = "Exit $exitCode:\n$text")
+            }
+        } catch (e: Throwable) {
+            ToolResult("error", message = "Gagal menjalankan via Shizuku: ${e.message}")
         }
     }
 

@@ -60,6 +60,9 @@ object ScreenshotManager {
         }
     }
 
+    /** Proyeksi layar aktif (untuk ScreenRecordManager & fitur lain yang butuh konsent yang sama). */
+    internal fun activeProjection(): MediaProjection? = mediaProjection
+
     fun setMediaProjection(context: Context, projection: MediaProjection) {
         release()
         mediaProjection = projection

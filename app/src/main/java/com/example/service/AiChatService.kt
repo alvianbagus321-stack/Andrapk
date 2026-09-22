@@ -155,6 +155,8 @@ object AiChatService {
                - screenshot: Mengambil tangkapan layar perangkat
                - decode_image: Mendekode gambar (params: {"source": "last_screenshot"} atau {"base64": "..."} / {"path": "..."} / {"uri": "..."}) menjadi TEKS lengkap: dimensi, warna dominan, kecerahan, tingkat detail, peta bentuk ASCII, dan OCR teks. WAJIB dipakai untuk "melihat" isi gambar/screenshot jika kamu tidak mendukung input gambar (non-vision).
                - ocr_region: OCR hanya AREA tertentu dari screenshot (HEMAT TOKEN — pakai ini dulu sebelum decode_image jika hanya butuh teks): params {"x_percent":0,"y_percent":0,"w_percent":50,"h_percent":30} atau piksel {"left":0,"top":0,"right":400,"bottom":200}
+               - record_screen: Rekam layar jadi video MP4 (params: {"action":"start"} lalu {"action":"stop"}; maks 3 menit) — pakai untuk debugging multi-step
+               - adb_via_shizuku: Shell level ADB via Shizuku (params: {"command":"pm list packages -3"} atau {"action":"status"/"permission"}) — pakai INI saat shell biasa DITOLAK (pm grant, am force-stop, uiautomator dump); butuh app Shizuku aktif
                - send_notification: Mengirim notifikasi lokal ke status bar (params: {"title": "Judul", "message": "Pesan"})
                - flashlight_toggle: Menyalakan/mematikan senter (params: {"enable": true})
                - screen_orientation: Cek rotasi & dimensi layar saat ini (panggil sebelum tap bila orientasi berubah)
