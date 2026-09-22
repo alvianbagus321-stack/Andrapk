@@ -74,6 +74,11 @@ object QuizAnalyzer {
 
     private var autoJob: Job? = null
     private var lastAutoHash: Long? = null
+    // Screenshot dari analisis TERAKHIR — dipakai Auto Submit sebagai fallback
+    // saat opsi/tombol tidak terdeteksi sebagai elemen accessibility (UI canvas/game).
+    @Volatile
+    private var lastAnalysisBase64: String? = null
+
 
     private val submitPrefs by lazy {
         JarvisApp.instance.getSharedPreferences("jarvis_quiz_prefs", android.content.Context.MODE_PRIVATE)
@@ -123,6 +128,7 @@ object QuizAnalyzer {
                 return@withContext
             }
             DiagnosticLogger.update(capture = QuizStepStatus.OK)
+            lastAnalysisBase64 = b64
 
             // 2. DECODE + OCR
             _phase.value = QuizPhase.OCR
@@ -186,7 +192,7 @@ object QuizAnalyzer {
             if (_autoSubmit.value && !result.isUncertain && result.confidence >= 0.5f) {
                 kotlinx.coroutines.delay(400) // beri waktu UI menampilkan hasil dulu
                 try {
-                    val msg = AutoSubmitter.submit(result)
+                    val msg = AutoSubmitter.submit(result, lastAnalysisBase64)
                     val ok = msg.startsWith("Ketuk")
                     DiagnosticLogger.update(autoSubmit = if (ok) QuizStepStatus.OK else QuizStepStatus.FAILED, autoSubmitDetail = msg)
                     _submitInfo.value = msg
