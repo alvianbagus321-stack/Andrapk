@@ -158,7 +158,8 @@ fun JarvisFloatingOverlayUI(
                         statusText = statusText,
                         toolName = toolName,
                         onCancel = onCancel,
-                        onExpand = { isExpandedView = true }
+                        onExpand = { isExpandedView = true },
+                        onMinimize = onDismiss
                     )
                 } else {
                     if (uiMode == OverlayUiMode.THINKING) {
@@ -1013,7 +1014,8 @@ private fun CompactTaskOverlayCard(
     statusText: String,
     toolName: String?,
     onCancel: () -> Unit,
-    onExpand: () -> Unit
+    onExpand: () -> Unit,
+    onMinimize: () -> Unit
 ) {
     val themeColor = if (isExecuting) JarvisAmber else JarvisCyan
     val titleText = if (isExecuting) "EKSEKUSI" else "MEMPROSES"
@@ -1108,6 +1110,29 @@ private fun CompactTaskOverlayCard(
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            // Minimize: kecilkan overlay ke pill tanpa membatalkan task
+            Surface(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .clickable { onMinimize() }
+                    .testTag("minimize_task_button"),
+                shape = CircleShape,
+                color = themeColor.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, themeColor.copy(alpha = 0.5f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Minimize",
+                        tint = themeColor,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }
