@@ -63,11 +63,30 @@ object QuizAnalyzer {
     private val _delayMs = MutableStateFlow(500L)
     val delayMs: StateFlow<Long> = _delayMs.asStateFlow()
 
+    private val _autoSubmit = MutableStateFlow(false)
+    val autoSubmit: StateFlow<Boolean> = _autoSubmit.asStateFlow()
+
+    private val _submitInfo = MutableStateFlow<String?>(null)
+    val submitInfo: StateFlow<String?> = _submitInfo.asStateFlow()
+
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
     private var autoJob: Job? = null
     private var lastAutoHash: Long? = null
+
+    private val submitPrefs by lazy {
+        JarvisApp.instance.getSharedPreferences("jarvis_quiz_prefs", android.content.Context.MODE_PRIVATE)
+    }
+
+    fun setAutoSubmit(enabled: Boolean) {
+        _autoSubmit.value = enabled
+        submitPrefs.edit().putBoolean("quiz_auto_submit", enabled).apply()
+    }
+
+    fun loadPersisted() {
+        _autoSubmit.value = submitPrefs.getBoolean("quiz_auto_submit", false)
+    }
 
     fun setDelayMs(ms: Long) {
         _delayMs.value = ms.coerceIn(300L, 10_000L)
@@ -162,6 +181,26 @@ object QuizAnalyzer {
             )
             _answer.value = result
             _phase.value = QuizPhase.DONE
+
+            // 5. AUTO SUBMIT (opsional — default OFF, hanya bila AI yakin)
+            if (_autoSubmit.value && !result.isUncertain && result.confidence >= 0.5f) {
+                kotlinx.coroutines.delay(400) // beri waktu UI menampilkan hasil dulu
+                try {
+                    val msg = AutoSubmitter.submit(result)
+                    val ok = msg.startsWith("Ketuk")
+                    DiagnosticLogger.update(autoSubmit = if (ok) QuizStepStatus.OK else QuizStepStatus.FAILED, autoSubmitDetail = msg)
+                    _submitInfo.value = msg
+                } catch (e: Exception) {
+                    DiagnosticLogger.update(autoSubmit = QuizStepStatus.FAILED, autoSubmitDetail = "Error: ${e.message}")
+                    _submitInfo.value = "Auto submit gagal: ${e.message}"
+                }
+            } else if (_autoSubmit.value) {
+                DiagnosticLogger.update(autoSubmit = QuizStepStatus.SKIPPED, autoSubmitDetail = "Dilewati (AI kurang yakin)")
+                _submitInfo.value = null
+            } else {
+                DiagnosticLogger.update(clearAutoSubmitDetail = true)
+                _submitInfo.value = null
+            }
         } catch (e: Exception) {
             DiagnosticLogger.update(error = e.message)
             fail("Error: ${e.message ?: e.javaClass.simpleName}")

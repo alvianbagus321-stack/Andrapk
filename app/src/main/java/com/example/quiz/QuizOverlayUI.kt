@@ -43,6 +43,8 @@ fun QuizOverlayUI() {
     val delayMs by QuizAnalyzer.delayMs.collectAsState()
     val lastError by QuizAnalyzer.lastError.collectAsState()
     val minimized by QuizOverlayManager.isMinimized.collectAsState()
+    val autoSubmitOn by QuizAnalyzer.autoSubmit.collectAsState()
+    val submitInfo by QuizAnalyzer.submitInfo.collectAsState()
 
     if (minimized) {
         // ---- Mode minimize: bulatan kecil ----
@@ -157,6 +159,20 @@ fun QuizOverlayUI() {
                 )
             }
 
+            // Auto Submit (opsional — otomatis ketuk opsi & tombol kirim)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Auto Submit", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                    Text("Ketuk jawaban & tombol kirim otomatis", color = JarvisTextSecondary, fontSize = 9.sp)
+                }
+                Switch(
+                    checked = autoSubmitOn,
+                    onCheckedChange = { QuizAnalyzer.setAutoSubmit(it) },
+                    modifier = Modifier.height(24.dp),
+                    colors = SwitchDefaults.colors(checkedTrackColor = JarvisAmber)
+                )
+            }
+
             // Delay (ms)
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text("Delay (ms)", color = JarvisTextPrimary, fontSize = 11.5.sp, modifier = Modifier.weight(1f))
@@ -209,6 +225,9 @@ fun QuizOverlayUI() {
                     }
                     Spacer(Modifier.height(4.dp))
                     Text("Confidence: ${(result.confidence * 100).toInt()}%", color = JarvisCyan, fontSize = 10.5.sp)
+                    if (submitInfo != null) {
+                        Text("▸ $submitInfo", color = JarvisAmber, fontSize = 9.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
                 }
                 result != null && result.isUncertain -> {
                     Text("Unable to determine answer", color = JarvisAmber, fontSize = 13.sp, fontWeight = FontWeight.Bold)

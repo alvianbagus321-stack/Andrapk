@@ -25,7 +25,10 @@ object DiagnosticLogger {
         response: QuizStepStatus? = null,
         latencyMs: Long? = null,
         error: String? = null,
-        clearError: Boolean = false
+        clearError: Boolean = false,
+        autoSubmit: QuizStepStatus? = null,
+        autoSubmitDetail: String? = null,
+        clearAutoSubmitDetail: Boolean = false
     ) {
         val d = _diagnostic.value
         _diagnostic.value = d.copy(
@@ -36,7 +39,9 @@ object DiagnosticLogger {
             optionCount = optionCount ?: d.optionCount,
             response = response ?: d.response,
             latencyMs = latencyMs ?: d.latencyMs,
-            error = if (clearError) null else (error ?: d.error)
+            error = if (clearError) null else (error ?: d.error),
+            autoSubmit = autoSubmit ?: d.autoSubmit,
+            autoSubmitDetail = if (clearAutoSubmitDetail) null else (autoSubmitDetail ?: d.autoSubmitDetail)
         )
     }
 }

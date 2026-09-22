@@ -34,7 +34,9 @@ data class QuizDiagnostic(
     val optionCount: Int = 0,
     val response: QuizStepStatus = QuizStepStatus.SKIPPED,
     val latencyMs: Long = 0,
-    val error: String? = null
+    val error: String? = null,
+    val autoSubmit: QuizStepStatus = QuizStepStatus.SKIPPED,
+    val autoSubmitDetail: String? = null
 ) {
     fun toLines(): List<String> = listOf(
         "Screen Capture: ${label(capture)}",
@@ -43,7 +45,8 @@ data class QuizDiagnostic(
         "Question: ${if (questionDetected) "Detected" else "Not detected"}",
         "Options: $optionCount",
         "Response: ${label(response)}",
-        "Latency: $latencyMs ms"
+        "Latency: $latencyMs ms",
+        "Auto Submit: " + (autoSubmitDetail ?: label(autoSubmit))
     ) + (error?.let { listOf("Error: $it") } ?: emptyList())
 
     private fun label(s: QuizStepStatus) = when (s) {

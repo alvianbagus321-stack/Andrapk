@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        com.example.quiz.QuizAnalyzer.loadPersisted()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
