@@ -159,19 +159,56 @@ object JarvisMemoryManager {
         }
     }
 
+    /**
+     * Recall memori dengan pencarian per-kata (OR, case-insensitive) + ranking relevansi.
+     * Dulu query utuh 4+ kata ("environment uid termux python") gagal karena dicocokkan
+     * sebagai SATU substring per baris — fakta yang tersimpan di baris berbeda tak pernah match.
+     * Sekarang: tiap kata = keyword tersendiri; baris dinilai dari jumlah keyword yang cocok
+     * (makin banyak makin relevan), keyword di-highlight bold, header seksi tetap ditampilkan.
+     */
     fun recallMemory(query: String?): String {
         val fullMemory = getMemoryMarkdown()
         if (query.isNullOrBlank()) return fullMemory
 
-        val matches = fullMemory.lines().filter { line ->
-            line.contains(query, ignoreCase = true) || line.startsWith("#")
+        // Tokenisasi query per-kata: buang tanda baca, minimal 2 karakter, unik
+        val keywords = query.lowercase()
+            .split(Regex("[^a-z0-9]+"))
+            .filter { it.length >= 2 }
+            .distinct()
+        if (keywords.isEmpty()) return fullMemory
+
+        // Skor tiap baris = jumlah keyword yang muncul di baris itu (case-insensitive)
+        val scored = fullMemory.lines().map { line ->
+            val lower = line.lowercase()
+            val hits = keywords.filter { lower.contains(it) }
+            line to hits
         }
 
-        return if (matches.isNotEmpty()) {
-            matches.joinToString("\n")
-        } else {
-            "Tidak ditemukan memori spesifik untuk kata kunci '$query'. Berikut memori lengkap:\n\n$fullMemory"
+        val matched = scored.filter { it.second.isNotEmpty() }
+        if (matched.isEmpty()) {
+            return "Tidak ditemukan memori yang cocok untuk kata kunci: ${keywords.joinToString(", ")}. Berikut memori lengkap:\n\n$fullMemory"
         }
+
+        // Ranking relevansi: baris dengan keyword terbanyak di atas (stable sort —
+        // baris ber-score sama tetap urut asli). Header seksi (0 hit) tetap ikut sebagai konteks.
+        val ranked = (scored.filter { it.second.isNotEmpty() } + scored.filter { it.second.isEmpty() && it.first.startsWith("#") })
+            .sortedByDescending { it.second.size }
+
+        // Highlight keyword (bold markdown) — huruf asli dipertahankan
+        val highlighted = ranked.map { (line, hits) ->
+            if (hits.isEmpty()) line
+            else {
+                var out = line
+                for (kw in hits) {
+                    out = out.replace(Regex(Regex.escape(kw), setOf(RegexOption.IGNORE_CASE))) { m -> "**${m.value}**" }
+                }
+                out
+            }
+        }
+
+        val totalHits = matched.sumOf { it.second.size }
+        return highlighted.joinToString("\n") +
+                "\n\n🔎 (${matched.size} baris cocok, $totalHits kecocokan keyword dari ${keywords.size} kata; diurutkan berdasarkan relevansi)"
     }
 
     fun clearMemory(): String {
