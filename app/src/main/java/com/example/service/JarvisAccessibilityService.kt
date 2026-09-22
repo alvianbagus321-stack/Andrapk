@@ -35,6 +35,10 @@ class JarvisAccessibilityService : AccessibilityService() {
 
         @Volatile
         var instance: JarvisAccessibilityService? = null
+
+        /** Snapshot layar terakhir untuk diff_screen (verifikasi before/after aksi). */
+        @Volatile
+        private var lastDiffSnapshot: ScreenSnapshot? = null
             private set
     }
 
@@ -673,6 +677,90 @@ class JarvisAccessibilityService : AccessibilityService() {
             status = "ok",
             result = "👆 Tap '${(target.text.ifBlank { target.contentDescription }).ifBlank { target.viewId }}' di (${target.bounds.centerX}, ${target.bounds.centerY}) — cocok untuk '$q' (dari ${candidates.size} kandidat)."
         )
+    }
+
+    /** Snapshot ringan layar untuk diff_screen & wait_stable. */
+    private data class ScreenSnapshot(val hash: Int, val summary: String, val count: Int)
+
+    private fun snapshotScreen(): ScreenSnapshot {
+        val els = getScreenElements()
+        val sig = els.joinToString("|") { "${it.id}:${it.text}:${it.bounds.centerX},${it.bounds.centerY}" }
+        val summary = els.take(20).joinToString("\n") { el ->
+            "- '${el.text.ifBlank { el.contentDescription }}' @ (${el.bounds.centerX}, ${el.bounds.centerY})"
+        }
+        return ScreenSnapshot(sig.hashCode(), summary, els.size)
+    }
+
+    /**
+     * Scroll otomatis sampai teks ditemukan (untuk list panjang) — menggantikan
+     * swipe buta berulang. Scroll dari bawah (75% tinggi) ke atas (30%).
+     */
+    suspend fun scrollToText(query: String, maxSwipes: Int = 6): ToolResult {
+        val q = query.trim()
+        if (q.isBlank()) return ToolResult("error", message = "Parameter 'text' wajib diisi.")
+        val metrics = ScreenshotManager.getScreenMetrics(this)
+        val cx = metrics.widthPixels / 2f
+        var swipes = 0
+        var matched = findElementsByText(q)
+        while (matched.isEmpty() && swipes < maxSwipes.coerceIn(1, 15)) {
+            swipeCoordinates(cx, metrics.heightPixels * 0.75f, cx, metrics.heightPixels * 0.30f, 400)
+            kotlinx.coroutines.delay(500)
+            swipes++
+            matched = findElementsByText(q)
+        }
+        return if (matched.isEmpty()) {
+            ToolResult("error", message = "Teks '$q' tidak ditemukan setelah $swipes kali scroll.")
+        } else {
+            val el = matched.first()
+            ToolResult(
+                status = "ok",
+                result = "📜 '$q' ditemukan setelah $swipes scroll @ (${el.bounds.centerX}, ${el.bounds.centerY}). Ketuk dengan tap_by_text."
+            )
+        }
+    }
+
+    /** Menunggu layar stabil (tidak berubah >= 2 interval 400ms) sebelum aksi berikutnya. */
+    suspend fun waitForStableScreen(timeoutMs: Long = 3000L): ToolResult {
+        val deadline = System.currentTimeMillis() + timeoutMs.coerceIn(500L, 15000L)
+        var prev = snapshotScreen()
+        var stableLoops = 0
+        while (System.currentTimeMillis() < deadline && stableLoops < 2) {
+            kotlinx.coroutines.delay(400)
+            val cur = snapshotScreen()
+            if (cur.hash == prev.hash) stableLoops++ else stableLoops = 0
+            prev = cur
+        }
+        return ToolResult(
+            status = "ok",
+            result = if (stableLoops >= 2) {
+                "✅ Layar stabil (${prev.count} elemen, tidak berubah >= 800ms)."
+            } else {
+                "⏳ Layar MASIH BERUBAH (terakhir ${prev.count} elemen). Tunggu sebentar sebelum aksi berikutnya."
+            }
+        )
+    }
+
+    /** Bandingkan layar saat ini vs snapshot pemanggilan sebelumnya (verifikasi before/after aksi). */
+    suspend fun diffScreen(): ToolResult {
+        val cur = snapshotScreen()
+        val last = lastDiffSnapshot
+        lastDiffSnapshot = cur
+        return if (last == null) {
+            ToolResult(
+                status = "ok",
+                result = "📸 Baseline layar disimpan (${cur.count} elemen). Lakukan aksi (tap/open_app), lalu panggil 'diff_screen' lagi untuk membandingkan before/after."
+            )
+        } else if (last.hash == cur.hash) {
+            ToolResult(
+                status = "ok",
+                result = "⚠️ TIDAK ADA PERUBAHAN layar sebelum→sesudah (${cur.count} elemen sama persis). Kemungkinan aksi terakhir GAGAL/tidak berefek — coba pendekatan lain (mis. tap_by_text)."
+            )
+        } else {
+            ToolResult(
+                status = "ok",
+                result = "✅ Layar BERUBAH sebelum→sesudah: ${last.count} elemen → ${cur.count} elemen.\nState terkini (20 teratas):\n${cur.summary}"
+            )
+        }
     }
 
     private fun findNodeByIdentifier(node: AccessibilityNodeInfo?, identifier: String): AccessibilityNodeInfo? {

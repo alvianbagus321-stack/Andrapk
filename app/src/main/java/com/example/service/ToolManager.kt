@@ -510,6 +510,54 @@ object ToolManager {
             riskLevel = ToolRiskLevel.SAFE,
             isEnabled = true,
             isBuiltIn = true
+        ),
+        CustomTool(
+            id = "scroll_to_text",
+            name = "Scroll sampai Teks Ditemukan",
+            description = "Scroll otomatis layar sampai elemen dengan teks tertentu terlihat (untuk list panjang) lalu kembalikan koordinatnya — lebih baik daripada swipe buta berulang",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "scroll_to_text",
+            parametersSchema = """{"text": "Setelan", "max_swipes": 6}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "wait_stable",
+            name = "Tunggu Layar Stabil",
+            description = "Menunggu hingga layar tidak berubah lagi (animasi/loading selesai) sebelum aksi atau screenshot berikutnya",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "wait_stable",
+            parametersSchema = """{"timeout_ms": 3000}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "diff_screen",
+            name = "Bandingkan Layar Before/After",
+            description = "Membandingkan layar saat ini dengan snapshot pemanggilan sebelumnya. Panggil sebelum aksi (baseline) lalu setelah aksi: 'tidak ada perubahan' berarti aksi kemungkinan gagal",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "diff_screen",
+            parametersSchema = """{}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "accessibility_click",
+            name = "Klik Elemen via Accessibility",
+            description = "Klik node UI langsung lewat AccessibilityNodeInfo berdasarkan teks/view-id — bypass koordinat sama sekali, paling akurat untuk tombol standar",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "accessibility_click",
+            parametersSchema = """{"element_id": "com.whatsapp:id/send", "text": "opsional"}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
         )
     )
 
@@ -749,7 +797,8 @@ object ToolManager {
                     "read_screen", "battery", "get_telemetry", "list_tools", "get_storage",
                     "cek_ram", "clipboard_read", "screen_orientation", "find_by_text",
                     "wait_for_element", "dumpsys_window", "get_device_resolution",
-                    "get_current_app", "list_apps", "recall_memory"
+                    "get_current_app", "list_apps", "recall_memory", "wait_stable",
+                    "diff_screen", "scroll_to_text"
                 )
                 if (!isReadOnly) {
                     return Pair(false, "Aksi '$toolName' diblokir oleh AI Permission Mode: SANDBOXED (Hanya baca yang diizinkan).")
@@ -1333,6 +1382,39 @@ object ToolManager {
                 }
                 val timeout = params.optLong("timeout_ms", 3000L).coerceIn(0L, 20000L)
                 service.tapByText(query, timeout)
+            }
+
+            "scroll_to_text" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val query = params.optString("text", params.optString("query", ""))
+                if (query.isBlank()) {
+                    return ToolResult("error", message = "Parameter 'text' wajib diisi (teks yang dicari saat scroll).")
+                }
+                val maxSwipes = params.optInt("max_swipes", 6).coerceIn(1, 15)
+                service.scrollToText(query, maxSwipes)
+            }
+
+            "wait_stable" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                service.waitForStableScreen(params.optLong("timeout_ms", 3000L))
+            }
+
+            "diff_screen" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                service.diffScreen()
+            }
+
+            "accessibility_click" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val ident = params.optString("element_id", params.optString("text", params.optString("id", "")))
+                if (ident.isBlank()) {
+                    return ToolResult("error", message = "Parameter 'element_id' atau 'text' wajib diisi.")
+                }
+                service.tapElement(ident)
             }
 
             else -> {

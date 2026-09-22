@@ -137,6 +137,13 @@ object AiChatService {
             4. Setelah SEMUA blok aksi dieksekusi oleh sistem Android, hasilnya (stdout / output / status) akan langsung dikirimkan kembali kepadamu pada giliran berikutnya, diurutkan sesuai urutan eksekusi (Aksi 1, Aksi 2, dst).
             5. KETIKA SEMUA TUGAS SELESAI atau pengguna hanya bertanya tanpa perlu aksi di HP, berikan jawaban akhir yang ramah, informatif, dan solutif TANPA blok ```json:action```.
 
+            STRATEGI AKURASI & VERIFIKASI (WAJIB — hasil audit pengujian perangkat nyata):
+            1. read_screen adalah SUMBER KOORDINAT PRIMER. Jangan pernah menebak koordinat. Bila tahu teks tombolnya, SELALU utamakan tap_by_text (anti-miss, aman di landscape) di atas tap koordinat manual.
+            2. Panggil screen_orientation di awal sesi dan saat mencurigai layar berputar (mis. setelah buka app video/remote desktop). Screenshot kini OTOMATIS mengikuti rotasi layar.
+            3. VERIFIKASI setelah setiap aksi penting: wait_for_element (teks yang diharapkan muncul), get_current_app / dumpsys_window (app target di depan), atau diff_screen (bandingkan before/after: panggil sebelum aksi utk baseline lalu setelah aksi).
+            4. Jika aksi tampak gagal (diff_screen bilang tidak berubah, tap meleset), RETRY MAKSIMAL 2x dengan pendekatan BERBEDA (koordinat → tap_by_text → accessibility_click), lalu laporkan ke user bila tetap gagal.
+            5. Untuk list panjang pakai scroll_to_text (bukan swipe buta berulang); tunggu layar selesai loading dengan wait_stable sebelum screenshot/read_screen; baca layar padat dengan read_screen + {"filter_clickable": true} agar hanya tombol yang tampil.
+
             ARSITEKTUR TOOL (3-LAYER MODULAR REGISTRY):
             1. Android & Accessibility Layer:
                - open_app: Membuka aplikasi (params: {"package_name": "com.google.android.youtube"} atau alias "youtube", "chrome", "whatsapp", "settings")
@@ -873,11 +880,15 @@ object AiChatService {
             }
             "read_screen", "inspect_screen" -> {
                 if (service != null) {
-                    val elements = service.readScreenElements()
+                    // Opsi filter: hanya elemen clickable (mengurangi noise utk agent) + limit jumlah output
+                    val filterClickable = params.optBoolean("filter_clickable", false)
+                    val limit = params.optInt("limit", 35).coerceIn(1, 100)
+                    var elements = service.readScreenElements()
+                    if (filterClickable) elements = elements.filter { it.isClickable }
                     if (elements.isEmpty()) {
-                        ToolResult("ok", result = "Layar saat ini kosong atau tidak ada elemen UI interaktif yang terdeteksi.")
+                        ToolResult("ok", result = "Layar saat ini kosong atau tidak ada elemen UI${if (filterClickable) " interaktif (filter_clickable=true)" else ""} yang terdeteksi.")
                     } else {
-                        val formatted = elements.take(35).mapIndexed { idx, el ->
+                        val formatted = elements.take(limit).mapIndexed { idx, el ->
                             val idStr = if (el.viewId.isNotBlank()) el.viewId else el.id
                             val labels = listOf(el.text, el.contentDescription).filter { it.isNotBlank() }
                             val labelDesc = if (labels.isNotEmpty()) "Teks: \"${labels.joinToString(" / ")}\"" else "Tanpa label"
@@ -889,7 +900,7 @@ object AiChatService {
                             val flagInfo = if (flags.isNotEmpty()) "[${flags.joinToString(", ")}]" else ""
                             "• #$idx ID: '$idStr' | $labelDesc | Tipe: $type | Posisi: (${el.bounds.centerX}, ${el.bounds.centerY}) $flagInfo"
                         }.joinToString("\n")
-                        val extraCount = if (elements.size > 35) "\n... (+${elements.size - 35} elemen lainnya)" else ""
+                        val extraCount = if (elements.size > limit) "\n... (+${elements.size - limit} elemen lainnya)" else ""
                         ToolResult("ok", result = "📋 Tampilan Layar Saat Ini (${elements.size} elemen terdeteksi):\n$formatted$extraCount")
                     }
                 } else ToolResult("error", message = "Accessibility Service belum aktif")
