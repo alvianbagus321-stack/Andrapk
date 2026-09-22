@@ -3,6 +3,8 @@ package com.example.ui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
+import android.content.res.Resources
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -12,7 +14,10 @@ import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.FrameLayout
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -32,12 +37,12 @@ import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.example.JarvisApp
 import com.example.MainActivity
-import com.example.service.JarvisVoiceManager
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlin.math.abs
+import kotlin.math.hypot
 
 enum class OverlayUiMode {
     MINI_PILL,
@@ -47,21 +52,44 @@ enum class OverlayUiMode {
     RESULT
 }
 
+/**
+ * Manager jendela mengambang (floating window) JARVIS.
+ *
+ * DUA jendela TERPISAH agar jelas bedanya:
+ *  1. VOICE  (suara)  : MINI_PILL + LISTENING — kecil, bisa digeser (drag), posisi diingat.
+ *  2. TASK   (chat)   : THINKING + EXECUTING + RESULT — MEMENUHI LAYAR (fullscreen overlay),
+ *                       kartu besar di atas layar (dulu terlalu ke bawah).
+ *
+ * Masing-masing bisa di-ON/OFF-kan terpisah (toggle tersimpan di prefs).
+ * Drag sekarang pakai onInterceptTouchEvent di layout pembungkus sehingga TETAP JALAN
+ * meski jari di atas area Compose yang menelan sentuhan (dulu sering tak bisa digeser).
+ */
 object JarvisOverlayManager {
     private const val TAG = "JarvisOverlayManager"
+    private const val PREFS_NAME = "jarvis_overlay_prefs"
+    private const val KEY_VOICE_ENABLED = "overlay_voice_enabled"
+    private const val KEY_TASK_ENABLED = "overlay_task_enabled"
+    private const val KEY_VOICE_X = "overlay_voice_x"
+    private const val KEY_VOICE_Y = "overlay_voice_y"
+
+    private val VOICE_MODES = setOf(OverlayUiMode.MINI_PILL, OverlayUiMode.LISTENING)
+    private val TASK_MODES = setOf(OverlayUiMode.THINKING, OverlayUiMode.EXECUTING, OverlayUiMode.RESULT)
 
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var windowManager: WindowManager? = null
-    private var overlayView: View? = null
-    private var lifecycleOwner: OverlayLifecycleOwner? = null
-    private var layoutParams: WindowManager.LayoutParams? = null
+    private var prefs: SharedPreferences? = null
 
-    // Touch drag tracking
-    private var initialX = 0
-    private var initialY = 0
-    private var initialTouchX = 0f
-    private var initialTouchY = 0f
-    private var isDragging = false
+    // ---------------- VOICE window ----------------
+    private var voiceView: View? = null
+    private var voiceParams: WindowManager.LayoutParams? = null
+    private var voiceLifecycle: OverlayLifecycleOwner? = null
+
+    // ---------------- TASK window ----------------
+    private var taskView: View? = null
+    private var taskParams: WindowManager.LayoutParams? = null
+    private var taskLifecycle: OverlayLifecycleOwner? = null
+
+    /** true selama user membiarkan overlay tampil (show()/hide()). */
+    private var overlayShown = false
 
     // Observable states for UI
     private val _uiMode = MutableStateFlow(OverlayUiMode.MINI_PILL)
@@ -88,6 +116,13 @@ object JarvisOverlayManager {
     private val _isOverlayVisible = MutableStateFlow(false)
     val isOverlayVisible: StateFlow<Boolean> = _isOverlayVisible.asStateFlow()
 
+    // Toggle masing-masing jendela (persist di prefs; default ON)
+    private val _voiceOverlayEnabled = MutableStateFlow(true)
+    val voiceOverlayEnabled: StateFlow<Boolean> = _voiceOverlayEnabled.asStateFlow()
+
+    private val _taskOverlayEnabled = MutableStateFlow(true)
+    val taskOverlayEnabled: StateFlow<Boolean> = _taskOverlayEnabled.asStateFlow()
+
     private var autoDismissRunnable: Runnable? = null
 
     fun canDrawOverlay(context: Context): Boolean {
@@ -98,133 +133,299 @@ object JarvisOverlayManager {
         }
     }
 
-    @SuppressLint("ClickableViewAccessibility")
+    private fun ensurePrefs() {
+        if (prefs == null) {
+            prefs = JarvisApp.instance.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            _voiceOverlayEnabled.value = prefs?.getBoolean(KEY_VOICE_ENABLED, true) ?: true
+            _taskOverlayEnabled.value = prefs?.getBoolean(KEY_TASK_ENABLED, true) ?: true
+        }
+    }
+
+    /** ON/OFF kan jendela SUARA (pill + listening). */
+    fun setVoiceOverlayEnabled(enabled: Boolean) {
+        ensurePrefs()
+        _voiceOverlayEnabled.value = enabled
+        prefs?.edit()?.putBoolean(KEY_VOICE_ENABLED, enabled)?.apply()
+        mainHandler.post { syncWindows() }
+    }
+
+    /** ON/OFF kan jendela CHAT/TASK (thinking/executing/result). */
+    fun setTaskOverlayEnabled(enabled: Boolean) {
+        ensurePrefs()
+        _taskOverlayEnabled.value = enabled
+        prefs?.edit()?.putBoolean(KEY_TASK_ENABLED, enabled)?.apply()
+        mainHandler.post { syncWindows() }
+    }
+
+    /** Tampilkan overlay (dipanggil hotword service / dashboard). */
     fun show(context: Context): Boolean {
         if (!canDrawOverlay(context)) {
             Log.w(TAG, "Cannot show overlay: SYSTEM_ALERT_WINDOW permission not granted")
             return false
         }
-
-        mainHandler.post {
-            if (overlayView != null) {
-                _isOverlayVisible.value = true
-                return@post
-            }
-
-            try {
-                windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-
-                val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                } else {
-                    @Suppress("DEPRECATION")
-                    WindowManager.LayoutParams.TYPE_PHONE
-                }
-
-                layoutParams = WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.WRAP_CONTENT,
-                    WindowManager.LayoutParams.WRAP_CONTENT,
-                    windowType,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                    PixelFormat.TRANSLUCENT
-                ).apply {
-                    gravity = Gravity.TOP or Gravity.START
-                    x = 40
-                    y = 160
-                }
-
-                val owner = OverlayLifecycleOwner()
-                lifecycleOwner = owner
-
-                val composeView = ComposeView(context).apply {
-                    setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
-                    setViewTreeLifecycleOwner(owner)
-                    setViewTreeViewModelStoreOwner(owner)
-                    setViewTreeSavedStateRegistryOwner(owner)
-
-                    setContent {
-                        MyApplicationTheme {
-                            JarvisFloatingOverlayUI(
-                                onDismiss = { collapseToPill() },
-                                onCloseOverlay = { hide() },
-                                onCancel = { cancelAction() },
-                                onOpenApp = { openMainActivity(context) },
-                                onMicTap = { triggerVoiceListening() }
-                            )
-                        }
-                    }
-
-                    setOnTouchListener { _, event ->
-                        handleTouchEvent(event)
-                    }
-                }
-
-                overlayView = composeView
-                windowManager?.addView(composeView, layoutParams)
-                _isOverlayVisible.value = true
-                Log.i(TAG, "Jarvis Overlay Window successfully displayed")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error adding overlay view to WindowManager", e)
-            }
-        }
+        ensurePrefs()
+        overlayShown = true
+        mainHandler.post { syncWindows() }
         return true
     }
 
-    private fun handleTouchEvent(event: MotionEvent): Boolean {
-        val params = layoutParams ?: return false
-        val wm = windowManager ?: return false
-        val view = overlayView ?: return false
-
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                initialX = params.x
-                initialY = params.y
-                initialTouchX = event.rawX
-                initialTouchY = event.rawY
-                isDragging = false
-                return false
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-                val dx = event.rawX - initialTouchX
-                val dy = event.rawY - initialTouchY
-                if (abs(dx) > 10 || abs(dy) > 10) {
-                    isDragging = true
-                    params.x = initialX + dx.toInt()
-                    params.y = initialY + dy.toInt()
-                    try {
-                        wm.updateViewLayout(view, params)
-                    } catch (_: Exception) {}
-                    return true
-                }
-            }
-
-            MotionEvent.ACTION_UP -> {
-                if (isDragging) {
-                    return true
-                }
-            }
-        }
-        return false
+    /** Tutup semua jendela overlay. */
+    fun hide() {
+        overlayShown = false
+        mainHandler.post { syncWindows() }
     }
 
-    fun hide() {
-        mainHandler.post {
-            cancelAutoDismiss()
-            try {
-                if (overlayView != null && windowManager != null) {
-                    windowManager?.removeView(overlayView)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error removing overlay view", e)
-            } finally {
-                overlayView = null
-                lifecycleOwner?.destroy()
-                lifecycleOwner = null
-                _isOverlayVisible.value = false
+    // =====================================================================
+    // Window lifecycle
+    // =====================================================================
+
+    private fun syncWindows() {
+        val mode = _uiMode.value
+        val wantVoice = overlayShown && _voiceOverlayEnabled.value && mode in VOICE_MODES
+        val wantTask = overlayShown && _taskOverlayEnabled.value && mode in TASK_MODES
+
+        if (wantVoice && voiceView == null) createVoiceWindow()
+        if (!wantVoice && voiceView != null) removeVoiceWindow()
+        if (wantTask && taskView == null) createTaskWindow()
+        if (!wantTask && taskView != null) removeTaskWindow()
+
+        _isOverlayVisible.value = voiceView != null || taskView != null
+    }
+
+    private fun windowType(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else
+            @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun createVoiceWindow() {
+        val context = JarvisApp.instance
+        try {
+            val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val p = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                windowType(),
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                // Default di ATAS layar (dulu y=160 terasa terlalu ke bawah)
+                x = prefs?.getInt(KEY_VOICE_X, 40) ?: 40
+                y = prefs?.getInt(KEY_VOICE_Y, 100) ?: 100
             }
+            voiceParams = p
+
+            val owner = OverlayLifecycleOwner()
+            voiceLifecycle = owner
+
+            val content = ComposeView(context).apply {
+                setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+                setViewTreeLifecycleOwner(owner)
+                setViewTreeViewModelStoreOwner(owner)
+                setViewTreeSavedStateRegistryOwner(owner)
+                setContent {
+                    MyApplicationTheme {
+                        JarvisFloatingOverlayUI(
+                            allowedModes = VOICE_MODES,
+                            onDismiss = { collapseToPill() },
+                            onCloseOverlay = { hide() },
+                            onCancel = { cancelAction() },
+                            onOpenApp = { openMainActivity(context) },
+                            onMicTap = { triggerVoiceListening() }
+                        )
+                    }
+                }
+            }
+
+            val root = DraggableOverlayLayout(context).apply {
+                configure(
+                    getPos = { Pair(voiceParams?.x ?: 0, voiceParams?.y ?: 0) },
+                    setPos = { x, y -> updateVoicePosition(x, y) },
+                    onDragEnd = { saveVoicePosition() }
+                )
+                addView(content)
+            }
+
+            voiceView = root
+            wm.addView(root, p)
+            Log.i(TAG, "Jendela SUARA (pill/listening) tampil")
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal menampilkan jendela suara", e)
+            voiceView = null
+        }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun createTaskWindow() {
+        val context = JarvisApp.instance
+        try {
+            val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val p = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                windowType(),
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = Gravity.CENTER
+            }
+            taskParams = p
+
+            val owner = OverlayLifecycleOwner()
+            taskLifecycle = owner
+
+            val content = ComposeView(context).apply {
+                setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+                setViewTreeLifecycleOwner(owner)
+                setViewTreeViewModelStoreOwner(owner)
+                setViewTreeSavedStateRegistryOwner(owner)
+                setContent {
+                    MyApplicationTheme {
+                        JarvisFloatingOverlayUI(
+                            allowedModes = TASK_MODES,
+                            onDismiss = { collapseToPill() },
+                            onCloseOverlay = { hide() },
+                            onCancel = { cancelAction() },
+                            onOpenApp = { openMainActivity(context) },
+                            onMicTap = { triggerVoiceListening() }
+                        )
+                    }
+                }
+            }
+
+            taskView = content
+            wm.addView(content, p)
+            Log.i(TAG, "Jendela CHAT/TASK (fullscreen) tampil")
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal menampilkan jendela chat/task", e)
+            taskView = null
+        }
+    }
+
+    private fun removeVoiceWindow() {
+        try {
+            if (voiceView != null) {
+                val wm = JarvisApp.instance.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                wm.removeView(voiceView)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "removeVoiceWindow: ${e.message}")
+        } finally {
+            voiceView = null
+            voiceParams = null
+            voiceLifecycle?.destroy()
+            voiceLifecycle = null
+        }
+    }
+
+    private fun removeTaskWindow() {
+        try {
+            if (taskView != null) {
+                val wm = JarvisApp.instance.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                wm.removeView(taskView)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "removeTaskWindow: ${e.message}")
+        } finally {
+            taskView = null
+            taskParams = null
+            taskLifecycle?.destroy()
+            taskLifecycle = null
+        }
+    }
+
+    private fun updateVoicePosition(x: Int, y: Int) {
+        val params = voiceParams ?: return
+        val view = voiceView ?: return
+        val metrics = Resources.getSystem().displayMetrics
+        val maxX = (metrics.widthPixels * 0.9f).toInt()
+        val maxY = (metrics.heightPixels * 0.85f).toInt()
+        params.x = x.coerceIn(0, maxX)
+        params.y = y.coerceIn(0, maxY)
+        try {
+            val wm = JarvisApp.instance.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            wm.updateViewLayout(view, params)
+        } catch (_: Exception) {}
+    }
+
+    private fun saveVoicePosition() {
+        val params = voiceParams ?: return
+        prefs?.edit()
+            ?.putInt(KEY_VOICE_X, params.x)
+            ?.putInt(KEY_VOICE_Y, params.y)
+            ?.apply()
+    }
+
+    /**
+     * Layout pembungkus yang MENYALURKAN drag ke window.
+     * Kunci: onInterceptTouchEvent — event turun dari root dulu, jadi drag tetap
+     * terdeteksi walau jari berada di atas elemen Compose yang clickable
+     * (dulu setOnTouchListener di ComposeView sering kalah oleh anak Compose).
+     */
+    private class DraggableOverlayLayout(context: Context) : FrameLayout(context) {
+        private var getPos: (() -> Pair<Int, Int>)? = null
+        private var setPosFn: ((Int, Int) -> Unit)? = null
+        private var onDragEnd: (() -> Unit)? = null
+
+        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        private var downRawX = 0f
+        private var downRawY = 0f
+        private var startX = 0
+        private var startY = 0
+        private var dragging = false
+
+        fun configure(
+            getPos: () -> Pair<Int, Int>,
+            setPos: (Int, Int) -> Unit,
+            onDragEnd: () -> Unit
+        ) {
+            this.getPos = getPos
+            this.setPosFn = setPos
+            this.onDragEnd = onDragEnd
+        }
+
+        override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downRawX = ev.rawX
+                    downRawY = ev.rawY
+                    val p = getPos?.invoke()
+                    startX = p?.first ?: 0
+                    startY = p?.second ?: 0
+                    dragging = false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!dragging && hypot(ev.rawX - downRawX, ev.rawY - downRawY) > touchSlop) {
+                        dragging = true
+                    }
+                }
+            }
+            return dragging
+        }
+
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_MOVE -> {
+                    if (dragging) {
+                        setPosFn?.invoke(
+                            startX + (ev.rawX - downRawX).toInt(),
+                            startY + (ev.rawY - downRawY).toInt()
+                        )
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) {
+                        dragging = false
+                        onDragEnd?.invoke()
+                    }
+                }
+            }
+            return true
         }
     }
 
@@ -246,6 +447,7 @@ object JarvisOverlayManager {
                 _uiMode.value = OverlayUiMode.THINKING
                 _statusText.value = "Menganalisis perintah..."
             }
+            syncWindows()
         }
     }
 
@@ -261,6 +463,7 @@ object JarvisOverlayManager {
             _aiReply.value = "Yes?"
             _statusText.value = "Asisten: Ada yang bisa dibantu? (Mendengarkan...)"
             _uiMode.value = OverlayUiMode.LISTENING
+            syncWindows()
         }
     }
 
@@ -277,6 +480,7 @@ object JarvisOverlayManager {
             _userCommand.value = text
             if (_uiMode.value == OverlayUiMode.MINI_PILL) {
                 _uiMode.value = OverlayUiMode.LISTENING
+                syncWindows()
             }
         }
     }
@@ -287,6 +491,7 @@ object JarvisOverlayManager {
             _userCommand.value = command
             _uiMode.value = OverlayUiMode.THINKING
             _statusText.value = "Memproses instruksi..."
+            syncWindows()
         }
     }
 
@@ -295,6 +500,7 @@ object JarvisOverlayManager {
             _toolName.value = tool
             _uiMode.value = OverlayUiMode.EXECUTING
             _statusText.value = "Menjalankan otomasi: $tool"
+            syncWindows()
         }
     }
 
@@ -312,6 +518,7 @@ object JarvisOverlayManager {
             _uiMode.value = OverlayUiMode.RESULT
             _statusText.value = if (tool != null) "Selesai Dieksekusi" else "Asisten Menjawab"
             scheduleAutoDismiss(9000)
+            syncWindows()
         }
     }
 
@@ -320,6 +527,7 @@ object JarvisOverlayManager {
             cancelAutoDismiss()
             _uiMode.value = OverlayUiMode.MINI_PILL
             _statusText.value = "Asisten • Standby"
+            syncWindows()
         }
     }
 
@@ -328,6 +536,7 @@ object JarvisOverlayManager {
             cancelAutoDismiss()
             _uiMode.value = OverlayUiMode.LISTENING
             _statusText.value = "Katakan 'Jarvis...' atau perintah Anda"
+            syncWindows()
         }
     }
 
@@ -372,7 +581,7 @@ object JarvisOverlayManager {
             try {
                 val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
                 val pointerView = ComposeView(context).apply {
-                    val owner = lifecycleOwner ?: OverlayLifecycleOwner()
+                    val owner = taskLifecycle ?: voiceLifecycle ?: OverlayLifecycleOwner()
                     setViewTreeLifecycleOwner(owner)
                     setViewTreeSavedStateRegistryOwner(owner)
                     setContent {
@@ -408,10 +617,7 @@ object JarvisOverlayManager {
                 val pointerParams = WindowManager.LayoutParams(
                     WindowManager.LayoutParams.MATCH_PARENT,
                     WindowManager.LayoutParams.MATCH_PARENT,
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                    else
-                        WindowManager.LayoutParams.TYPE_PHONE,
+                    windowType(),
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                             WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,

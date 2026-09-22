@@ -44,6 +44,7 @@ import com.example.ui.theme.*
  */
 @Composable
 fun JarvisFloatingOverlayUI(
+    allowedModes: Set<OverlayUiMode> = OverlayUiMode.entries.toSet(),
     onDismiss: () -> Unit,
     onCloseOverlay: () -> Unit,
     onCancel: () -> Unit,
@@ -104,12 +105,26 @@ fun JarvisFloatingOverlayUI(
 
     var isExpandedView by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier
+    // Mode task (chat/otomasi) tampil di window FULLSCREEN: kartu memenuhi lebar layar
+    // dan berada di ATAS layar (dulu window wrap-content membuat UI muncul terlalu ke bawah).
+    val isTaskMode = uiMode == OverlayUiMode.THINKING || uiMode == OverlayUiMode.EXECUTING || uiMode == OverlayUiMode.RESULT
+    val renderHere = uiMode in allowedModes
+    val rootModifier = if (isTaskMode && renderHere) {
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 28.dp)
+    } else {
+        Modifier
             .wrapContentSize()
             .padding(6.dp)
+    }
+
+    Box(
+        modifier = rootModifier
     ) {
-        when (uiMode) {
+        if (!renderHere) {
+            // Mode ini sedang ditampilkan di jendela lain (voice vs task dipisah)
+        } else when (uiMode) {
             OverlayUiMode.MINI_PILL -> {
                 LiquidGlassMiniPill(
                     pulseAlpha = pulseAlpha,

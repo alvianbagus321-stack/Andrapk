@@ -334,6 +334,17 @@ class JarvisViewModel : ViewModel() {
     val isHotwordListeningActive: StateFlow<Boolean> = com.example.service.JarvisHotwordManager.isListeningActive
     val isOverlayVisible: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.isOverlayVisible
 
+    val voiceOverlayEnabled: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.voiceOverlayEnabled
+    val taskOverlayEnabled: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.taskOverlayEnabled
+
+    fun setVoiceOverlayEnabled(enabled: Boolean) {
+        com.example.ui.JarvisOverlayManager.setVoiceOverlayEnabled(enabled)
+    }
+
+    fun setTaskOverlayEnabled(enabled: Boolean) {
+        com.example.ui.JarvisOverlayManager.setTaskOverlayEnabled(enabled)
+    }
+
     fun toggleHotword(context: android.content.Context): Boolean {
         val result = com.example.service.JarvisHotwordManager.toggleHotword(context)
         com.example.service.JarvisCompanionService.updateNotification(context)

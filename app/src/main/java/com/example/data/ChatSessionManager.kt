@@ -18,7 +18,9 @@ import java.io.File
 
 object ChatSessionManager {
     private const val TAG = "ChatSessionManager"
-    private const val SESSIONS_FILE = "jarvis_chat_sessions.json"
+    // Disimpan lewat PersistentStore (/sdcard/JARVIS/chats/...) agar TAHAN UNINSTALL.
+    private const val SESSIONS_REL = "chats/jarvis_chat_sessions.json"
+    private const val LEGACY_SESSIONS_FILE = "jarvis_chat_sessions.json"
     private val scope = CoroutineScope(Dispatchers.IO)
 
     private val _sessions = MutableStateFlow<List<ChatSession>>(emptyList())
@@ -35,7 +37,7 @@ object ChatSessionManager {
     }
 
     private fun getStorageFile(): File {
-        return File(JarvisApp.instance.filesDir, SESSIONS_FILE)
+        return File(JarvisApp.instance.filesDir, LEGACY_SESSIONS_FILE)
     }
 
     private fun createDefaultGreetingMessage(): ChatMessage {
@@ -47,9 +49,8 @@ object ChatSessionManager {
 
     fun loadSessions() {
         try {
-            val file = getStorageFile()
-            if (file.exists()) {
-                val jsonString = file.readText(Charsets.UTF_8)
+            val jsonString = PersistentStore.read(SESSIONS_REL)
+            if (!jsonString.isNullOrBlank()) {
                 val jsonArray = JSONArray(jsonString)
                 val list = mutableListOf<ChatSession>()
 
@@ -161,7 +162,7 @@ object ChatSessionManager {
                     }
                     jsonArray.put(sObj)
                 }
-                getStorageFile().writeText(jsonArray.toString(), Charsets.UTF_8)
+                PersistentStore.write(SESSIONS_REL, jsonArray.toString())
             } catch (e: Exception) {
                 Log.e(TAG, "Error saving sessions to disk", e)
             }

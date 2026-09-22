@@ -17,31 +17,30 @@ import java.io.File
 object JarvisMemoryManager {
 
     private const val TAG = "JarvisMemoryManager"
-    private const val MEMORY_FILE_NAME = "jarvis_memory.md"
-    private const val ARCHIVE_FILE_NAME = "jarvis_memory_archive.md"
+    // Disimpan lewat PersistentStore (/sdcard/JARVIS/memory/...) agar TAHAN UNINSTALL.
+    private const val MEMORY_REL = "memory/jarvis_memory.md"
+    private const val ARCHIVE_REL = "memory/jarvis_memory_archive.md"
+    private const val LEGACY_MEMORY_FILE_NAME = "jarvis_memory.md"
     private const val MAX_MEMORY_CHARS_THRESHOLD = 3500
 
     private val _memoryState = MutableStateFlow("")
     val memoryState: StateFlow<String> = _memoryState.asStateFlow()
 
     init {
+        // Migrasi data lama (file internal pra-PersistentStore) agar tidak hilang.
+        try {
+            com.example.data.PersistentStore.migrateLegacyFile(
+                File(JarvisApp.instance.filesDir, LEGACY_MEMORY_FILE_NAME),
+                MEMORY_REL
+            )
+        } catch (_: Exception) {}
         loadMemoryFromFile()
-    }
-
-    private fun getMemoryFile(): File {
-        val context = JarvisApp.instance
-        return File(context.filesDir, MEMORY_FILE_NAME)
-    }
-
-    private fun getArchiveFile(): File {
-        val context = JarvisApp.instance
-        return File(context.filesDir, ARCHIVE_FILE_NAME)
     }
 
     fun loadMemoryFromFile(): String {
         return try {
-            val file = getMemoryFile()
-            if (!file.exists()) {
+            val existing = PersistentStore.read(MEMORY_REL)
+            if (existing == null) {
                 val initialContent = """
                     # 🧠 JARVIS Permanent Memory Bank (.md)
                     
@@ -54,13 +53,12 @@ object JarvisMemoryManager {
                     ## 📝 Saved Notes & Preferences
                     - Memori tersimpan secara otomatis dalam format Markdown yang hemat token.
                 """.trimIndent()
-                file.writeText(initialContent)
+                PersistentStore.write(MEMORY_REL, initialContent)
                 _memoryState.value = initialContent
                 initialContent
             } else {
-                val content = file.readText()
-                _memoryState.value = content
-                content
+                _memoryState.value = existing
+                existing
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error reading memory file", e)
@@ -75,8 +73,7 @@ object JarvisMemoryManager {
 
     fun saveMemory(category: String, content: String): String {
         return try {
-            val file = getMemoryFile()
-            var currentContent = if (file.exists()) file.readText() else ""
+            var currentContent = PersistentStore.read(MEMORY_REL) ?: ""
             if (currentContent.isBlank()) {
                 currentContent = "# 🧠 JARVIS Permanent Memory Bank (.md)\n"
             }
@@ -93,13 +90,13 @@ object JarvisMemoryManager {
                 val beforeHeader = parts[0]
                 val afterHeader = parts[1]
                 val newContent = "$beforeHeader$headerTitle\n$formattedLine\n$afterHeader"
-                file.writeText(newContent)
+                PersistentStore.write(MEMORY_REL, newContent)
                 _memoryState.value = newContent
             } else {
                 // Add new category section
                 val newSection = "\n\n$headerTitle\n$formattedLine"
                 val newContent = currentContent + newSection
-                file.writeText(newContent)
+                PersistentStore.write(MEMORY_REL, newContent)
                 _memoryState.value = newContent
             }
 
@@ -118,14 +115,13 @@ object JarvisMemoryManager {
      */
     fun checkAndAutoArchiveMemory(): String {
         return try {
-            val file = getMemoryFile()
-            if (!file.exists()) return "File memori belum ada."
-            val content = file.readText()
+            val content = PersistentStore.read(MEMORY_REL)
+                ?: return "File memori belum ada."
 
             if (content.length > MAX_MEMORY_CHARS_THRESHOLD) {
-                val archiveFile = getArchiveFile()
                 val timestamp = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-                archiveFile.appendText("\n\n--- 📦 AUTO ARCHIVE ENTRY ($timestamp) ---\n$content")
+                val existingArchive = PersistentStore.read(ARCHIVE_REL) ?: ""
+                PersistentStore.write(ARCHIVE_REL, "$existingArchive\n\n--- 📦 AUTO ARCHIVE ENTRY ($timestamp) ---\n$content")
 
                 val lines = content.lines()
                 val headerLines = lines.filter { it.startsWith("#") || it.contains("User Preferences") || it.contains("Device Context") }
@@ -146,7 +142,7 @@ object JarvisMemoryManager {
                     }
                 }
 
-                file.writeText(condensedContent)
+                PersistentStore.write(MEMORY_REL, condensedContent)
                 _memoryState.value = condensedContent
                 Log.i(TAG, "Auto-archived $archivedCount memory entries due to storage threshold.")
                 "📦 Memori lama ($archivedCount entri) telah diarsipkan otomatis ke 'jarvis_memory_archive.md' agar AI tetap cepat & efisien token."
@@ -213,10 +209,8 @@ object JarvisMemoryManager {
 
     fun clearMemory(): String {
         return try {
-            val file = getMemoryFile()
-            if (file.exists()) {
-                file.delete()
-            }
+            PersistentStore.delete(MEMORY_REL)
+            PersistentStore.delete(ARCHIVE_REL)
             loadMemoryFromFile()
             "Seluruh memori (.md) telah dibersihkan."
         } catch (e: Exception) {

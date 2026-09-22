@@ -91,6 +91,77 @@ fun JarvisDashboardScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)
     ) {
+        // JENDELA MENGAMBANG — toggle terpisah: HUD suara vs chat/task + status penyimpanan tahan-uninstall
+        item {
+            val voiceOverlayOn by viewModel.voiceOverlayEnabled.collectAsState()
+            val taskOverlayOn by viewModel.taskOverlayEnabled.collectAsState()
+            val storageOk = remember { com.example.data.PersistentStore.isExternalActive() }
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("floating_window_card"),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.WebAsset, contentDescription = null, tint = JarvisCyan)
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text("Jendela Mengambang", style = MaterialTheme.typography.titleMedium, color = JarvisTextPrimary)
+                            Text("Atur tampil/sembunyi tiap jendela", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("HUD Suara (Pill)", style = MaterialTheme.typography.bodyMedium, color = JarvisTextPrimary)
+                            Text("Pill kecil + kartu mendengarkan; bisa digeser, posisi diingat", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
+                        }
+                        Switch(
+                            checked = voiceOverlayOn,
+                            onCheckedChange = { viewModel.setVoiceOverlayEnabled(it) }
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Overlay Chat & Task", style = MaterialTheme.typography.bodyMedium, color = JarvisTextPrimary)
+                            Text("Kartu besar memenuhi layar saat AI berpikir/mengeksekusi/menjawab", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
+                        }
+                        Switch(
+                            checked = taskOverlayOn,
+                            onCheckedChange = { viewModel.setTaskOverlayEnabled(it) }
+                        )
+                    }
+                    HorizontalDivider(thickness = 1.dp, color = JarvisBorder.copy(alpha = 0.4f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (storageOk) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = if (storageOk) JarvisEmerald else JarvisRed
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (storageOk)
+                                "Chat & ingatan AI tersimpan di ${com.example.data.PersistentStore.externalPath()} — tidak hilang walau app dihapus"
+                            else
+                                "Chat & ingatan AI akan hilang saat app dihapus. Aktifkan izin 'Akses semua file' agar tersimpan aman di storage.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisTextSecondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (!storageOk) {
+                            TextButton(onClick = {
+                                com.example.service.AdbShizukuManager.requestAllFilesAccess(context)
+                            }) { Text("Izinkan") }
+                        }
+                    }
+                }
+            }
+        }
+
         // ASISTEN SUARA & HUD CARD
         item {
             Card(
