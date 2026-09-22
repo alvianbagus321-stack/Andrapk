@@ -261,6 +261,71 @@ class JarvisAccessibilityService : AccessibilityService() {
     /**
      * Taps an element by ID, viewId, or label with multi-window lookup.
      */
+    /**
+     * Swipe mengikuti kurva Bezier kubik — gerakan menyerupai jari manusia
+     * (bukan garis lurus robotik). Param bend: -1.0..1.0 = kelengkungan relatif
+     * terhadap panjang swipe (positif melengkung ke kiri arah gerak, negatif ke kanan).
+     */
+    suspend fun bezierSwipe(
+        x1: Float, y1: Float, x2: Float, y2: Float,
+        durationMs: Long, bend: Float = 0.35f
+    ): ToolResult = suspendCoroutine { cont ->
+        com.example.ui.JarvisOverlayManager.showTapPointer(this, x1, y1)
+        com.example.ui.JarvisOverlayManager.showTapPointer(this, x2, y2)
+        val safeDuration = durationMs.coerceIn(80L, 3000L)
+        val dx = x2 - x1
+        val dy = y2 - y1
+        val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+        // Vektor tegak lurus arah swipe
+        val px = if (dist > 0f) -dy / dist else 0f
+        val py = if (dist > 0f) dx / dist else 0f
+        val bow = bend.coerceIn(-1f, 1f) * dist * 0.35f
+        val c1x = x1 + dx * 0.30f + px * bow
+        val c1y = y1 + dy * 0.30f + py * bow
+        val c2x = x1 + dx * 0.70f + px * bow
+        val c2y = y1 + dy * 0.70f + py * bow
+
+        val path = Path().apply {
+            moveTo(x1, y1)
+            cubicTo(c1x, c1y, c2x, c2y, x2, y2)
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, safeDuration)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+
+        val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                cont.resume(
+                    ToolResult(
+                        status = "ok",
+                        result = "Bezier swipe OK: (${x1.toInt()}, ${y1.toInt()}) → (${x2.toInt()}, ${y2.toInt()}) bend=$bend in ${safeDuration}ms (kurva manusiawi)"
+                    )
+                )
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                cont.resume(
+                    ToolResult(
+                        status = "error",
+                        errorCode = ErrorCodes.GESTURE_FAILED,
+                        message = "Bezier swipe dibatalkan sistem",
+                        retryable = true
+                    )
+                )
+            }
+        }, null)
+
+        if (!dispatched) {
+            cont.resume(
+                ToolResult(
+                    status = "error",
+                    errorCode = ErrorCodes.GESTURE_FAILED,
+                    message = "Sistem menolak gesture bezier swipe",
+                    retryable = true
+                )
+            )
+        }
+    }
+
     suspend fun tapElement(identifier: String): ToolResult {
         var node: AccessibilityNodeInfo? = null
 

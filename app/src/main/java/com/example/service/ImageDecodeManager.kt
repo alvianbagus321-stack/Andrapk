@@ -94,6 +94,80 @@ object ImageDecodeManager {
         return analyzeBase64(b64, withOcr)
     }
 
+    /**
+     * OCR hanya pada AREA tertentu dari gambar (crop dulu, baru OCR).
+     * Jauh lebih hemat token & akurat dibanding decode_image satu layar penuh.
+     * Region: piksel sumber (left/top/right/bottom) ATAU persen (x/y/w/h_percent).
+     * Sumber gambar: base64 eksplisit → last_screenshot → path file.
+     */
+    suspend fun analyzeRegion(
+        base64: String?,
+        path: String?,
+        left: Int?, top: Int?, right: Int?, bottom: Int?,
+        xPct: Double?, yPct: Double?, wPct: Double?, hPct: Double?
+    ): ToolResult = withContext(Dispatchers.IO) {
+        val cleanB64 = base64?.trim()?.takeIf { it.isNotBlank() }?.substringAfter("base64,")
+        val bytes = when {
+            cleanB64 != null -> try {
+                Base64.decode(cleanB64, Base64.DEFAULT)
+            } catch (e: Exception) {
+                return@withContext ToolResult("error", message = "Gagal mendekode base64: ${e.message}")
+            }
+            path?.isNotBlank() == true -> {
+                val f = File(path.trim())
+                if (!f.exists()) return@withContext ToolResult("error", message = "File tidak ditemukan: $path")
+                f.readBytes()
+            }
+            lastScreenshotBase64 != null -> Base64.decode(lastScreenshotBase64!!, Base64.DEFAULT)
+            else -> return@withContext ToolResult(
+                "error",
+                message = "Tidak ada sumber gambar. Ambil 'screenshot' dulu, atau kirim {"base64":"..."} / {"path":"..."}."
+            )
+        }
+
+        val full = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?: return@withContext ToolResult("error", message = "Byte bukan gambar yang dikenali.")
+        val iw = full.width
+        val ih = full.height
+
+        // Hitung region crop
+        val l: Int; val t: Int; val r: Int; val b: Int
+        if (left != null || top != null || right != null || bottom != null) {
+            l = (left ?: 0).coerceIn(0, iw - 1)
+            t = (top ?: 0).coerceIn(0, ih - 1)
+            r = (right ?: iw).coerceIn(l + 1, iw)
+            b = (bottom ?: ih).coerceIn(t + 1, ih)
+        } else if (xPct != null || yPct != null || wPct != null || hPct != null) {
+            l = ((xPct ?: 0.0).coerceIn(0.0, 100.0) / 100.0 * iw).toInt().coerceIn(0, iw - 1)
+            t = ((yPct ?: 0.0).coerceIn(0.0, 100.0) / 100.0 * ih).toInt().coerceIn(0, ih - 1)
+            r = (((xPct ?: 0.0) + (wPct ?: 100.0)).coerceIn(0.0, 100.0) / 100.0 * iw).toInt().coerceIn(l + 1, iw)
+            b = (((yPct ?: 0.0) + (hPct ?: 100.0)).coerceIn(0.0, 100.0) / 100.0 * ih).toInt().coerceIn(t + 1, ih)
+        } else {
+            l = 0; t = 0; r = iw; b = ih
+        }
+        val cropW = r - l
+        val cropH = b - t
+        if (cropW < 4 || cropH < 4) {
+            full.recycle()
+            return@withContext ToolResult("error", message = "Region terlalu kecil (${cropW}x${cropH}px). Gambar sumber: ${iw}x${ih}px.")
+        }
+
+        val crop = Bitmap.createBitmap(full, l, t, cropW, cropH)
+        val ocr = runOcr(crop)
+        crop.recycle()
+        full.recycle()
+
+        val text = ocr.getOrElse { "" }
+        val wordCount = text.split(Regex("\\s+")).count { it.isNotBlank() }
+        val body = if (text.isNotBlank()) {
+            "🔍 OCR region (left=$l, top=$t, $cropW x $cropH px dari gambar ${iw}x${ih}px) — $wordCount kata:\n$text"
+        } else {
+            val why = ocr.exceptionOrNull()?.message?.let { " (penyebab: $it)" } ?: ""
+            "🔍 OCR region (left=$l, top=$t, $cropW x $cropH px) TIDAK menemukan teks$why. Coba perbesar region, atau ambil screenshot baru lalu ulangi."
+        }
+        ToolResult("ok", result = body)
+    }
+
     // ==========================================================
     // Pipeline analisis utama
     // ==========================================================

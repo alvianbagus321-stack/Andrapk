@@ -154,8 +154,15 @@ object AiChatService {
                - swipe: Menggeser layar (params: {"x1": 500, "y1": 1500, "x2": 500, "y2": 500, "duration_ms": 300})
                - screenshot: Mengambil tangkapan layar perangkat
                - decode_image: Mendekode gambar (params: {"source": "last_screenshot"} atau {"base64": "..."} / {"path": "..."} / {"uri": "..."}) menjadi TEKS lengkap: dimensi, warna dominan, kecerahan, tingkat detail, peta bentuk ASCII, dan OCR teks. WAJIB dipakai untuk "melihat" isi gambar/screenshot jika kamu tidak mendukung input gambar (non-vision).
+               - ocr_region: OCR hanya AREA tertentu dari screenshot (HEMAT TOKEN — pakai ini dulu sebelum decode_image jika hanya butuh teks): params {"x_percent":0,"y_percent":0,"w_percent":50,"h_percent":30} atau piksel {"left":0,"top":0,"right":400,"bottom":200}
                - send_notification: Mengirim notifikasi lokal ke status bar (params: {"title": "Judul", "message": "Pesan"})
                - flashlight_toggle: Menyalakan/mematikan senter (params: {"enable": true})
+               - screen_orientation: Cek rotasi & dimensi layar saat ini (panggil sebelum tap bila orientasi berubah)
+               - find_by_text / tap_by_text / wait_for_element / scroll_to_text: Cari, ketuk, tunggu, dan scroll berdasarkan TEKS elemen — lebih akurat daripada koordinat manual
+               - input_swipe_bezier: Swipe kurva manusiawi (params: {"x1":500,"y1":800,"x2":500,"y2":300,"duration_ms":600,"bend":0.35}) untuk carousel/map yang mengabaikan swipe garis lurus
+               - wait_stable / diff_screen: Pastikan layar stabil / bandingkan layar before-after aksi (verifikasi otomatis)
+               - accessibility_click: Klik elemen langsung via AccessibilityNodeInfo (params: {"element_id": "id_atau_teks"})
+               - dumpsys_window: Info window fokus + rotasi via dumpsys (diagnosa orientasi/app aktif)
             2. Termux Service, API & Shell Layer:
                - termux_service: Mengontrol service background Termux & daemon JARVIS (params: {"action": "status"|"start"|"stop"|"restart"|"run_agent"|"list", "service": "jarvis_agent"})
                - termux_api: Menjalankan utilitas Termux:API (params: {"command": "battery"|"wifi"|"tts"|"vibrate"|"torch"|"notification"|"toast"|"location"|"volume"|"sensor"|"sms"|"clipboard-get"|"clipboard-set", "args": "..."})

@@ -558,6 +558,30 @@ object ToolManager {
             riskLevel = ToolRiskLevel.LOW,
             isEnabled = true,
             isBuiltIn = true
+        ),
+        CustomTool(
+            id = "ocr_region",
+            name = "OCR Area Tertentu",
+            description = "OCR hanya pada AREA tertentu dari screenshot/gambar (crop dulu) — jauh lebih hemat token & akurat daripada decode_image satu layar penuh. Region bisa piksel (left/top/right/bottom) atau persen (x/y/w/h_percent). Tanpa region = satu layar penuh",
+            category = "Media & Analisis",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "ocr_region",
+            parametersSchema = """{"x_percent": 0, "y_percent": 0, "w_percent": 100, "h_percent": 100, "source": "last_screenshot", "base64": "opsional", "path": "opsional"}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "input_swipe_bezier",
+            name = "Swipe Kurva Bezier (Manusiawi)",
+            description = "Swipe mengikuti kurva Bezier — menyerupai gerakan jari manusia, berguna untuk UI yang mengabaikan swipe garis lurus (carousel, map, drawer). Param bend (-1.0..1.0) mengatur kelengkungan",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "input_swipe_bezier",
+            parametersSchema = """{"x1": 500, "y1": 800, "x2": 500, "y2": 300, "duration_ms": 600, "bend": 0.35}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
         )
     )
 
@@ -797,7 +821,7 @@ object ToolManager {
                     "read_screen", "battery", "get_telemetry", "list_tools", "get_storage",
                     "cek_ram", "clipboard_read", "screen_orientation", "find_by_text",
                     "wait_for_element", "dumpsys_window", "get_device_resolution",
-                    "get_current_app", "list_apps", "recall_memory", "wait_stable",
+                    "get_current_app", "list_apps", "recall_memory", "wait_stable", "ocr_region",
                     "diff_screen", "scroll_to_text"
                 )
                 if (!isReadOnly) {
@@ -1415,6 +1439,40 @@ object ToolManager {
                     return ToolResult("error", message = "Parameter 'element_id' atau 'text' wajib diisi.")
                 }
                 service.tapElement(ident)
+            }
+
+            "ocr_region" -> {
+                val source = params.optString("source", params.optString("src", "")).trim().lowercase()
+                val b64 = params.optString("base64", params.optString("image_base64", params.optString("image", "")))
+                val filePath = params.optString("path", params.optString("file", ""))
+                val useLast = source == "last_screenshot" || source == "screenshot" || (b64.isBlank() && filePath.isBlank())
+                com.example.service.ImageDecodeManager.analyzeRegion(
+                    base64 = if (useLast && b64.isBlank()) null else b64.ifBlank { null },
+                    path = filePath.ifBlank { null },
+                    left = if (params.has("left")) params.optInt("left") else null,
+                    top = if (params.has("top")) params.optInt("top") else null,
+                    right = if (params.has("right")) params.optInt("right") else null,
+                    bottom = if (params.has("bottom")) params.optInt("bottom") else null,
+                    xPct = if (params.has("x_percent")) params.optDouble("x_percent") else null,
+                    yPct = if (params.has("y_percent")) params.optDouble("y_percent") else null,
+                    wPct = if (params.has("w_percent")) params.optDouble("w_percent") else null,
+                    hPct = if (params.has("h_percent")) params.optDouble("h_percent") else null
+                )
+            }
+
+            "input_swipe_bezier", "swipe_bezier", "bezier_swipe" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val metrics = ScreenshotManager.getScreenMetrics(context)
+                val screenW = metrics.widthPixels.toFloat()
+                val screenH = metrics.heightPixels.toFloat()
+                val x1 = params.optDouble("x1", (screenW * 0.5).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenW else it }
+                val y1 = params.optDouble("y1", (screenH * 0.8).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenH else it }
+                val x2 = params.optDouble("x2", (screenW * 0.5).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenW else it }
+                val y2 = params.optDouble("y2", (screenH * 0.2).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenH else it }
+                val duration = params.optLong("duration_ms", 600L)
+                val bend = params.optDouble("bend", params.optDouble("curve", 0.35)).toFloat()
+                service.bezierSwipe(x1, y1, x2, y2, duration, bend)
             }
 
             else -> {
