@@ -450,6 +450,66 @@ object ToolManager {
             riskLevel = ToolRiskLevel.SAFE,
             isEnabled = true,
             isBuiltIn = true
+        ),
+        CustomTool(
+            id = "screen_orientation",
+            name = "Cek Orientasi Layar",
+            description = "Membaca rotasi layar saat ini (0/90/180/270 derajat, portrait/landscape) beserta dimensi piksel. Panggil ini SEBELUM tap/screenshot agar koordinat tidak meleset saat layar berputar",
+            category = "Sistem & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "screen_orientation",
+            parametersSchema = """{}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "find_by_text",
+            name = "Cari Elemen berdasarkan Teks",
+            description = "Mencari elemen UI di layar yang cocok dengan teks (label tombol, judul, dst) dan mengembalikan koordinat pusat + ukurannya. Bisa menunggu elemen muncul via timeout_ms",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "find_by_text",
+            parametersSchema = """{"text": "Login", "timeout_ms": 3000}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "tap_by_text",
+            name = "Tap berdasarkan Teks",
+            description = "Mengetuk elemen UI langsung berdasarkan teksnya (mis. tombol 'Izinkan' atau 'OK') tanpa menghitung koordinat manual. Jauh lebih akurat daripada tap koordinat, apalagi di mode landscape",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "tap_by_text",
+            parametersSchema = """{"text": "Izinkan", "timeout_ms": 3000}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "wait_for_element",
+            name = "Tunggu Elemen Muncul",
+            description = "Menunggu hingga elemen dengan teks tertentu muncul di layar (dengan timeout). Dipakai setelah aksi (tap/open_app) untuk memastikan layar sudah termuat sebelum aksi berikutnya",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "wait_for_element",
+            parametersSchema = """{"text": "Berhasil", "timeout_ms": 5000}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "dumpsys_window",
+            name = "Info Window Aktif (dumpsys)",
+            description = "Menampilkan window yang sedang fokus, rotasi display, dan dimensi layar via dumpsys window — untuk diagnosa orientasi dan memastikan app target benar-benar di depan",
+            category = "Sistem & Navigasi",
+            scriptType = ToolScriptType.SHELL,
+            command = "dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp|mRotation|mDisplayWidth|mDisplayHeight' | head -20",
+            parametersSchema = """{}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
         )
     )
 
@@ -620,7 +680,11 @@ object ToolManager {
     }
 
     fun getTool(toolId: String): CustomTool? {
-        return _tools.value.firstOrNull { it.id.equals(toolId, ignoreCase = true) }
+        val q = toolId.trim()
+        // Cocokkan berdasarkan ID dulu, lalu berdasarkan NAMA (AI sering memanggil
+        // tool custom pakai nama yang diberikannya, bukan id yang di-generate sistem).
+        return _tools.value.firstOrNull { it.id.equals(q, ignoreCase = true) }
+            ?: _tools.value.firstOrNull { it.name.equals(q, ignoreCase = true) }
     }
 
     fun isToolEnabled(toolId: String): Boolean {
@@ -681,7 +745,12 @@ object ToolManager {
 
         when (mode) {
             AiPermissionMode.SANDBOXED -> {
-                val isReadOnly = lower in listOf("read_screen", "battery", "get_telemetry", "list_tools", "get_storage", "cek_ram", "clipboard_read")
+                val isReadOnly = lower in listOf(
+                    "read_screen", "battery", "get_telemetry", "list_tools", "get_storage",
+                    "cek_ram", "clipboard_read", "screen_orientation", "find_by_text",
+                    "wait_for_element", "dumpsys_window", "get_device_resolution",
+                    "get_current_app", "list_apps", "recall_memory"
+                )
                 if (!isReadOnly) {
                     return Pair(false, "Aksi '$toolName' diblokir oleh AI Permission Mode: SANDBOXED (Hanya baca yang diizinkan).")
                 }
@@ -1205,6 +1274,65 @@ object ToolManager {
                 val path = params.optString("path", params.optString("file", "."))
                 val content = params.optString("content", params.optString("text", ""))
                 AdbShizukuManager.executeTermuxFile(action, path, content)
+            }
+
+            "screen_orientation", "get_orientation", "rotation" -> {
+                val metrics = ScreenshotManager.getScreenMetrics(context)
+                val rot = ScreenshotManager.currentRotation(context)
+                val rotName = when (rot) {
+                    0 -> "0° — PORTRAIT"
+                    1 -> "90° — LANDSCAPE"
+                    2 -> "180° — PORTRAIT (terbalik)"
+                    3 -> "270° — LANDSCAPE (terbalik)"
+                    else -> "$rot°"
+                }
+                val orient = if (metrics.widthPixels > metrics.heightPixels) "LANDSCAPE" else "PORTRAIT"
+                ToolResult(
+                    status = "ok",
+                    result = "🔄 Rotasi layar saat ini: $rot ($rotName)\n" +
+                            "📐 Dimensi display: ${metrics.widthPixels}x${metrics.heightPixels} px @ ${metrics.densityDpi} dpi\n" +
+                            "🧭 Orientasi: $orient\n" +
+                            "Tip: pakai koordinat dalam ruang ${metrics.widthPixels}x${metrics.heightPixels} ini untuk tap/swipe, atau lebih aman pakai 'tap_by_text'."
+                )
+            }
+
+            "find_by_text", "wait_for_element" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val query = params.optString("text", params.optString("query", params.optString("element_text", "")))
+                if (query.isBlank()) {
+                    return ToolResult("error", message = "Parameter 'text' wajib diisi (teks elemen yang dicari).")
+                }
+                val defaultTimeout = if (command.equals("wait_for_element", true)) 5000L else 0L
+                val timeout = params.optLong("timeout_ms", defaultTimeout).coerceIn(0L, 20000L)
+                val deadline = System.currentTimeMillis() + timeout
+                var matched = service.findElementsByText(query)
+                while (matched.isEmpty() && System.currentTimeMillis() < deadline) {
+                    kotlinx.coroutines.delay(250)
+                    matched = service.findElementsByText(query)
+                }
+                if (matched.isEmpty()) {
+                    ToolResult(
+                        "error",
+                        message = "Tidak ada elemen yang cocok dengan teks '$query'${if (timeout > 0) " setelah menunggu ${timeout}ms" else ""}."
+                    )
+                } else {
+                    val list = matched.joinToString("\n") { el ->
+                        "- '${el.text.ifBlank { el.contentDescription }}' (${el.className}) @ center=(${el.bounds.centerX}, ${el.bounds.centerY}) size=${el.bounds.width}x${el.bounds.height}"
+                    }
+                    ToolResult("ok", result = "🔎 Ditemukan ${matched.size} elemen untuk '$query':\n$list")
+                }
+            }
+
+            "tap_by_text" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val query = params.optString("text", params.optString("query", params.optString("element_text", "")))
+                if (query.isBlank()) {
+                    return ToolResult("error", message = "Parameter 'text' wajib diisi (teks elemen yang akan ditap).")
+                }
+                val timeout = params.optLong("timeout_ms", 3000L).coerceIn(0L, 20000L)
+                service.tapByText(query, timeout)
             }
 
             else -> {

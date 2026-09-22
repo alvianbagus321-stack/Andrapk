@@ -785,7 +785,7 @@ object AiChatService {
             )
             return ToolResult(
                 status = "ok",
-                result = "✨ Berhasil membuat Custom Tool Python '${created.name}' (${created.id})!\n\nScript tersimpan di: ${scriptFile.name} dan terdaftar sebagai tool aktif yang langsung dapat dieksekusi oleh JARVIS."
+                result = "✨ Berhasil membuat Custom Tool Python '${created.name}' (${created.id})!\n\nScript tersimpan di: ${scriptFile.name} dan terdaftar sebagai tool aktif yang langsung dapat dieksekusi oleh JARVIS.\nPanggil tool ini dengan nama: '${created.name}'.\n⚠️ Catatan: eksekusi Python membutuhkan python3 di perangkat (Termux: pkg install python). Bila belum ada, tool akan memberikan panduan instalasi saat dipanggil."
             )
         }
 

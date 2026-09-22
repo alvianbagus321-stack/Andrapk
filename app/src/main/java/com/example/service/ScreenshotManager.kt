@@ -32,6 +32,7 @@ object ScreenshotManager {
     private var width = 720
     private var height = 1280
     private var densityDpi = 320
+    private var createdRotation: Int = -1
 
     private val _isMediaProjectionActive = MutableStateFlow(false)
     val isMediaProjectionActive = _isMediaProjectionActive.asStateFlow()
@@ -96,11 +97,57 @@ object ScreenshotManager {
                 null,
                 Handler(Looper.getMainLooper())
             )
+            createdRotation = currentRotation(context)
             _isMediaProjectionActive.value = true
             Log.i(TAG, "MediaProjection initialized 100% full screen: ${width}x${height} @ ${densityDpi}dpi")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to initialize MediaProjection virtual display: ${e.message}", e)
             release()
+        }
+    }
+
+    /**
+     * Memastikan VirtualDisplay mengikuti orientasi layar SAAT INI.
+     * Tanpa ini, screenshot setelah layar berputar (mis. remote desktop landscape)
+     * menghasilkan citra salah orientasi / salah skala — OCR dan koordinat tap jadi miss.
+     * Aman dipanggil kapan pun: hanya rebuild bila rotasi/dimensi benar-benar berubah,
+     * dan TIDAK butuh consent ulang (memakai MediaProjection yang sama).
+     */
+    private fun ensureFreshVirtualDisplay(context: Context) {
+        val projection = mediaProjection ?: return
+        val rotation = currentRotation(context)
+        val metrics = getScreenMetrics(context)
+        if (rotation == createdRotation && metrics.widthPixels == width && metrics.heightPixels == height) {
+            return
+        }
+        Log.i(
+            TAG,
+            "Display berubah (rot $createdRotation->$rotation, ${width}x${height} -> ${metrics.widthPixels}x${metrics.heightPixels}) — rebuild VirtualDisplay"
+        )
+        try { virtualDisplay?.release() } catch (_: Exception) {}
+        try { imageReader?.close() } catch (_: Exception) {}
+        virtualDisplay = null
+        imageReader = null
+        width = metrics.widthPixels
+        height = metrics.heightPixels
+        densityDpi = metrics.densityDpi
+        createdRotation = rotation
+        try {
+            imageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
+            virtualDisplay = projection.createVirtualDisplay(
+                "JarvisScreenCapture",
+                width,
+                height,
+                densityDpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                imageReader?.surface,
+                null,
+                Handler(Looper.getMainLooper())
+            )
+            // Beri waktu SurfaceFlinger merender frame pertama ke surface baru.
+            Thread.sleep(150)
+        } catch (e: Exception) {
+            Log.e(TAG, "Gagal rebuild VirtualDisplay: ${e.message}", e)
         }
     }
 
@@ -210,7 +257,7 @@ object ScreenshotManager {
 
     private fun bitmapToBase64(bitmap: Bitmap): String {
         val stream = ByteArrayOutputStream()
-        val maxDim = 1280
+        val maxDim = 1568
         val scaledBitmap = if (bitmap.width > maxDim || bitmap.height > maxDim) {
             val scale = maxDim.toFloat() / maxOf(bitmap.width, bitmap.height)
             val targetW = (bitmap.width * scale).toInt().coerceAtLeast(1)

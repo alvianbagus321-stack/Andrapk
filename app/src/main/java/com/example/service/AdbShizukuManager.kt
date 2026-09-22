@@ -222,10 +222,15 @@ object AdbShizukuManager {
                         (exitCode == 127 && cleanCmd.contains("python"))
 
                 val customErrMsg = if (isPyNotFound) {
+                    val termuxNote = if (isTermuxInstalled(JarvisApp.instance)) {
+                        "Termux terpasang — buka Termux lalu ketik: pkg update && pkg install python"
+                    } else {
+                        "Termux TIDAK terpasang di perangkat ini. Pasang dari F-Droid: https://f-droid.org/packages/com.termux/ lalu di Termux: pkg install python"
+                    }
                     "❌ PERINTAH PYTHON TIDAK DITEMUKAN / DITOLAK SISTEM (Exit Code $exitCode)\n\n" +
                     "Cara Mengatasi:\n" +
-                    "1. Buka aplikasi Termux lalu ketik: pkg update && pkg install python\n" +
-                    "2. Atau gunakan tool 'termux_python' / 'termux_command' bawaan JARVIS.\n\n" +
+                    "1. $termuxNote\n" +
+                    "2. Atau gunakan tool 'termux_python' bawaan JARVIS (ada pre-check + panduan).\n\n" +
                     "Detail Error: $resultText"
                 } else {
                     "Perintah selesai dengan kode $exitCode:\n$resultText"
@@ -258,12 +263,22 @@ object AdbShizukuManager {
 
         return when (act) {
             "status", "check" -> {
-                val statusCmd = "ps aux | grep -E 'python|node|termux|ssh|agent' | grep -v grep || ps | grep -E 'python|agent'"
+                // Toybox Android tidak punya "ps aux" (dulu error: ps: bad aux) — pakai "ps -A".
+                val statusCmd = "ps -A 2>/dev/null | grep -E 'python|node|termux|ssh|agent' | grep -v grep || echo '__NO_AGENT__'"
                 val res = executeShell(statusCmd)
-                if (res.status == "ok" && !res.result.isNullOrBlank() && !res.result.contains("Exit code")) {
-                    ToolResult("ok", result = "🟢 Termux Service Status:\n${res.result}")
-                } else {
+                val out = res.result ?: ""
+                if (!isTermuxInstalled(context)) {
+                    ToolResult(
+                        "ok",
+                        result = "ℹ️ Status Termux Service:\n" +
+                                "Termux TIDAK terpasang di perangkat ini, sehingga tidak ada service Termux yang bisa dikelola.\n" +
+                                "Proses agent JARVIS sendiri berjalan di dalam app (uid ${android.os.Process.myUid()}).\n" +
+                                "Untuk fitur penuh (python/pkg/service): pasang Termux dari F-Droid → https://f-droid.org/packages/com.termux/"
+                    )
+                } else if (out.contains("__NO_AGENT__") || out.isBlank()) {
                     ToolResult("ok", result = "ℹ️ Status Termux Service:\nTidak ada background service python/agent yang sedang aktif saat ini.")
+                } else {
+                    ToolResult("ok", result = "🟢 Termux Service Status:\n$out")
                 }
             }
 
@@ -355,6 +370,19 @@ object AdbShizukuManager {
         val act = action.lowercase().trim()
         val pkg = packageName.trim()
 
+        // Guard: 'pkg' hanya ada di Termux asli. Tanpa ini error mentah "pkg: not found".
+        if (!isTermuxInstalled(JarvisApp.instance)) {
+            return ToolResult(
+                "error",
+                errorCode = "TERMUX_NOT_INSTALLED",
+                message = "❌ Termux TIDAK terpasang di perangkat ini — 'pkg' tidak tersedia.\n\n" +
+                        "Cara mengatasi:\n" +
+                        "1. Pasang Termux dari F-Droid: https://f-droid.org/packages/com.termux/\n" +
+                        "2. Buka Termux, jalankan: pkg update && pkg install <nama-paket>\n" +
+                        "3. Setelah terpasang, panggil tool ini lagi."
+            )
+        }
+
         val cmd = when (act) {
             "install", "add" -> {
                 if (pkg.isBlank()) return ToolResult("error", message = "Nama package tidak boleh kosong untuk install")
@@ -383,6 +411,24 @@ object AdbShizukuManager {
         val cleanCode = code.trim()
         if (cleanCode.isEmpty()) {
             return ToolResult("error", message = "Kode Python tidak boleh kosong")
+        }
+
+        // Pre-check: python3 memang tersedia? (hindari error mentah "python3: not found")
+        val probe = executeShell("command -v python3 || command -v python || echo '__NO_PYTHON__'")
+        if (probe.result.isNullOrBlank() || probe.result.contains("__NO_PYTHON__")) {
+            val termuxHint = if (isTermuxInstalled(JarvisApp.instance)) {
+                "Termux terpasang — buka Termux lalu jalankan: pkg install python"
+            } else {
+                "Termux BELUM terpasang di perangkat ini. Pasang dari F-Droid: https://f-droid.org/packages/com.termux/ lalu di Termux jalankan: pkg install python"
+            }
+            return ToolResult(
+                "error",
+                errorCode = "PYTHON_NOT_FOUND",
+                message = "❌ Interpreter python3 tidak ditemukan di shell.\n\n" +
+                        "Cara mengatasi:\n" +
+                        "1. $termuxHint\n" +
+                        "2. Lalu panggil lagi tool ini atau tool 'termux_command'."
+            )
         }
 
         val context = JarvisApp.instance

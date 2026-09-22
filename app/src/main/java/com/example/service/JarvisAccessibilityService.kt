@@ -508,8 +508,30 @@ class JarvisAccessibilityService : AccessibilityService() {
             Intent.FLAG_ACTIVITY_CLEAR_TOP
         )
         return try {
+            val resolvedPkg = intent.component?.packageName ?: targetPkg
+            val before = currentApp.value
+            if (before.equals(resolvedPkg, ignoreCase = true)) {
+                return ToolResult(status = "ok", result = "✅ Aplikasi '$resolvedPkg' sudah berada di foreground.")
+            }
             startActivity(intent)
-            ToolResult(status = "ok", result = "Opened application '$targetPkg'")
+            // Verifikasi foreground: tunggu accessibility event melaporkan app target (maks 3 dtk).
+            // Dulu tool ini "tidak persist" karena sekadar startActivity tanpa konfirmasi.
+            var now = currentApp.value
+            var waitedMs = 0
+            while (waitedMs < 3000 && !now.equals(resolvedPkg, ignoreCase = true)) {
+                Thread.sleep(250)
+                waitedMs += 250
+                now = currentApp.value
+            }
+            if (now.equals(resolvedPkg, ignoreCase = true)) {
+                ToolResult(status = "ok", result = "✅ Aplikasi '$resolvedPkg' terbuka & terverifikasi sebagai foreground (setelah ${waitedMs}ms).")
+            } else {
+                ToolResult(
+                    status = "ok",
+                    result = "⚠️ Perintah buka '$resolvedPkg' terkirim, tetapi foreground belum terkonfirmasi setelah ${waitedMs}ms (terdeteksi: '$now'). " +
+                            "Verifikasi dengan 'get_current_app'/'dumpsys_window', lalu coba lagi bila perlu."
+                )
+            }
         } catch (e: Exception) {
             ToolResult(
                 status = "error",
@@ -603,6 +625,54 @@ class JarvisAccessibilityService : AccessibilityService() {
         }
         traverse(root)
         return list
+    }
+
+    /**
+     * Mencari elemen UI yang cocok dengan teks (label tombol, judul, deskripsi, view id).
+     * Pencarian case-insensitive & partial match — untuk agent loop & tap_by_text.
+     */
+    fun findElementsByText(query: String): List<UiElementInfo> {
+        val q = query.trim()
+        if (q.isBlank()) return emptyList()
+        return getScreenElements().filter { el ->
+            el.text.contains(q, ignoreCase = true) ||
+                el.contentDescription.contains(q, ignoreCase = true) ||
+                el.viewId.contains(q, ignoreCase = true)
+        }
+    }
+
+    /**
+     * Mengetuk elemen langsung berdasarkan teksnya — jauh lebih akurat daripada
+     * tap koordinat manual (terutama setelah layar berputar/landscape).
+     * Prioritas kecocokan: persis > diawali > mengandung; elemen clickable diutamakan.
+     */
+    suspend fun tapByText(query: String, timeoutMs: Long = 3000L): ToolResult {
+        val q = query.trim()
+        if (q.isBlank()) {
+            return ToolResult("error", message = "Teks elemen tidak boleh kosong.")
+        }
+        val deadline = System.currentTimeMillis() + timeoutMs.coerceIn(0L, 20000L)
+        var candidates = findElementsByText(q)
+        while (candidates.isEmpty() && System.currentTimeMillis() < deadline) {
+            kotlinx.coroutines.delay(250)
+            candidates = findElementsByText(q)
+        }
+        if (candidates.isEmpty()) {
+            return ToolResult(
+                status = "error",
+                message = "Tidak ada elemen berteks '$q' di layar${if (timeoutMs > 0) " (menunggu ${timeoutMs}ms)" else ""}. Coba 'find_by_text' dengan kata kunci lain, atau 'read_screen' untuk melihat isi layar."
+            )
+        }
+        val target = candidates.sortedWith(
+            compareByDescending<UiElementInfo> { it.isClickable }
+                .thenBy { if (it.text.equals(q, true) || it.contentDescription.equals(q, true)) 0 else 1 }
+                .thenBy { (it.bounds.width) * (it.bounds.height) }
+        ).first()
+        tapCoordinates(target.bounds.centerX.toFloat(), target.bounds.centerY.toFloat())
+        return ToolResult(
+            status = "ok",
+            result = "👆 Tap '${(target.text.ifBlank { target.contentDescription }).ifBlank { target.viewId }}' di (${target.bounds.centerX}, ${target.bounds.centerY}) — cocok untuk '$q' (dari ${candidates.size} kandidat)."
+        )
     }
 
     private fun findNodeByIdentifier(node: AccessibilityNodeInfo?, identifier: String): AccessibilityNodeInfo? {
