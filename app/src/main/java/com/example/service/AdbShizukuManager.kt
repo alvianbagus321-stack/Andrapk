@@ -183,6 +183,50 @@ object AdbShizukuManager {
         }
     }
 
+    /**
+     * Picu pengambilan binder Shizuku (via provider/transact) lalu tunggu sampai hidup.
+     * Tanpa ini pingBinder() selalu false karena binder belum pernah di-fetch.
+     */
+    fun waitForBinder(timeoutMs: Long = 800L): Boolean {
+        if (shizukuClass() == null) return false
+        if (isShizukuBinderAlive()) return true
+        try {
+            shizukuClass()?.getMethod("getBinder")?.invoke(null)
+        } catch (_: Throwable) {}
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (isShizukuBinderAlive()) return true
+            try { Thread.sleep(120) } catch (_: InterruptedException) { return false }
+        }
+        return isShizukuBinderAlive()
+    }
+
+    /** Status koneksi Shizuku yang SEBENARNYA (bukan sekadar cek app terpasang). */
+    fun diagnose(): String {
+        if (shizukuClass() == null) return "Library Shizuku tidak termuat di APK (perbarui app)"
+        if (!isShizukuBinderAlive()) {
+            return "Belum terhubung - nyalakan Shizuku (Wireless debugging) lalu tap Sambungkan"
+        }
+        if (!shizukuPermissionGranted()) {
+            return "Izin Shizuku belum diberikan ke app ini - tap Sambungkan"
+        }
+        return "Terhubung - shell level ADB aktif"
+    }
+
+    /** Minta izin Shizuku bila terhubung tapi belum diizinkan. @return true=bisa dipakai sekarang. */
+    fun requestPermissionIfDenied(): Boolean {
+        if (!waitForBinder(800)) return false
+        if (shizukuPermissionGranted()) return true
+        return shizukuRequestPermission()
+    }
+
+    /** screencap hanya bila binder hidup + izin ada (menunggu binder sebentar). @return bytes PNG/null. */
+    fun screencapIfPermitted(): ByteArray? {
+        if (!waitForBinder(600)) return null
+        if (!shizukuPermissionGranted()) return null
+        return screencapPng()
+    }
+
     private fun shizukuRequestPermission(): Boolean = try {
         shizukuClass()?.getMethod("requestPermission", Int::class.javaPrimitiveType)?.invoke(null, 0)
         true

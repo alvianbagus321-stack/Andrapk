@@ -754,15 +754,26 @@ fun JarvisDashboardScreen(
                         }
                     )
 
-                    // Shizuku & ADB Connector
+                    // Shizuku & ADB Connector — status KONEKSI NYATA (binder + izin)
+                    var shizukuStatus by remember { mutableStateOf(com.example.service.AdbShizukuManager.diagnose()) }
                     val isShizukuInstalled = com.example.service.AdbShizukuManager.isShizukuInstalled(context)
                     ServiceRow(
                         title = "Shizuku ADB Connector",
-                        subtitle = if (isShizukuInstalled) "Shizuku manager detected • Elevated shell ready" else "Shizuku not installed (Tap to open/install)",
-                        isActive = isShizukuInstalled,
-                        actionLabel = if (isShizukuInstalled) "Installed" else "Install",
+                        subtitle = if (isShizukuInstalled) shizukuStatus else "Shizuku belum terpasang (tap untuk buka/instal)",
+                        isActive = shizukuStatus.startsWith("Terhubung"),
+                        actionLabel = when {
+                            !isShizukuInstalled -> "Install"
+                            shizukuStatus.startsWith("Terhubung") -> "Cek ulang"
+                            else -> "Sambungkan"
+                        },
                         onAction = {
-                            com.example.service.AdbShizukuManager.openShizukuManager(context)
+                            if (!isShizukuInstalled) {
+                                com.example.service.AdbShizukuManager.openShizukuManager(context)
+                            } else {
+                                val ok = com.example.service.AdbShizukuManager.requestPermissionIfDenied()
+                                shizukuStatus = if (ok) com.example.service.AdbShizukuManager.diagnose()
+                                    else "Menunggu izin - pilih Izinkan di dialog Shizuku, lalu tap Cek ulang"
+                            }
                         }
                     )
                 }

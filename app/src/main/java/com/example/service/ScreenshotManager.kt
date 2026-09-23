@@ -319,22 +319,20 @@ object ScreenshotManager {
         // Attempt 3: screencap via Shizuku (level shell) — SELALU ikut rotasi dan
         // satu-satunya jalur yang menangkap konten FLAG_SECURE (game/app proteksi).
         // Hanya dipakai bila Shizuku berjalan & izinnya sudah diberikan.
-        if (AdbShizukuManager.isShizukuBinderAlive() && AdbShizukuManager.shizukuPermissionGranted()) {
-            val png = AdbShizukuManager.screencapPng()
-            val shizukuBitmap = if (png != null) BitmapFactory.decodeByteArray(png, 0, png.size) else null
-            if (shizukuBitmap != null) {
-                if (isUniformBlank(shizukuBitmap)) {
-                    trace?.invoke("Shizuku screencap: kosong")
-                    shizukuBitmap.recycle()
-                } else {
-                    val base64 = bitmapToBase64(shizukuBitmap)
-                    trace?.invoke("Sumber: Shizuku screencap (tahan FLAG_SECURE)")
-                    shizukuBitmap.recycle()
-                    return@withContext Pair(base64, null)
-                }
+        val shizukuPng = AdbShizukuManager.screencapIfPermitted()
+        val shizukuBitmap = if (shizukuPng != null) BitmapFactory.decodeByteArray(shizukuPng, 0, shizukuPng.size) else null
+        if (shizukuBitmap != null) {
+            if (isUniformBlank(shizukuBitmap)) {
+                trace?.invoke("Shizuku screencap: kosong")
+                shizukuBitmap.recycle()
             } else {
-                trace?.invoke("Shizuku: screencap gagal")
+                val base64 = bitmapToBase64(shizukuBitmap)
+                trace?.invoke("Sumber: Shizuku screencap (tahan FLAG_SECURE)")
+                shizukuBitmap.recycle()
+                return@withContext Pair(base64, null)
             }
+        } else {
+            trace?.invoke("Shizuku: " + AdbShizukuManager.diagnose())
         }
 
         if (blankFallbackBase64 != null) return@withContext Pair(blankFallbackBase64, null)
