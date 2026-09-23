@@ -45,6 +45,7 @@ fun QuizOverlayUI() {
     val minimized by QuizOverlayManager.isMinimized.collectAsState()
     val autoSubmitOn by QuizAnalyzer.autoSubmit.collectAsState()
     val submitInfo by QuizAnalyzer.submitInfo.collectAsState()
+    val diagState by DiagnosticLogger.diagnostic.collectAsState()
 
     if (minimized) {
         // ---- Mode minimize: bulatan kecil ----
@@ -263,7 +264,7 @@ fun QuizOverlayUI() {
                 Text("Diagnostic", color = JarvisTextSecondary, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
             }
             if (showDiagnostic) {
-                val diag = DiagnosticLogger.diagnostic.collectAsState().value
+                val diag = diagState
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()

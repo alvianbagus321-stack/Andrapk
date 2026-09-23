@@ -155,9 +155,13 @@ object QuizOverlayManager {
             overlayView = root
             wm.addView(root, p)
             Log.i(TAG, "Quiz overlay tampil")
-        } catch (e: Exception) {
-            Log.e(TAG, "Gagal menampilkan quiz overlay", e)
-            overlayView = null
+        } catch (t: Throwable) {
+            // Jangan biarkan kegagalan window (BadToken/MIUI limit/dll) men-crash app:
+            // matikan toggle & bersihkan state agar user bisa mencoba lagi.
+            Log.e(TAG, "Gagal menampilkan quiz overlay", t)
+            try { removeWindow() } catch (_: Throwable) {}
+            _isEnabled.value = false
+            prefs?.edit()?.putBoolean(KEY_ENABLED, false)?.apply()
         }
     }
 

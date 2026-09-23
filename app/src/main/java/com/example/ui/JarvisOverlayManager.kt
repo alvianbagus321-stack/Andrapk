@@ -252,9 +252,10 @@ object JarvisOverlayManager {
             voiceView = root
             wm.addView(root, p)
             Log.i(TAG, "Jendela SUARA (pill/listening) tampil")
-        } catch (e: Exception) {
-            Log.e(TAG, "Gagal menampilkan jendela suara", e)
-            voiceView = null
+        } catch (t: Throwable) {
+            Log.e(TAG, "Gagal menampilkan jendela suara", t)
+            try { removeVoiceWindow() } catch (_: Throwable) {}
+            overlayShown = false
         }
     }
 
@@ -300,9 +301,9 @@ object JarvisOverlayManager {
             taskView = content
             wm.addView(content, p)
             Log.i(TAG, "Jendela CHAT/TASK (fullscreen) tampil")
-        } catch (e: Exception) {
-            Log.e(TAG, "Gagal menampilkan jendela chat/task", e)
-            taskView = null
+        } catch (t: Throwable) {
+            Log.e(TAG, "Gagal menampilkan jendela chat/task", t)
+            try { removeTaskWindow() } catch (_: Throwable) {}
         }
     }
 
