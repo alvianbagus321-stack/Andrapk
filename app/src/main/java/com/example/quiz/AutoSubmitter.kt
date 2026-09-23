@@ -152,20 +152,23 @@ object AutoSubmitter {
         }.distinctBy { "${it.viewId}|${it.text}|${it.bounds.centerX},${it.bounds.centerY}" }
 
         val optionStart = Regex("^$letter[).\\]:\\-\\s]", RegexOption.IGNORE_CASE)
+        // HANYA kecocokan KUAT yang boleh menang dari jalur elemen (findElementsByText
+        // adalah query "mengandung" longgar — bahkan viewId ikut). Tanpa ini, elemen
+        // yang sekadar "mirip" menang & jalur screenshot OCR tak pernah dicoba.
         val exact = pool.filter { el ->
             val t = (el.text.ifBlank { el.contentDescription }).trim()
             t.equals(letter, ignoreCase = true) ||
                 t.equals(answerText.trim(), ignoreCase = true) ||
                 optionStart.containsMatchIn(t)
         }
-        val candidates = (if (exact.isNotEmpty()) exact else pool)
-        return candidates
+        return exact
             .sortedWith(
                 compareByDescending<UiElementInfo> { it.isClickable }
                     .thenBy { it.bounds.width * it.bounds.height }
             )
             .firstOrNull()
             ?.let { Pair(it.bounds.centerX.toFloat(), it.bounds.centerY.toFloat()) }
+        // null -> pemanggil otomatis lanjut ke jalur OCR screenshot
     }
 
     private fun pickSubmitViaElements(service: JarvisAccessibilityService): Pair<Float, Float>? {
@@ -173,6 +176,7 @@ object AutoSubmitter {
         var bestClickable = false
         var bestArea = Int.MAX_VALUE
         var bestPoint: Pair<Float, Float>? = null
+        val screenArea = android.content.res.Resources.getSystem().displayMetrics.let { it.widthPixels * it.heightPixels }
         for (seed in SUBMIT_STRONG + SUBMIT_EXACT_ONLY) {
             for (el in service.findElementsByText(seed)) {
                 val t = (el.text.ifBlank { el.contentDescription }).trim()
@@ -180,6 +184,9 @@ object AutoSubmitter {
                 if (tier >= 9) continue
                 val clickable = el.isClickable
                 val area = el.bounds.width * el.bounds.height
+                // Kecocokan "mengandung" pada elemen raksasa (paragraf/banner) hampir
+                // pasti salah sasaran -> tolak, biarkan jalur OCR screenshot memutuskan.
+                if (tier == 1 && area > screenArea * 0.15) continue
                 val better = tier < bestTier ||
                     (tier == bestTier && ((clickable && !bestClickable) || (clickable == bestClickable && area < bestArea)))
                 if (better) {
