@@ -162,6 +162,51 @@ fun JarvisDashboardScreen(
             }
         }
 
+        // VERSI APK — biar tahu build yang terpasang saat mau rebuild/update
+        item {
+            val versionInfo = remember {
+                runCatching {
+                    val pi = context.packageManager.getPackageInfo(context.packageName, 0)
+                    val code = if (android.os.Build.VERSION.SDK_INT >= 28) pi.longVersionCode
+                               else @Suppress("DEPRECATION") pi.versionCode.toLong()
+                    "v${pi.versionName} (build $code)"
+                }.getOrDefault("versi tidak terbaca")
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(JarvisSurfaceVariant.copy(alpha = 0.25f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Andra Control",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = JarvisTextPrimary
+                    )
+                    Text(
+                        "APK terpasang: $versionInfo",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisTextSecondary
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = JarvisCyan.copy(alpha = 0.15f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f))
+                ) {
+                    Text(
+                        versionInfo,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = JarvisCyan,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+
         // AI QUIZ ANALYZER — toggle overlay penganalisis soal di layar
         item {
             val quizOn by viewModel.quizOverlayEnabled.collectAsState()
