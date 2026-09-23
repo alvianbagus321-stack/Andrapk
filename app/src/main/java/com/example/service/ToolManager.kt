@@ -140,6 +140,18 @@ object ToolManager {
             isBuiltIn = true
         ),
         CustomTool(
+            id = "ocr_screenshot",
+            name = "OCR Screenshot (Baca Teks Layar)",
+            description = "Satu langkah: tangkap layar lalu langsung membaca SEMUA teksnya (OCR on-device). Cara termudah membaca soal/chat/pesan yang tampil di layar — termasuk konten TANPA elemen UI (remote desktop, game, WebView, video). Gunakan ini alih-alih screenshot+decode_image bila yang dibutuhkan hanya teksnya",
+            category = "Inspeksi & Visi",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "ocr_screenshot",
+            parametersSchema = "{}",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
             id = "battery",
             name = "Info Baterai",
             description = "Memeriksa persentase baterai, voltase, status pengisian, dan temperatur",
@@ -984,6 +996,28 @@ object ToolManager {
                             result = "🖼️ Tangkapan layar (screenshot) berhasil diambil dan dikirim langsung ke analisis visi AI Anda.",
                             extra = mapOf("screenshot_b64" to base64)
                         )
+                    } else {
+                        ToolResult("error", message = err ?: "Gagal mengambil screenshot.")
+                    }
+                } else if (cmdLower == "ocr_screenshot") {
+                    val (base64, err) = ScreenshotManager.captureBase64(context)
+                    if (base64 != null) {
+                        val text = runCatching {
+                            val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                            val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            if (bmp == null) null
+                            else {
+                                val r = com.example.quiz.OcrEngine.recognize(bmp)
+                                bmp.recycle()
+                                r.getOrNull()
+                            }
+                        }.getOrNull()
+                        if (text.isNullOrBlank()) {
+                            ToolResult("ok", result = "OCR tidak menemukan teks pada tangkapan. Layar mungkin berisi gambar tanpa teks, atau tangkapan kosong/hitam (coba ulangi, atau gunakan tool screenshot lalu decode_image).")
+                        } else {
+                            val shown = text.take(4000) + if (text.length > 4000) "\n...(+${text.length - 4000} karakter lagi)" else ""
+                            ToolResult("ok", result = "🔤 Teks di layar (OCR satu langkah):\n$shown")
+                        }
                     } else {
                         ToolResult("error", message = err ?: "Gagal mengambil screenshot.")
                     }

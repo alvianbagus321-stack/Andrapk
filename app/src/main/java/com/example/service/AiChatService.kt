@@ -152,7 +152,8 @@ object AiChatService {
                - type_text: Mengetik teks pada kolom input aktif (params: {"text": "teks yang ingin diketik", "element_id": "opsional"})
                - press_key: Menekan tombol sistem (params: {"keycode": "ENTER"|"BACK"|"HOME"|"RECENTS"|"VOLUME_UP"|"VOLUME_DOWN"})
                - swipe: Menggeser layar (params: {"x1": 500, "y1": 1500, "x2": 500, "y2": 500, "duration_ms": 300})
-               - screenshot: Mengambil tangkapan layar perangkat
+               - screenshot: Mengambil tangkapan layar perangkat (GAMBAR saja — untuk dilihat AI vision / decode_image kemudian)
+               - ocr_screenshot: Tangkap layar + BACA TEKSNYA langsung (OCR satu langkah) — UTAMAKAN ini untuk membaca teks/soal/chat yang tampil di layar, termasuk konten tanpa elemen UI (remote desktop, game, WebView). Lebih praktis daripada screenshot lalu decode_image
                - decode_image: Mendekode gambar (params: {"source": "last_screenshot"} atau {"base64": "..."} / {"path": "..."} / {"uri": "..."}) menjadi TEKS lengkap: dimensi, warna dominan, kecerahan, tingkat detail, peta bentuk ASCII, dan OCR teks. WAJIB dipakai untuk "melihat" isi gambar/screenshot jika kamu tidak mendukung input gambar (non-vision).
                - ocr_region: OCR hanya AREA tertentu dari screenshot (HEMAT TOKEN — pakai ini dulu sebelum decode_image jika hanya butuh teks): params {"x_percent":0,"y_percent":0,"w_percent":50,"h_percent":30} atau piksel {"left":0,"top":0,"right":400,"bottom":200}
                - record_screen: Rekam layar jadi video MP4 (params: {"action":"start"} lalu {"action":"stop"}; maks 3 menit) — pakai untuk debugging multi-step
@@ -955,6 +956,30 @@ object AiChatService {
                     )
                 } else {
                     ToolResult("error", message = errorMsg ?: "Gagal mengambil tangkapan layar. Pastikan Screen Share atau Accessibility aktif.")
+                }
+            }
+            "ocr_screenshot" -> {
+                val (base64, errorMsg) = ScreenshotManager.captureBase64(com.example.JarvisApp.instance)
+                if (base64 != null) {
+                    ImageDecodeManager.rememberScreenshot(base64)
+                    val text = runCatching {
+                        val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bmp == null) null
+                        else {
+                            val r = com.example.quiz.OcrEngine.recognize(bmp)
+                            bmp.recycle()
+                            r.getOrNull()
+                        }
+                    }.getOrNull()
+                    if (text.isNullOrBlank()) {
+                        ToolResult("ok", result = "Tangkapan berhasil, tapi OCR tidak membaca teks apa pun. Layar mungkin berisi gambar tanpa teks, atau tangkapan kosong/hitam — ulangi, atau pakai tool screenshot lalu decode_image.")
+                    } else {
+                        val shown = text.take(4000) + if (text.length > 4000) "\n...(+${text.length - 4000} karakter lagi)" else ""
+                        ToolResult("ok", result = "🔤 Teks di layar (OCR satu langkah):\n$shown", extra = mapOf("screenshot_b64" to base64))
+                    }
+                } else {
+                    ToolResult("error", message = errorMsg ?: "Gagal mengambil tangkapan layar.")
                 }
             }
             "battery", "get_battery" -> {
