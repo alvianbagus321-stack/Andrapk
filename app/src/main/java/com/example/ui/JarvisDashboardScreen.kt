@@ -208,6 +208,66 @@ fun JarvisDashboardScreen(
             }
         }
 
+        // LAPORAN CRASH — kalau ada fitur membuat app tertutup, salin & kirim ke developer
+        item {
+            var crashSummary by remember { mutableStateOf(com.example.data.CrashReporter.lastCrashSummary()) }
+            if (crashSummary != null) {
+                var copied by remember { mutableStateOf(false) }
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("jarvis_crash", com.example.data.CrashReporter.fullLog()))
+                            copied = true
+                        },
+                    colors = CardDefaults.cardColors(containerColor = JarvisRed.copy(alpha = 0.12f)),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Warning, contentDescription = null, tint = JarvisRed, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Ada laporan crash — TAP UNTUK SALIN",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = JarvisRed,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                "×",
+                                color = JarvisTextSecondary,
+                                fontSize = 14.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        com.example.data.CrashReporter.clear()
+                                        crashSummary = null
+                                    }
+                                    .padding(horizontal = 6.dp)
+                            )
+                        }
+                        Text(
+                            crashSummary ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisTextSecondary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (copied) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "✓ Log penuh tersalin — paste ke chat developer",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisEmerald
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // AI QUIZ ANALYZER — toggle overlay penganalisis soal di layar
         item {
             val quizOn by viewModel.quizOverlayEnabled.collectAsState()

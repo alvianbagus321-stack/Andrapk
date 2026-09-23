@@ -28,6 +28,10 @@ class JarvisApp : Application() {
         super.onCreate()
         instance = this
 
+        // Perekam crash global — agar penyebab crash overlay bisa dibaca user
+        // langsung dari Dashboard tanpa adb (penting utk ROM pembatas spt Tecno/HiOS).
+        com.example.data.CrashReporter.install()
+
         // Ringan & dibutuhkan UI segera — tetap sinkron.
         com.example.data.AiConfigManager.init(this)
         _repository = CompanionRepository(this)
