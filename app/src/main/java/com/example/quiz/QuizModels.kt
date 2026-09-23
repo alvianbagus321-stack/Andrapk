@@ -15,7 +15,12 @@ data class QuizAnswerResult(
     val explanation: String,
     val confidence: Float
 ) {
-    val isUncertain: Boolean get() = answer.isBlank() || answer == "?" || confidence < 0.3f
+    /** Soal ISIAN/short-answer: AI tidak menemukan opsi tapi memberi jawaban teks. */
+    val isFillIn: Boolean get() = options.isEmpty() && answerText.isNotBlank()
+
+    val isUncertain: Boolean
+        get() = if (isFillIn) confidence < 0.3f
+        else answer.isBlank() || answer == "?" || confidence < 0.3f
 }
 
 /** Soal hasil parse OCR (sebelum dikirim ke AI). */
@@ -28,6 +33,7 @@ data class ParsedQuestion(
 /** Baris-baris diagnostic untuk panel ▼ Diagnostic di overlay. */
 data class QuizDiagnostic(
     val capture: QuizStepStatus = QuizStepStatus.SKIPPED,
+    val captureDetail: String? = null,
     val ocr: QuizStepStatus = QuizStepStatus.SKIPPED,
     val aiApi: QuizStepStatus = QuizStepStatus.SKIPPED,
     val questionDetected: Boolean = false,
@@ -39,7 +45,8 @@ data class QuizDiagnostic(
     val autoSubmitDetail: String? = null
 ) {
     fun toLines(): List<String> = listOf(
-        "Screen Capture: ${label(capture)}",
+        "Screen Capture: ${label(capture)}"
+    ) + (captureDetail?.let { listOf("Capture: $it") } ?: emptyList()) + listOf(
         "OCR: ${label(ocr)}",
         "AI API: ${label(aiApi)}",
         "Question: ${if (questionDetected) "Detected" else "Not detected"}",

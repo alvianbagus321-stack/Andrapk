@@ -18,6 +18,7 @@ object DiagnosticLogger {
 
     fun update(
         capture: QuizStepStatus? = null,
+        captureDetail: String? = null,
         ocr: QuizStepStatus? = null,
         aiApi: QuizStepStatus? = null,
         questionDetected: Boolean? = null,
@@ -33,6 +34,7 @@ object DiagnosticLogger {
         val d = _diagnostic.value
         _diagnostic.value = d.copy(
             capture = capture ?: d.capture,
+            captureDetail = captureDetail ?: d.captureDetail,
             ocr = ocr ?: d.ocr,
             aiApi = aiApi ?: d.aiApi,
             questionDetected = questionDetected ?: d.questionDetected,

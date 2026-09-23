@@ -1,5 +1,6 @@
 package com.example.quiz
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -21,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,6 +48,7 @@ fun QuizOverlayUI() {
     val autoSubmitOn by QuizAnalyzer.autoSubmit.collectAsState()
     val submitInfo by QuizAnalyzer.submitInfo.collectAsState()
     val diagState by DiagnosticLogger.diagnostic.collectAsState()
+    val capturePreview by QuizAnalyzer.capturePreview.collectAsState()
 
     if (minimized) {
         // ---- Mode minimize: bulatan kecil ----
@@ -215,14 +218,27 @@ fun QuizOverlayUI() {
             val result = answer
             when {
                 result != null && !result.isUncertain -> {
-                    Text(
-                        "Answer: ${result.answer.ifBlank { "?" }}",
-                        color = JarvisEmerald,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Black
-                    )
-                    if (result.answerText.isNotBlank()) {
-                        Text(result.answerText, color = JarvisTextPrimary, fontSize = 11.5.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    if (result.isFillIn) {
+                        // Soal isian: tampilkan jawaban teksnya langsung
+                        Text(
+                            result.answerText,
+                            color = JarvisEmerald,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Black,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text("Jawaban isian", color = JarvisTextSecondary, fontSize = 9.5.sp)
+                    } else {
+                        Text(
+                            "Answer: ${result.answer.ifBlank { "?" }}",
+                            color = JarvisEmerald,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                        if (result.answerText.isNotBlank()) {
+                            Text(result.answerText, color = JarvisTextPrimary, fontSize = 11.5.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                     Spacer(Modifier.height(4.dp))
                     Text("Confidence: ${(result.confidence * 100).toInt()}%", color = JarvisCyan, fontSize = 10.5.sp)
@@ -271,6 +287,21 @@ fun QuizOverlayUI() {
                         .background(Color(0x14000000), RoundedCornerShape(6.dp))
                         .padding(6.dp)
                 ) {
+                    capturePreview?.let { pv ->
+                        Image(
+                            bitmap = pv,
+                            contentDescription = "Pratinjau tangkapan layar",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 110.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, JarvisCyan.copy(alpha = 0.4f), RoundedCornerShape(6.dp)),
+                            contentScale = ContentScale.Fit
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        Text("Pratinjau = apa yang dilihat analyzer", color = JarvisTextSecondary, fontSize = 9.sp)
+                        Spacer(Modifier.height(3.dp))
+                    }
                     diag.toLines().forEach { line ->
                         Text(line, color = JarvisTextSecondary, fontSize = 9.5.sp, lineHeight = 13.sp)
                     }

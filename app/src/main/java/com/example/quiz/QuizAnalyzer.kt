@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.util.Base64
 import com.example.JarvisApp
 import com.example.service.ScreenshotManager
+import androidx.compose.ui.graphics.asImageBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -43,8 +44,9 @@ object QuizAnalyzer {
         4. "confidence" angka 0.0-1.0 = keyakinanmu.
         5. Jika gambar buram, soal tidak utuh, atau kamu TIDAK YAKIN: jangan mengarang —
            isi "answer" dengan "?", confidence <= 0.2, dan tulis alasannya di "explanation".
-        6. Jika soal bukan pilihan ganda, tetap isi "question" dan "answerText" dengan jawaban terbaik,
-           "answer" boleh "?" bila tidak ada opsi.
+        6. Jika soal ISIAN/bukan pilihan ganda (tidak ada opsi): isi "answer" dengan "?",
+           dan "answerText" HANYA jawaban akhir sesingkat mungkin (angka + satuan / kata /
+           frasa kunci) TANPA kalimat penjelas — jawaban ini akan diketik ke kolom isian.
     """.trimIndent()
 
     // ---- State untuk overlay ----
@@ -71,6 +73,11 @@ object QuizAnalyzer {
 
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
+
+    // Thumbnail tangkapan terakhir — tampil di Diagnostic agar user MELIHAT apa yang
+    // "dilihat" analyzer (langsung ketahuan bila tangkapannya hitam/kosong/salah layar).
+    private val _capturePreview = MutableStateFlow<androidx.compose.ui.graphics.ImageBitmap?>(null)
+    val capturePreview: StateFlow<androidx.compose.ui.graphics.ImageBitmap?> = _capturePreview.asStateFlow()
 
     private var autoJob: Job? = null
     private var lastAutoHash: Long? = null
@@ -121,7 +128,7 @@ object QuizAnalyzer {
         try {
             // 1. CAPTURE
             _phase.value = QuizPhase.CAPTURING
-            val b64 = preCapturedBase64 ?: ScreenshotManager.captureBase64(JarvisApp.instance).first
+            var b64 = preCapturedBase64 ?: ScreenshotManager.captureBase64(JarvisApp.instance).first
             if (b64 == null) {
                 DiagnosticLogger.update(capture = QuizStepStatus.FAILED, error = "Izin Screen Capture belum diberikan / screenshot gagal")
                 fail("Izin Screen Capture belum aktif. Buka app JARVIS dan izinkan 'Screen Capture' (yang dipakai untuk screenshot), lalu Analyze lagi.")
@@ -138,6 +145,47 @@ object QuizAnalyzer {
                 fail("Gagal memproses screenshot (decode gagal).")
                 return@withContext
             }
+            // Pratinjau tangkapan untuk overlay (setelah ini OCR bisa mendaur ulang bitmapnya)
+            runCatching {
+                val pv = decodeSampled(b64, 480)
+                if (pv != null) _capturePreview.value = pv.asImageBitmap()
+            }
+
+            // Deteksi tangkapan kosong/hitam (FLAG_SECURE / display salah / frame pertama hitam)
+            val (uniform, meanLum) = captureIsUniform(ocrBitmap)
+            DiagnosticLogger.update(
+                captureDetail = (ocrBitmap.width.toString() + "x" + ocrBitmap.height + "px, terang rata-rata " + meanLum) +
+                    if (uniform) " - BLOK SERAGAM!" else ""
+            )
+            if (uniform) {
+                val first = ocrBitmap
+                ocrBitmap = null
+                first.recycle()
+                delay(700) // frame pertama projection sering hitam -> capture ulang sekali
+                val retryB64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
+                val rb = if (retryB64 != null) decodeSampled(retryB64, 1280) else null
+                if (retryB64 != null && rb != null && !captureIsUniform(rb).first) {
+                    b64 = retryB64
+                    lastAnalysisBase64 = b64
+                    ocrBitmap = rb
+                    DiagnosticLogger.update(captureDetail = (rb.width.toString() + "x" + rb.height + "px (capture ulang OK)"))
+                    runCatching {
+                        val pv = decodeSampled(b64, 480)
+                        if (pv != null) _capturePreview.value = pv.asImageBitmap()
+                    }
+                } else {
+                    rb?.recycle()
+                    DiagnosticLogger.update(ocr = QuizStepStatus.FAILED, error = "Capture kosong/seragam")
+                    fail(
+                        "Tangkapan layar KOSONG/HITAM. Penyebab umum: (1) layar berisi soal bukan layar aktif saat capture - buka soalnya lalu Analyze; " +
+                            "(2) app soal melarang screenshot (FLAG_SECURE) - coba buka soal di browser/app lain; " +
+                            "(3) izin Screen Capture menunjuk display yang salah - berikan ulang izinnya. " +
+                            "Cek pratinjau tangkapan di Diagnostic untuk melihat apa yang tertangkap."
+                    )
+                    return@withContext
+                }
+            }
+
             val ocrResult = OcrEngine.recognize(ocrBitmap)
             val ocrText = ocrResult.getOrElse {
                 DiagnosticLogger.update(ocr = QuizStepStatus.FAILED, error = it.message)
@@ -146,7 +194,26 @@ object QuizAnalyzer {
             }
             DiagnosticLogger.update(ocr = QuizStepStatus.OK)
 
-            val parsed = QuestionParser.parse(ocrText)
+            // OCR hampir kosong tapi gambar tidak blank -> ulangi dgn skala 2x (teks kecil/layar low-DPI)
+            var ocrTextFinal = ocrText
+            if (ocrText.replace(Regex("[\\s0.,Oo]"), "").length < 3 && ocrBitmap.width < 2048) {
+                runCatching {
+                    val big = Bitmap.createScaledBitmap(
+                        ocrBitmap,
+                        (ocrBitmap.width * 2).coerceAtMost(2048),
+                        (ocrBitmap.height * 2).coerceAtMost(2048),
+                        true
+                    )
+                    val r2 = OcrEngine.recognize(big).getOrNull()
+                    if (!r2.isNullOrBlank() && r2.length > ocrText.length) {
+                        ocrTextFinal = r2
+                        DiagnosticLogger.update(captureDetail = "OCR diulang dgn skala 2x (teks kecil terbaca)")
+                    }
+                    big.recycle()
+                }
+            }
+
+            val parsed = QuestionParser.parse(ocrTextFinal)
             DiagnosticLogger.update(questionDetected = parsed != null, optionCount = parsed?.options?.size ?: 0)
 
             // 3. AI (API existing — text + gambar)
@@ -155,10 +222,10 @@ object QuizAnalyzer {
                 appendLine("Analisa soal pada screenshot berikut.")
                 if (parsed != null) {
                     appendLine("Hasil OCR layar:")
-                    appendLine(ocrText.take(2500))
+                    appendLine(ocrTextFinal.take(2500))
                 } else {
                     appendLine("OCR mentah (soal mungkin dalam gambar/WebView, parser tidak menemukan opsi):")
-                    appendLine(ocrText.take(1500))
+                    appendLine(ocrTextFinal.take(1500))
                 }
                 appendLine("Balas HANYA JSON sesuai instruksi sistem.")
             }
@@ -192,8 +259,9 @@ object QuizAnalyzer {
             if (_autoSubmit.value && !result.isUncertain && result.confidence >= 0.5f) {
                 kotlinx.coroutines.delay(400) // beri waktu UI menampilkan hasil dulu
                 try {
-                    val msg = AutoSubmitter.submit(result, lastAnalysisBase64)
-                    val ok = msg.startsWith("Ketuk")
+                    val msg = if (result.isFillIn) AutoSubmitter.fillAnswer(result, lastAnalysisBase64)
+                              else AutoSubmitter.submit(result, lastAnalysisBase64)
+                    val ok = msg.startsWith("Ketuk") || msg.startsWith("Isi")
                     DiagnosticLogger.update(autoSubmit = if (ok) QuizStepStatus.OK else QuizStepStatus.FAILED, autoSubmitDetail = msg)
                     _submitInfo.value = msg
                 } catch (e: Exception) {
@@ -247,6 +315,48 @@ object QuizAnalyzer {
                 delay(interval)
             }
         }
+    }
+
+    /**
+     * Cek "gambar seragam" (kosong/hitam/putih polos): sampling berhalajah, hitung
+     * fraksi piksel yang menyimpang dari kecerahan rata-rata. < 2% = seragam.
+     * @return Pair(seragam?, kecerahan rata-rata 0-255)
+     */
+    private fun captureIsUniform(b: Bitmap): Pair<Boolean, Int> {
+        val w = b.width
+        val h = b.height
+        val sx = (w / 96).coerceAtLeast(1)
+        val sy = (h / 96).coerceAtLeast(1)
+        var sum = 0.0
+        var n = 0
+        var y = 0
+        while (y < h) {
+            var x = 0
+            while (x < w) {
+                val p = b.getPixel(x, y)
+                sum += 0.299 * ((p shr 16) and 0xFF) + 0.587 * ((p shr 8) and 0xFF) + 0.114 * (p and 0xFF)
+                n++
+                x += sx
+            }
+            y += sy
+        }
+        if (n == 0) return Pair(true, 0)
+        val mean = sum / n
+        var dev = 0
+        var m = 0
+        y = 0
+        while (y < h) {
+            var x = 0
+            while (x < w) {
+                val p = b.getPixel(x, y)
+                val l = 0.299 * ((p shr 16) and 0xFF) + 0.587 * ((p shr 8) and 0xFF) + 0.114 * (p and 0xFF)
+                if (kotlin.math.abs(l - mean) > 24.0) dev++
+                m++
+                x += sx
+            }
+            y += sy
+        }
+        return Pair(dev.toDouble() / m < 0.02, mean.toInt())
     }
 
     /** Hash persepsi 8x8 grayscale (average hash) dari base64 JPEG — murah utk cek perubahan layar. */

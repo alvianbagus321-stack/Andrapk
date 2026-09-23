@@ -76,6 +76,43 @@ object AutoSubmitter {
         }
     }
 
+    /**
+     * Soal ISIAN (bukan pilihan ganda): ketik jawaban ke kolom isian lalu ketuk tombol submit.
+     * Kolom dicari lewat elemen accessibility (node fokus / editable pertama di semua window,
+     * SET_TEXT dengan fallback PASTE). Kolom canvas murni tanpa node text -> TIDAK diisi
+     * (tidak menebak buta) dan dilaporkan di diagnostic.
+     */
+    suspend fun fillAnswer(result: QuizAnswerResult, screenshotBase64: String? = null): String {
+        val service = JarvisAccessibilityService.instance
+            ?: return "Accessibility Service belum aktif - tidak ada yang diisi"
+        val text = result.answerText.trim()
+        if (text.isEmpty()) return "Jawaban kosong - tidak ada yang diisi"
+
+        val typed = service.typeText(null, text)
+        if (typed.status != "ok") {
+            return "Kolom isian tidak ketemu/ditolak - tidak ada yang diisi"
+        }
+        kotlinx.coroutines.delay(600)
+
+        val submitPoint = pickSubmitViaElements(service)?.let { Pair(it, "elemen") }
+            ?: locateViaScreenshot(
+                screenshotBase64,
+                SUBMIT_LABELS.map { label ->
+                    { t: String ->
+                        val low = t.lowercase()
+                        low == label || (low.startsWith(label) && low.length <= label.length + 8)
+                    }
+                }
+            )?.let { Pair(it, "OCR screenshot") }
+
+        return if (submitPoint != null) {
+            service.tapCoordinates(submitPoint.first.first, submitPoint.first.second)
+            "Isi jawaban '$text' + tombol [${submitPoint.second}]"
+        } else {
+            "Jawaban '$text' sudah diisi; tombol submit tidak ketemu"
+        }
+    }
+
     // ============================================================
     // Strategi A — elemen accessibility
     // ============================================================
