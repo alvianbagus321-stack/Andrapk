@@ -128,7 +128,12 @@ object QuizAnalyzer {
         try {
             // 1. CAPTURE
             _phase.value = QuizPhase.CAPTURING
-            var b64 = preCapturedBase64 ?: ScreenshotManager.captureBase64(JarvisApp.instance).first
+            val capTrace = StringBuilder()
+            val capTraceFn: (String) -> Unit = { s ->
+                if (capTrace.isNotEmpty()) capTrace.append("; ")
+                capTrace.append(s)
+            }
+            var b64 = preCapturedBase64 ?: ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
             if (b64 == null) {
                 DiagnosticLogger.update(capture = QuizStepStatus.FAILED, error = "Izin Screen Capture belum diberikan / screenshot gagal")
                 fail("Izin Screen Capture belum aktif. Buka app JARVIS dan izinkan 'Screen Capture' (yang dipakai untuk screenshot), lalu Analyze lagi.")
@@ -154,7 +159,8 @@ object QuizAnalyzer {
             // Deteksi tangkapan kosong/hitam (FLAG_SECURE / display salah / frame pertama hitam)
             val (uniform, meanLum) = captureIsUniform(ocrBitmap)
             DiagnosticLogger.update(
-                captureDetail = (ocrBitmap.width.toString() + "x" + ocrBitmap.height + "px, terang rata-rata " + meanLum) +
+                captureDetail = (if (capTrace.isNotEmpty()) capTrace.toString() + " | " else "") +
+                    (ocrBitmap.width.toString() + "x" + ocrBitmap.height + "px, terang rata-rata " + meanLum) +
                     if (uniform) " - BLOK SERAGAM!" else ""
             )
             if (uniform) {
@@ -162,7 +168,7 @@ object QuizAnalyzer {
                 ocrBitmap = null
                 first.recycle()
                 delay(700) // frame pertama projection sering hitam -> capture ulang sekali
-                val retryB64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
+                val retryB64 = ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
                 val rb = if (retryB64 != null) decodeSampled(retryB64, 1280) else null
                 if (retryB64 != null && rb != null && !captureIsUniform(rb).first) {
                     b64 = retryB64

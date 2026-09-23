@@ -194,29 +194,99 @@ object ScreenshotManager {
     }
 
     /**
-     * Captures current screen and returns Base64 encoded JPEG.
+     * Cek gambar "kosong": seragam (semua piksel ~satu warna, gelap maupun terang).
+     * Dipakai memilih sumber tangkapan terbaik (projection vs accessibility).
      */
-    suspend fun captureBase64(context: Context): Pair<String?, String?> = withContext(Dispatchers.IO) {
-        // Attempt 1: MediaProjection
+    private fun isUniformBlank(b: Bitmap): Boolean {
+        val w = b.width
+        val h = b.height
+        val sx = (w / 64).coerceAtLeast(1)
+        val sy = (h / 64).coerceAtLeast(1)
+        var sum = 0.0
+        var n = 0
+        var y = 0
+        while (y < h) {
+            var x = 0
+            while (x < w) {
+                val p = b.getPixel(x, y)
+                sum += 0.299 * ((p shr 16) and 0xFF) + 0.587 * ((p shr 8) and 0xFF) + 0.114 * (p and 0xFF)
+                n++
+                x += sx
+            }
+            y += sy
+        }
+        if (n == 0) return true
+        val mean = sum / n
+        var dev = 0
+        var m = 0
+        y = 0
+        while (y < h) {
+            var x = 0
+            while (x < w) {
+                val p = b.getPixel(x, y)
+                val l = 0.299 * ((p shr 16) and 0xFF) + 0.587 * ((p shr 8) and 0xFF) + 0.114 * (p and 0xFF)
+                if (kotlin.math.abs(l - mean) > 24.0) dev++
+                m++
+                x += sx
+            }
+            y += sy
+        }
+        return dev.toDouble() / m < 0.02
+    }
+
+    /**
+     * Captures current screen and returns Base64 encoded JPEG.
+     *
+     * Chain cerdas:
+     *   1. MediaProjection — hasil DIPERIKSA dulu; kalau kosong/hitam (frame pertama,
+     *      FLAG_SECURE, virtual display bermasalah) JANGAN langsung dipakai.
+     *   2. AccessibilityService.takeScreenshot (API 30+) — jalur tangkap TERPISAH yang
+     *      sering berhasil saat projection bermasalah; dipakai bila hasilnya tidak kosong.
+     *   3. Dua-duanya kosong → kembalikan gambar kosong (tanpa error) agar pemanggil
+     *      (QuizAnalyzer) bisa capture-ulang & menampilkan pesan penyebab yang tepat.
+     *
+     * @param trace callback opsional (default null) untuk diagnostic sumber tangkapan.
+     */
+    suspend fun captureBase64(
+        context: Context,
+        trace: ((String) -> Unit)? = null
+    ): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        var blankFallbackBase64: String? = null
         val reader = imageReader
         if (reader != null) {
+            var image: Image? = null
             try {
-                val image = acquireLatestImageWithRetry(reader)
+                image = acquireLatestImageWithRetry(reader)
                 if (image != null) {
                     val bitmap = imageToBitmap(image)
-                    image.close()
                     if (bitmap != null) {
-                        val base64 = bitmapToBase64(bitmap)
+                        if (isUniformBlank(bitmap)) {
+                            trace?.invoke("MediaProjection: gambar kosong/hitam")
+                            val stream = ByteArrayOutputStream()
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 60, stream)
+                            blankFallbackBase64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+                        } else {
+                            val base64 = bitmapToBase64(bitmap)
+                            trace?.invoke("Sumber: MediaProjection")
+                            bitmap.recycle()
+                            return@withContext Pair(base64, null)
+                        }
                         bitmap.recycle()
-                        return@withContext Pair(base64, null)
                     }
+                } else {
+                    trace?.invoke("MediaProjection: tidak ada frame")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "MediaProjection capture failed: ${e.message}")
+                trace?.invoke("MediaProjection: error")
+            } finally {
+                // PENTING: image harus SELALU ditutup — kebocoran 1 image mengunci
+                // ImageReader (maxImages) sehingga SEMUA capture berikutnya gagal.
+                try { image?.close() } catch (_: Exception) {}
             }
         }
 
-        // Attempt 2: AccessibilityService Fallback
+        // Attempt 2: AccessibilityService Fallback (jalur tangkap berbeda)
         val accessibilityService = JarvisAccessibilityService.instance
         if (accessibilityService != null) {
             val bitmap = suspendCoroutine<Bitmap?> { cont ->
@@ -225,11 +295,21 @@ object ScreenshotManager {
                 }
             }
             if (bitmap != null) {
-                val base64 = bitmapToBase64(bitmap)
-                bitmap.recycle()
-                return@withContext Pair(base64, null)
+                if (isUniformBlank(bitmap)) {
+                    trace?.invoke("Accessibility: gambar kosong/hitam (app mungkin FLAG_SECURE)")
+                    bitmap.recycle()
+                } else {
+                    val base64 = bitmapToBase64(bitmap)
+                    trace?.invoke("Sumber: Accessibility screenshot")
+                    bitmap.recycle()
+                    return@withContext Pair(base64, null)
+                }
+            } else {
+                trace?.invoke("Accessibility: gagal/tidak tersedia")
             }
         }
+
+        if (blankFallbackBase64 != null) return@withContext Pair(blankFallbackBase64, null)
 
         Pair(
             null,
