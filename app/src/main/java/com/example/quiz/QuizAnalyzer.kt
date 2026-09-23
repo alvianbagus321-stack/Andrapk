@@ -161,9 +161,9 @@ object QuizAnalyzer {
             DiagnosticLogger.update(
                 captureDetail = (if (capTrace.isNotEmpty()) capTrace.toString() + " | " else "") +
                     (ocrBitmap.width.toString() + "x" + ocrBitmap.height + "px, terang rata-rata " + meanLum) +
-                    if (uniform) " - BLOK SERAGAM!" else ""
+                    if (uniform && meanLum < 45) " - GELAP SERAGAM (frame gagal tangkap)" else ""
             )
-            if (uniform) {
+            if (uniform && meanLum < 45) { // hanya frame GELAP yang dianggap gagal tangkap
                 val first = ocrBitmap
                 ocrBitmap = null
                 first.recycle()
@@ -324,15 +324,17 @@ object QuizAnalyzer {
     }
 
     /**
-     * Cek "gambar seragam" (kosong/hitam/putih polos): sampling berhalajah, hitung
-     * fraksi piksel yang menyimpang dari kecerahan rata-rata. < 2% = seragam.
+     * Cek "frame gagal tangkap": seragam DAN gelap (hitam). Frame pertama projection /
+     * FLAG_SECURE menghasilkan HITAM — itu satu-satunya sinyal kegagalan. Halaman putih
+     * polos (mis. quiz di remote desktop StarDesk/AnyDesk) adalah KONTEN SAH, bukan kosong.
+     * Sampling diperpadat (grid /48) agar teks tipis tidak lolos dari hitungan.
      * @return Pair(seragam?, kecerahan rata-rata 0-255)
      */
     private fun captureIsUniform(b: Bitmap): Pair<Boolean, Int> {
         val w = b.width
         val h = b.height
-        val sx = (w / 96).coerceAtLeast(1)
-        val sy = (h / 96).coerceAtLeast(1)
+        val sx = (w / 48).coerceAtLeast(1)
+        val sy = (h / 48).coerceAtLeast(1)
         var sum = 0.0
         var n = 0
         var y = 0

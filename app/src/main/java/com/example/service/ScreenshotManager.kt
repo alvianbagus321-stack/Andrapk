@@ -194,7 +194,8 @@ object ScreenshotManager {
     }
 
     /**
-     * Cek gambar "kosong": seragam (semua piksel ~satu warna, gelap maupun terang).
+     * Cek gambar "kosong": seragam DAN gelap. Frame gagal tangkap selalu HITAM;
+     * halaman terang polos adalah konten sah (jangan dibuang!).
      * Dipakai memilih sumber tangkapan terbaik (projection vs accessibility).
      */
     private fun isUniformBlank(b: Bitmap): Boolean {
@@ -231,7 +232,8 @@ object ScreenshotManager {
             }
             y += sy
         }
-        return dev.toDouble() / m < 0.02
+        if (dev.toDouble() / m >= 0.02) return false // ada konten yang jelas
+        return mean < 40.0 // seragam + gelap = frame gagal tangkap (halaman putih = konten sah)
     }
 
     /**
