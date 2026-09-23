@@ -70,7 +70,6 @@ fun QuizOverlayUI() {
     }
 
     // ---- Mode penuh (compact card) ----
-    var delayText by remember(delayMs) { mutableStateOf(delayMs.toString()) }
     var showDiagnostic by remember { mutableStateOf(false) }
 
     val accent = when (phase) {
@@ -177,21 +176,27 @@ fun QuizOverlayUI() {
                 )
             }
 
-            // Delay (ms)
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("Delay (ms)", color = JarvisTextPrimary, fontSize = 11.5.sp, modifier = Modifier.weight(1f))
-                OutlinedTextField(
-                    value = delayText,
-                    onValueChange = { v ->
-                        delayText = v.filter { it.isDigit() }.take(5)
-                        delayText.toLongOrNull()?.let { QuizAnalyzer.setDelayMs(it) }
-                    },
-                    enabled = !autoOn,
-                    textStyle = LocalTextStyle.current.copy(color = JarvisTextPrimary, fontSize = 11.sp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
-                    modifier = Modifier.width(92.dp).height(46.dp)
-                )
+            // Delay auto analyze: chip preset — TAP SAJA. Field ketik mustahil dipakai di
+            // jendela overlay (window FLAG_NOT_FOCUSABLE -> keyboard tidak bisa muncul).
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text("Delay auto analyze", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(500L, 1000L, 2000L, 5000L).forEach { ms ->
+                        val selected = delayMs == ms
+                        Text(
+                            text = if (ms >= 1000L) (ms / 1000).toString() + "s" else ms.toString() + "ms",
+                            color = if (selected) Color.Black else JarvisTextPrimary,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                .clickable { QuizAnalyzer.setDelayMs(ms) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.height(6.dp))

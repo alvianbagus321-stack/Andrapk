@@ -20,10 +20,32 @@ import com.example.service.ScreenshotManager
  */
 object AutoSubmitter {
 
-    private val SUBMIT_LABELS = listOf(
-        "submit", "check", "periksa", "kirim", "jawab", "konfirmasi",
-        "confirm", "next", "lanjut", "selanjutnya", "selesai", "ok"
+    // Label tombol submit — mencakup ID/EN umum, termasuk "berikutnya" (Ruangguru dll)
+    private val SUBMIT_STRONG = listOf(
+        "submit", "check", "cek", "periksa", "kirim", "jawab", "konfirmasi",
+        "confirm", "next", "lanjut", "lanjutkan", "selanjutnya", "berikutnya",
+        "selesai", "verifikasi", "verify", "answer", "continue", "done"
     )
+
+    // Label pendek ambigu: hanya dicocokkan PERSIS (hindari salah ketuk "login", "kok", dll)
+    private val SUBMIT_EXACT_ONLY = listOf("ok", "go")
+
+    /**
+     * Pencocokan bertingkat (angka kecil = lebih diprioritaskan):
+     *   tier 0: persis / diawali label (guard panjang)
+     *   tier 1: MENGANDUNG label (guard panjang) — menangkap "Soal Berikutnya 9/18",
+     *           "Kirim Jawaban", tombol ber-teks panjang.
+     * Label pendek (ok/go) hanya cocok persis.
+     */
+    private fun submitTier(text: String, seed: String): Int {
+        val low = text.trim().lowercase()
+        if (seed in SUBMIT_EXACT_ONLY) return if (low == seed) 0 else 9
+        return when {
+            low == seed || (low.startsWith(seed) && low.length <= seed.length + 10) -> 0
+            low.contains(seed) && low.length <= seed.length + 20 -> 1
+            else -> 9
+        }
+    }
 
     /** @return ringkasan hasil aksi (untuk diagnostic overlay). */
     suspend fun submit(result: QuizAnswerResult, screenshotBase64: String? = null): String {
@@ -58,15 +80,7 @@ object AutoSubmitter {
         val submitPoint = pickSubmitViaElements(service)?.let {
             submitVia = "elemen"
             it
-        } ?: locateViaScreenshot(
-            screenshotBase64,
-            SUBMIT_LABELS.map { label ->
-                { t: String ->
-                    val low = t.lowercase()
-                    low == label || (low.startsWith(label) && low.length <= label.length + 8)
-                }
-            }
-        )?.also { submitVia = "OCR screenshot" }
+        } ?: locateViaScreenshot(screenshotBase64, submitOcrMatchers())?.also { submitVia = "OCR screenshot" }
 
         return if (submitPoint != null) {
             service.tapCoordinates(submitPoint.first, submitPoint.second)
@@ -95,15 +109,7 @@ object AutoSubmitter {
         kotlinx.coroutines.delay(600)
 
         val submitPoint = pickSubmitViaElements(service)?.let { Pair(it, "elemen") }
-            ?: locateViaScreenshot(
-                screenshotBase64,
-                SUBMIT_LABELS.map { label ->
-                    { t: String ->
-                        val low = t.lowercase()
-                        low == label || (low.startsWith(label) && low.length <= label.length + 8)
-                    }
-                }
-            )?.let { Pair(it, "OCR screenshot") }
+            ?: locateViaScreenshot(screenshotBase64, submitOcrMatchers())?.let { Pair(it, "OCR screenshot") }
 
         return if (submitPoint != null) {
             service.tapCoordinates(submitPoint.first.first, submitPoint.first.second)
@@ -111,6 +117,24 @@ object AutoSubmitter {
         } else {
             "Jawaban '$text' sudah diisi; tombol submit tidak ketemu"
         }
+    }
+
+    /** Matcher berurutan utk OCR: ok/go persis -> semua label tier 0 -> semua label tier 1. */
+    private fun submitOcrMatchers(): List<(String) -> Boolean> {
+        val ms = mutableListOf<(String) -> Boolean>()
+        for (l in SUBMIT_EXACT_ONLY) {
+            val seed = l
+            ms.add { t -> submitTier(t, seed) == 0 }
+        }
+        for (l in SUBMIT_STRONG) {
+            val seed = l
+            ms.add { t -> submitTier(t, seed) == 0 }
+        }
+        for (l in SUBMIT_STRONG) {
+            val seed = l
+            ms.add { t -> submitTier(t, seed) == 1 }
+        }
+        return ms
     }
 
     // ============================================================
@@ -145,18 +169,26 @@ object AutoSubmitter {
     }
 
     private fun pickSubmitViaElements(service: JarvisAccessibilityService): Pair<Float, Float>? {
-        for (label in SUBMIT_LABELS) {
-            val candidates = service.findElementsByText(label).filter { el ->
-                val t = (el.text.ifBlank { el.contentDescription }).trim().lowercase()
-                (t == label || (t.startsWith(label) && t.length <= label.length + 8))
+        var bestTier = 9
+        var bestClickable = false
+        var bestArea = Int.MAX_VALUE
+        var bestPoint: Pair<Float, Float>? = null
+        for (seed in SUBMIT_STRONG + SUBMIT_EXACT_ONLY) {
+            for (el in service.findElementsByText(seed)) {
+                val t = (el.text.ifBlank { el.contentDescription }).trim()
+                val tier = submitTier(t, seed)
+                if (tier >= 9) continue
+                val clickable = el.isClickable
+                val area = el.bounds.width * el.bounds.height
+                val better = tier < bestTier ||
+                    (tier == bestTier && ((clickable && !bestClickable) || (clickable == bestClickable && area < bestArea)))
+                if (better) {
+                    bestTier = tier; bestClickable = clickable; bestArea = area
+                    bestPoint = Pair(el.bounds.centerX.toFloat(), el.bounds.centerY.toFloat())
+                }
             }
-            val best = candidates.sortedWith(
-                compareByDescending<UiElementInfo> { it.isClickable }
-                    .thenBy { it.bounds.width * it.bounds.height }
-            ).firstOrNull()
-            if (best != null) return Pair(best.bounds.centerX.toFloat(), best.bounds.centerY.toFloat())
         }
-        return null
+        return bestPoint
     }
 
     // ============================================================
