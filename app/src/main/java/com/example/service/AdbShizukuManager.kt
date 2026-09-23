@@ -9,7 +9,6 @@ import android.os.Environment
 import android.util.Log
 import com.example.JarvisApp
 import com.example.model.ToolResult
-import dev.rikka.shizuku.Shizuku
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -141,16 +140,44 @@ object AdbShizukuManager {
     // diblokir saat shell dijalankan sebagai uid aplikasi biasa.
     // =====================================================================
 
+    // ---- Shizuku diakses via REFLECTION: build tetap hijau walau library belum ter-resolve;
+    //      saat library ada di classpath (dideklarasikan di build.gradle), semua jalan normal. ----
+
+    private fun shizukuClass(): Class<*>? = try {
+        Class.forName("dev.rikka.shizuku.Shizuku")
+    } catch (_: Throwable) {
+        null
+    }
+
     fun isShizukuBinderAlive(): Boolean = try {
-        Shizuku.pingBinder()
+        shizukuClass()?.getMethod("pingBinder")?.invoke(null) as? Boolean ?: false
     } catch (_: Throwable) {
         false
     }
 
     fun shizukuPermissionGranted(): Boolean = try {
-        isShizukuBinderAlive() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+        val v = shizukuClass()?.getMethod("checkSelfPermission")?.invoke(null) as? Int ?: return false
+        v == PackageManager.PERMISSION_GRANTED
     } catch (_: Throwable) {
         false
+    }
+
+    private fun shizukuRequestPermission(): Boolean = try {
+        shizukuClass()?.getMethod("requestPermission", Int::class.javaPrimitiveType)?.invoke(null, 0)
+        true
+    } catch (_: Throwable) {
+        false
+    }
+
+    private fun shizukuNewProcess(cmd: Array<String>): Process? = try {
+        shizukuClass()?.getMethod(
+            "newProcess",
+            Array<String>::class.java,
+            Map::class.java,
+            String::class.java
+        )?.invoke(null, cmd, null, null) as? Process
+    } catch (_: Throwable) {
+        null
     }
 
     fun requestShizukuPermission(): ToolResult {
@@ -159,11 +186,10 @@ object AdbShizukuManager {
                 "❌ Shizuku tidak aktif. Buka app Shizuku → Start (via Wireless Debugging) atau jalankan di PC, lalu ulangi.\n" +
                 "Pasang Shizuku: https://shizuku.rikka.app/")
         }
-        return try {
-            Shizuku.requestPermission(0)
+        return if (shizukuRequestPermission()) {
             ToolResult("ok", result = "🔑 Dialog izin Shizuku diminta — setujui di layar, lalu panggil adb_via_shizuku lagi.")
-        } catch (e: Throwable) {
-            ToolResult("error", message = "Gagal meminta izin Shizuku: ${e.message}")
+        } else {
+            ToolResult("error", message = "Gagal meminta izin Shizuku.")
         }
     }
 
@@ -185,7 +211,12 @@ object AdbShizukuManager {
                 "❌ Izin Shizuku untuk app ini belum diberikan. Panggil {\"tool\":\"adb_via_shizuku\",\"params\":{\"action\":\"permission\"}} lalu setujui dialognya, kemudian ulangi perintah.")
         }
         return try {
-            val process = Shizuku.newProcess(arrayOf("sh", "-c", cleanCmd), null, null)
+            val process = shizukuNewProcess(arrayOf("sh", "-c", cleanCmd))
+                ?: return ToolResult(
+                    "error",
+                    errorCode = "SHIZUKU_UNAVAILABLE",
+                    message = "❌ Library Shizuku tidak termuat di build ini. Rebuild APK dengan dependensi shizuku tersedia."
+                )
             val output = StringBuilder()
             val reader = BufferedReader(InputStreamReader(process.inputStream))
             val errReader = BufferedReader(InputStreamReader(process.errorStream))

@@ -8,7 +8,9 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -88,6 +90,7 @@ object ScreenRecordManager {
             return@withContext ToolResult("error", message = "Gagal membuat MediaRecorder: ${e.message}")
         }
 
+        var display: android.hardware.display.VirtualDisplay? = null
         try {
             rec.reset()
             rec.setVideoSource(MediaRecorder.VideoSource.SURFACE)
@@ -99,7 +102,7 @@ object ScreenRecordManager {
             rec.setOutputFile(outFile.absolutePath)
             rec.prepare()
 
-            val display = projectionActive.createVirtualDisplay(
+            display = projectionActive.createVirtualDisplay(
                 "JarvisScreenRecord",
                 w, h, metrics.densityDpi,
                 android.hardware.display.DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
@@ -115,14 +118,14 @@ object ScreenRecordManager {
             _isRecording.value = true
 
             // Safety net: auto-stop agar tidak ada rekaman lupa dimatikan
-            autoStop = Runnable { stop() }.also { mainHandler.postDelayed(it, MAX_RECORD_MS) }
+            autoStop = Runnable { stopAsync() }.also { mainHandler.postDelayed(it, MAX_RECORD_MS) }
 
             // Matikan perekaman otomatis kalau user mencabut izin capture
             try {
                 val cb = object : MediaProjection.Callback() {
                     override fun onStop() {
                         super.onStop()
-                        if (_isRecording.value) stop()
+                        if (_isRecording.value) stopAsync()
                     }
                 }
                 projectionCallback = cb
@@ -145,7 +148,12 @@ object ScreenRecordManager {
         }
     }
 
-    fun stop(): ToolResult = withContext(Dispatchers.IO) {
+    /** Dipanggil dari callback non-suspend (Runnable/Camera callback) — aman dibatalkan. */
+    private fun stopAsync() {
+        CoroutineScope(Dispatchers.Main.immediate).launch { runCatching { stop() } }
+    }
+
+    suspend fun stop(): ToolResult = withContext(Dispatchers.IO) {
         if (!_isRecording.value) {
             return@withContext ToolResult("error", message = "Tidak ada perekaman yang berjalan (panggil {\"action\":\"start\"} dulu).")
         }
