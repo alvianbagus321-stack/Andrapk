@@ -993,7 +993,7 @@ object ToolManager {
                     if (base64 != null) {
                         ToolResult(
                             status = "ok",
-                            result = "🖼️ Tangkapan layar (screenshot) berhasil diambil dan dikirim langsung ke analisis visi AI Anda.",
+                            result = "🖼️ Tangkapan layar OK - ${ScreenshotManager.lastCaptureInfo()}. Dikirim ke analisis visi AI Anda.",
                             extra = mapOf("screenshot_b64" to base64)
                         )
                     } else {

@@ -951,7 +951,7 @@ object AiChatService {
                     ImageDecodeManager.rememberScreenshot(base64)
                     ToolResult(
                         "ok",
-                        result = "Tangkapan layar berhasil diambil (${base64.length / 1024} KB). Gunakan tool decode_image dengan {\"source\":\"last_screenshot\"} untuk membaca isinya sebagai teks.",
+                        result = "Tangkapan layar OK - ${ScreenshotManager.lastCaptureInfo()}, ${base64.length / 1024} KB. Gunakan tool decode_image dengan {\"source\":\"last_screenshot\"} untuk membaca isinya sebagai teks.",
                         extra = mapOf("screenshot_b64" to base64)
                     )
                 } else {

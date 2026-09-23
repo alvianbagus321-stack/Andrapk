@@ -35,6 +35,22 @@ object ScreenshotManager {
     private var densityDpi = 320
     private var createdRotation: Int = -1
 
+    @Volatile
+    private var lastCaptureInfoStr: String = "belum ada tangkapan"
+
+    /** Info tangkapan terakhir: dimensi + orientasi + sumber (untuk tool & debugging). */
+    fun lastCaptureInfo(): String = lastCaptureInfoStr
+
+    private fun captureInfo(w: Int, h: Int, source: String): String {
+        val orientasi = when {
+            w > h -> "landscape"
+            h > w -> "portrait"
+            else -> "persegi"
+        }
+        lastCaptureInfoStr = w.toString() + "x" + h + " (" + orientasi + ") via " + source
+        return lastCaptureInfoStr
+    }
+
     private val _isMediaProjectionActive = MutableStateFlow(false)
     val isMediaProjectionActive = _isMediaProjectionActive.asStateFlow()
 
@@ -163,6 +179,12 @@ object ScreenshotManager {
             Thread.sleep(150)
         } catch (e: Exception) {
             Log.e(TAG, "Gagal rebuild VirtualDisplay: ${e.message}", e)
+            // Paksa rebuild ulang pada capture berikutnya — tanpa ini state terlihat
+            // "sudah segar" padahal VirtualDisplay null, dan early-return membuat
+            // jalur projection mati selamanya.
+            createdRotation = -1
+            width = -1
+            height = -1
         }
     }
 
@@ -272,11 +294,49 @@ object ScreenshotManager {
                             val stream = ByteArrayOutputStream()
                             bitmap.compress(Bitmap.CompressFormat.JPEG, 60, stream)
                             blankFallbackBase64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
+                            captureInfo(bitmap.width, bitmap.height, "MediaProjection (kosong)")
                         } else {
-                            val base64 = bitmapToBase64(bitmap)
-                            trace?.invoke("Sumber: MediaProjection")
-                            bitmap.recycle()
-                            return@withContext Pair(base64, null)
+                            // GUARD ORIENTASI AKTIF: dimensi frame HARUS cocok dengan layar
+                            // SAAT INI (portrait atau landscape). Tidak cocok = frame usang
+                            // dari orientasi lama (race rotasi) -> rebuild + capture ulang 1x.
+                            val m = getScreenMetrics(context)
+                            val cocok = (bitmap.width == m.widthPixels && bitmap.height == m.heightPixels) ||
+                                (bitmap.width == m.heightPixels && bitmap.height == m.widthPixels)
+                            if (!cocok) {
+                                trace?.invoke("Frame usang (" + bitmap.width + "x" + bitmap.height + ", layar " + m.widthPixels + "x" + m.heightPixels + ") - rebuild & ulang")
+                                bitmap.recycle()
+                                createdRotation = -1
+                                width = -1
+                                height = -1
+                                ensureFreshVirtualDisplay(context)
+                                val reader2 = imageReader
+                                if (reader2 != null) {
+                                    var img2: Image? = null
+                                    try {
+                                        img2 = acquireLatestImageWithRetry(reader2)
+                                        if (img2 != null) {
+                                            val bmp2 = imageToBitmap(img2)
+                                            if (bmp2 != null && !isUniformBlank(bmp2)) {
+                                                val b64 = bitmapToBase64(bmp2)
+                                                trace?.invoke("Sumber: MediaProjection (frame segar " + bmp2.width + "x" + bmp2.height + ")")
+                                                captureInfo(bmp2.width, bmp2.height, "MediaProjection")
+                                                bmp2.recycle()
+                                                return@withContext Pair(b64, null)
+                                            }
+                                            bmp2?.recycle()
+                                        }
+                                    } finally {
+                                        try { img2?.close() } catch (_: Exception) {}
+                                    }
+                                }
+                                // retry gagal -> lanjut ke jalur fallback di bawah
+                            } else {
+                                val base64 = bitmapToBase64(bitmap)
+                                trace?.invoke("Sumber: MediaProjection")
+                                captureInfo(bitmap.width, bitmap.height, "MediaProjection")
+                                bitmap.recycle()
+                                return@withContext Pair(base64, null)
+                            }
                         }
                         bitmap.recycle()
                     }
@@ -308,6 +368,7 @@ object ScreenshotManager {
                 } else {
                     val base64 = bitmapToBase64(bitmap)
                     trace?.invoke("Sumber: Accessibility screenshot")
+                    captureInfo(bitmap.width, bitmap.height, "Accessibility screenshot")
                     bitmap.recycle()
                     return@withContext Pair(base64, null)
                 }
@@ -328,6 +389,7 @@ object ScreenshotManager {
             } else {
                 val base64 = bitmapToBase64(shizukuBitmap)
                 trace?.invoke("Sumber: Shizuku screencap (tahan FLAG_SECURE)")
+                captureInfo(shizukuBitmap.width, shizukuBitmap.height, "Shizuku screencap")
                 shizukuBitmap.recycle()
                 return@withContext Pair(base64, null)
             }
