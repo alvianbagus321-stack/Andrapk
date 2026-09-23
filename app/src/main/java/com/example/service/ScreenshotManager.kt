@@ -2,6 +2,7 @@ package com.example.service
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -253,6 +254,10 @@ object ScreenshotManager {
         context: Context,
         trace: ((String) -> Unit)? = null
     ): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        // FIX rotasi (Bug A): pastikan VirtualDisplay mengikuti orientasi layar SAAT INI.
+        // Tanpa ini, layar landscape (mis. 1600x720 saat game/remote dibuka) tetap
+        // ditangkap ke buffer portrait 720x1600 -> citra ter-letterbox, OCR gagal.
+        ensureFreshVirtualDisplay(context)
         var blankFallbackBase64: String? = null
         val reader = imageReader
         if (reader != null) {
@@ -308,6 +313,27 @@ object ScreenshotManager {
                 }
             } else {
                 trace?.invoke("Accessibility: gagal/tidak tersedia")
+            }
+        }
+
+        // Attempt 3: screencap via Shizuku (level shell) — SELALU ikut rotasi dan
+        // satu-satunya jalur yang menangkap konten FLAG_SECURE (game/app proteksi).
+        // Hanya dipakai bila Shizuku berjalan & izinnya sudah diberikan.
+        if (AdbShizukuManager.isShizukuBinderAlive() && AdbShizukuManager.shizukuPermissionGranted()) {
+            val png = AdbShizukuManager.screencapPng()
+            val shizukuBitmap = if (png != null) BitmapFactory.decodeByteArray(png, 0, png.size) else null
+            if (shizukuBitmap != null) {
+                if (isUniformBlank(shizukuBitmap)) {
+                    trace?.invoke("Shizuku screencap: kosong")
+                    shizukuBitmap.recycle()
+                } else {
+                    val base64 = bitmapToBase64(shizukuBitmap)
+                    trace?.invoke("Sumber: Shizuku screencap (tahan FLAG_SECURE)")
+                    shizukuBitmap.recycle()
+                    return@withContext Pair(base64, null)
+                }
+            } else {
+                trace?.invoke("Shizuku: screencap gagal")
             }
         }
 

@@ -271,15 +271,21 @@ object JarvisOverlayManager {
         val context = JarvisApp.instance
         try {
             val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            // FIX: tinggi window WRAP_CONTENT (bukan MATCH_PARENT seluruh layar).
+            // Window layar-penuh tanpa pass-through menelan SEMUA sentuhan sehingga
+            // layar tak bisa diklik saat float bar aktif. Kartu task memang fillMaxWidth
+            // di top layar -> width MATCH_PARENT + gravity TOP = tampilan identik,
+            // tapi hanya area kartu yang menahan sentuhan.
             val p = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
                 windowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.CENTER
+                gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             }
             taskParams = p
 

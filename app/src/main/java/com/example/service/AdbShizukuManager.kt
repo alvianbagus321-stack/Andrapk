@@ -162,6 +162,27 @@ object AdbShizukuManager {
         false
     }
 
+    /**
+     * Screenshot level-shell via Shizuku (`screencap -p`): selalu mengikuti rotasi
+     * layar dan tetap menangkap konten FLAG_SECURE (game/app yang melarang screenshot
+     * — hal yang tidak bisa dilakukan MediaProjection/accessibility).
+     * Butuh: Shizuku berjalan + izin diberikan. @return bytes PNG, atau null.
+     */
+    fun screencapPng(): ByteArray? {
+        if (!isShizukuBinderAlive()) return null
+        if (!shizukuPermissionGranted()) return null
+        val proc = shizukuNewProcess(arrayOf("screencap", "-p")) ?: return null
+        return try {
+            val bytes = proc.inputStream.readBytes()
+            val code = runCatching { proc.waitFor() }.getOrDefault(-1)
+            if (code == 0 && bytes.size > 8) bytes else null
+        } catch (_: Throwable) {
+            null
+        } finally {
+            runCatching { proc.destroy() }
+        }
+    }
+
     private fun shizukuRequestPermission(): Boolean = try {
         shizukuClass()?.getMethod("requestPermission", Int::class.javaPrimitiveType)?.invoke(null, 0)
         true
