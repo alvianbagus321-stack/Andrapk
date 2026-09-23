@@ -151,6 +151,12 @@ object QuizOverlayManager {
                 )
                 addView(content)
             }
+            // PENTING: Compose mencari ViewTreeLifecycleOwner di ROOT view jendela
+            // (bukan di ComposeView anaknya). Tanpa ini -> IllegalStateException saat frame
+            // dirender ("ViewTreeLifecycleOwner not found from DraggableLayout").
+            root.setViewTreeLifecycleOwner(owner)
+            root.setViewTreeViewModelStoreOwner(owner)
+            root.setViewTreeSavedStateRegistryOwner(owner)
 
             overlayView = root
             wm.addView(root, p)
