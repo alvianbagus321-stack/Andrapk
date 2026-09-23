@@ -473,7 +473,11 @@ object AiChatService {
         if (cfg.apiKey.isBlank()) {
             return@withContext null to "API key AI belum diisi. Buka pengaturan AI di app untuk mengisinya."
         }
-        val (text, _) = if (cfg.isGeminiNative) {
+        // Deteksi jalur Gemini-native dari konfigurasi existing (AiConfig tak punya flag —
+        // providerLabel/baseUrl adalah sumber kebenarannya).
+        val isGemini = cfg.providerLabel.contains("gemini", ignoreCase = true) ||
+                cfg.baseUrl.contains("generativelanguage", ignoreCase = true)
+        val (text, _) = if (isGemini) {
             callGeminiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt, imageBase64)
         } else {
             // Provider OpenAI-compatible: teks saja (gambar tidak didukung jalur ini)

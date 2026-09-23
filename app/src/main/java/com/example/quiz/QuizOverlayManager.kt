@@ -23,6 +23,8 @@ import com.example.JarvisApp
 import com.example.ui.OverlayLifecycleOwner
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlin.math.hypot
 
 /**
@@ -42,7 +44,7 @@ object QuizOverlayManager {
     private var prefs: SharedPreferences? = null
 
     private var overlayView: View? = null
-    private var layoutParams: WindowManager.LayoutParams? = null
+    private var overlayParams: WindowManager.LayoutParams? = null
     private var lifecycleOwner: OverlayLifecycleOwner? = null
 
     private val _isMinimized = MutableStateFlow(false)
@@ -124,7 +126,7 @@ object QuizOverlayManager {
                 x = prefs?.getInt(KEY_X, 60) ?: 60
                 y = prefs?.getInt(KEY_Y, 220) ?: 220
             }
-            layoutParams = p
+            overlayParams = p
 
             val owner = OverlayLifecycleOwner()
             lifecycleOwner = owner
@@ -143,7 +145,7 @@ object QuizOverlayManager {
 
             val root = DraggableLayout(context).apply {
                 configure(
-                    getPos = { Pair(layoutParams?.x ?: 0, layoutParams?.y ?: 0) },
+                    getPos = { Pair(overlayParams?.x ?: 0, overlayParams?.y ?: 0) },
                     setPos = { x, y -> updatePosition(x, y) },
                     onDragEnd = { savePosition() }
                 )
@@ -169,14 +171,14 @@ object QuizOverlayManager {
             Log.w(TAG, "removeWindow: ${e.message}")
         } finally {
             overlayView = null
-            layoutParams = null
+            overlayParams = null
             lifecycleOwner?.destroy()
             lifecycleOwner = null
         }
     }
 
     private fun updatePosition(x: Int, y: Int) {
-        val params = layoutParams ?: return
+        val params = overlayParams ?: return
         val view = overlayView ?: return
         val metrics = android.content.res.Resources.getSystem().displayMetrics
         params.x = x.coerceIn(0, (metrics.widthPixels * 0.8f).toInt())
@@ -188,7 +190,7 @@ object QuizOverlayManager {
     }
 
     private fun savePosition() {
-        val params = layoutParams ?: return
+        val params = overlayParams ?: return
         prefs?.edit()?.putInt(KEY_X, params.x)?.putInt(KEY_Y, params.y)?.apply()
     }
 

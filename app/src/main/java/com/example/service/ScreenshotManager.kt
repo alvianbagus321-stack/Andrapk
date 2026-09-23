@@ -47,7 +47,8 @@ object ScreenshotManager {
     fun getScreenMetrics(context: Context): ScreenMetrics {
         val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            val windowMetrics = windowManager.currentWindowMetrics
+            // maximumWindowMetrics: dimensi penuh display di rotasi AKTIF (anti salah skala)
+            val windowMetrics = windowManager.maximumWindowMetrics
             val bounds = windowMetrics.bounds
             val densityDpi = context.resources.configuration.densityDpi
             val density = context.resources.displayMetrics.density
@@ -57,6 +58,16 @@ object ScreenshotManager {
             @Suppress("DEPRECATION")
             windowManager.defaultDisplay.getRealMetrics(metrics)
             ScreenMetrics(metrics.widthPixels, metrics.heightPixels, metrics.densityDpi, metrics.density)
+        }
+    }
+
+    /** Rotasi display saat ini: 0/1/2/3 (Surface.ROTATION_*). */
+    fun currentRotation(context: Context): Int {
+        return try {
+            val dm = context.getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+            dm.getDisplay(android.view.Display.DEFAULT_DISPLAY)?.rotation ?: 0
+        } catch (_: Exception) {
+            0
         }
     }
 

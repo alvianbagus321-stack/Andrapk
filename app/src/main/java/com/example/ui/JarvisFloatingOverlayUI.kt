@@ -557,7 +557,7 @@ private fun LiquidGlassListeningCard(
                 if (aiReply.isNotBlank()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "ASISTEN:"
+                            text = "ASISTEN:",
                             color = JarvisCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold

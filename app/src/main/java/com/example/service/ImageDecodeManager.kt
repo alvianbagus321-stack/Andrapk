@@ -121,7 +121,7 @@ object ImageDecodeManager {
             lastScreenshotBase64 != null -> Base64.decode(lastScreenshotBase64!!, Base64.DEFAULT)
             else -> return@withContext ToolResult(
                 "error",
-                message = "Tidak ada sumber gambar. Ambil 'screenshot' dulu, atau kirim {"base64":"..."} / {"path":"..."}."
+                message = "Tidak ada sumber gambar. Ambil 'screenshot' dulu, atau kirim base64/path."
             )
         }
 

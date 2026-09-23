@@ -1,6 +1,7 @@
 package com.example.service
 
 import android.content.Context
+import com.example.model.ToolResult
 import android.media.MediaRecorder
 import android.media.projection.MediaProjection
 import android.os.Build

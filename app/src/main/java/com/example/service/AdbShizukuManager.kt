@@ -178,11 +178,11 @@ object AdbShizukuManager {
                 "❌ Shizuku tidak aktif / tidak terpasang.\n" +
                 "1. Pasang Shizuku dari Play Store atau https://shizuku.rikka.app/\n" +
                 "2. Buka Shizuku → Start (Wireless Debugging di pengaturan developer, atau via PC)\n" +
-                "3. Panggil {"action":"permission"} lalu ulangi perintah.")
+                "3. Panggil {\"action\":\"permission\"} lalu ulangi perintah.")
         }
         if (!shizukuPermissionGranted()) {
             return ToolResult("error", errorCode = "SHIZUKU_PERMISSION", message =
-                "❌ Izin Shizuku untuk app ini belum diberikan. Panggil {"tool":"adb_via_shizuku","params":{"action":"permission"}} lalu setujui dialognya, kemudian ulangi perintah.")
+                "❌ Izin Shizuku untuk app ini belum diberikan. Panggil {\"tool\":\"adb_via_shizuku\",\"params\":{\"action\":\"permission\"}} lalu setujui dialognya, kemudian ulangi perintah.")
         }
         return try {
             val process = Shizuku.newProcess(arrayOf("sh", "-c", cleanCmd), null, null)
