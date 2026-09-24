@@ -84,6 +84,15 @@ object QuizAnalyzer {
     private val _manualExtraCount = MutableStateFlow(2)
     val manualExtraCount: StateFlow<Int> = _manualExtraCount.asStateFlow()
 
+    // Overlap antar tangkapan (%): 70 = tiap scroll cuma geser 30% layar agar
+    // tidak ada bagian soal yang terlewat di antara dua frame berurutan.
+    private val _scrollOverlapPercent = MutableStateFlow(70)
+    val scrollOverlapPercent: StateFlow<Int> = _scrollOverlapPercent.asStateFlow()
+
+    // Mode Advance terbuka/tertutup — tersimpan; overlay berikutnya mengikuti pilihan terakhir
+    private val _advancedShown = MutableStateFlow(false)
+    val advancedShown: StateFlow<Boolean> = _advancedShown.asStateFlow()
+
     // Tangkapan manual utk AI: user tap 📷 sebanyak apa pun lalu Kirim
     private val _manualCaptures = MutableStateFlow(0)
     val manualCaptures: StateFlow<Int> = _manualCaptures.asStateFlow()
@@ -121,6 +130,8 @@ object QuizAnalyzer {
         _autoSubmit.value = submitPrefs.getBoolean("quiz_auto_submit", false)
         _captureModeAuto.value = submitPrefs.getBoolean("quiz_capture_auto", true)
         _manualExtraCount.value = submitPrefs.getInt("quiz_manual_extra", 2).coerceIn(1, 4)
+        _scrollOverlapPercent.value = submitPrefs.getInt("quiz_scroll_overlap", 70).coerceIn(40, 90)
+        _advancedShown.value = submitPrefs.getBoolean("quiz_advance_shown", false)
     }
 
     fun setDelayMs(ms: Long) {
@@ -135,6 +146,17 @@ object QuizAnalyzer {
     fun setManualExtraCount(n: Int) {
         _manualExtraCount.value = n.coerceIn(1, 4)
         submitPrefs.edit().putInt("quiz_manual_extra", _manualExtraCount.value).apply()
+    }
+
+    /** Overlap 40-90%: makin tinggi = geser makin pendek per langkah (makin aman dari terlewat). */
+    fun setScrollOverlap(p: Int) {
+        _scrollOverlapPercent.value = p.coerceIn(40, 90)
+        submitPrefs.edit().putInt("quiz_scroll_overlap", _scrollOverlapPercent.value).apply()
+    }
+
+    fun setAdvancedShown(shown: Boolean) {
+        _advancedShown.value = shown
+        submitPrefs.edit().putBoolean("quiz_advance_shown", shown).apply()
     }
 
     /**
@@ -347,12 +369,15 @@ object QuizAnalyzer {
             val svc = com.example.service.JarvisAccessibilityService.instance
             val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
 
+            val geser = (100 - _scrollOverlapPercent.value.coerceIn(40, 90)) / 100f
+            val yAtas = met.heightPixels * 0.75f
+            val yBawah = yAtas - met.heightPixels * geser
             suspend fun scrollCaptureMerge(): Int {
                 if (svc == null) return -1
                 runCatching {
                     svc.swipeCoordinates(
-                        met.widthPixels / 2f, met.heightPixels * 0.75f,
-                        met.widthPixels / 2f, met.heightPixels * 0.45f, 400
+                        met.widthPixels / 2f, yAtas,
+                        met.widthPixels / 2f, yBawah, 400
                     )
                 }
                 delay(if (remoteMode) 1200 else 800)
@@ -440,14 +465,14 @@ object QuizAnalyzer {
                 repeat(extraScrolls) {
                     runCatching {
                         svc.swipeCoordinates(
-                            met.widthPixels / 2f, met.heightPixels * 0.45f,
-                            met.widthPixels / 2f, met.heightPixels * 0.75f, 400
+                            met.widthPixels / 2f, yBawah,
+                            met.widthPixels / 2f, yAtas, 400
                         )
                     }
                     delay(350)
                 }
                 DiagnosticLogger.update(
-                    captureDetail = "Multi-scroll (" + (if (autoDriven) "otomatis" else "pilihan") + "): " + extraScrolls + " capture tambahan (+" + addedTotal + " baris), posisi dikembalikan"
+                    captureDetail = "Multi-scroll (" + (if (autoDriven) "otomatis" else "pilihan") + ", overlap " + _scrollOverlapPercent.value + "%): " + extraScrolls + " capture tambahan (+" + addedTotal + " baris), posisi dikembalikan"
                 )
             }
             if (result == null) {

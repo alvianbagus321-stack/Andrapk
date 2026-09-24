@@ -55,7 +55,9 @@ fun QuizOverlayUI() {
     val captureModeAuto by QuizAnalyzer.captureModeAuto.collectAsState()
     val manualExtraCount by QuizAnalyzer.manualExtraCount.collectAsState()
     val manualCaptures by QuizAnalyzer.manualCaptures.collectAsState()
-    var showAdvanced by remember { mutableStateOf(false) }
+    val scrollOverlap by QuizAnalyzer.scrollOverlapPercent.collectAsState()
+    // Status Mode Advance PERSISTEN: dibuka kemarin? hari ini tetap terbuka.
+    val showAdvanced by QuizAnalyzer.advancedShown.collectAsState()
 
     if (minimized) {
         // ---- Mode minimize: bulatan kecil ----
@@ -188,7 +190,7 @@ fun QuizOverlayUI() {
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
-                    .clickable { showAdvanced = !showAdvanced }
+                    .clickable { QuizAnalyzer.setAdvancedShown(!showAdvanced) }
                     .padding(vertical = 2.dp)
             ) {
                 Icon(
@@ -304,8 +306,35 @@ fun QuizOverlayUI() {
                                 .clickable { QuizAnalyzer.setManualExtraCount(manualExtraCount + 1) }
                                 .padding(horizontal = 10.dp, vertical = 2.dp)
                         )
-                        Text("(1-4, scroll overlap 70%)", color = JarvisTextSecondary, fontSize = 9.sp)
+                        Text("(1-4)", color = JarvisTextSecondary, fontSize = 9.sp)
                     }
+                }
+                Spacer(Modifier.height(5.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "-",
+                        color = Color.Black,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(JarvisCyan)
+                            .clickable { QuizAnalyzer.setScrollOverlap(scrollOverlap - 5) }
+                            .padding(horizontal = 12.dp, vertical = 2.dp)
+                    )
+                    Text("Overlap " + scrollOverlap + "%", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "+",
+                        color = Color.Black,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(JarvisCyan)
+                            .clickable { QuizAnalyzer.setScrollOverlap(scrollOverlap + 5) }
+                            .padding(horizontal = 10.dp, vertical = 2.dp)
+                    )
+                    Text("geser " + (100 - scrollOverlap) + "% layar/langkah (40-90%)", color = JarvisTextSecondary, fontSize = 9.sp)
                 }
             }
             } // akhir mode advance
