@@ -476,17 +476,17 @@ fun QuizOverlayUI() {
 
             Spacer(Modifier.height(6.dp))
 
-            // Tombol Analyze
+            // Tombol Analyze / STOP (saat proses berjalan - tidak ada lagi kondisi stuck)
             Button(
-                onClick = { QuizAnalyzer.analyzeOnce() },
-                enabled = !isAnalyzing,
-                colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = Color.Black),
+                onClick = { if (isAnalyzing) QuizAnalyzer.cancelAnalysis() else QuizAnalyzer.analyzeOnce() },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isAnalyzing) JarvisRed else JarvisCyan,
+                    contentColor = Color.Black
+                ),
                 modifier = Modifier.fillMaxWidth().height(36.dp)
             ) {
                 if (isAnalyzing) {
-                    CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.Black, strokeWidth = 2.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Analyzing...", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("\u23f9 Stop (membatalkan analisis)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 } else {
                     Text("Analyze", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                 }

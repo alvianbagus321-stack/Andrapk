@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Otak fitur AI Quiz Analyzer.
@@ -534,7 +535,12 @@ object QuizAnalyzer {
             val yBawah = yAtas - met.heightPixels * geser
             var noNew = 0
             var step = 0
+            val sweepStart = System.currentTimeMillis()
             while (_sweeping.value && step < 12 && noNew < 2) {
+                if (System.currentTimeMillis() - sweepStart > 90_000L) {
+                    DiagnosticLogger.update(captureDetail = "Sweep dihentikan: batas 90 detik")
+                    break
+                }
                 val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first ?: break
                 var bmp = decodeSampled(b64, if (remoteNow) 1568 else 1280) ?: break
                 val (uni, lum) = captureIsUniform(bmp)
@@ -605,9 +611,18 @@ object QuizAnalyzer {
      * Analisis sekali (tombol Analyze). Bila preCapturedBase64 diberikan (dari auto loop),
      * capture tidak diulang — hemat performa.
      */
+    @Volatile
+    private var analysisJob: kotlinx.coroutines.Job? = null
+
     fun analyzeOnce(preCapturedBase64: String? = null) {
         if (_isAnalyzing.value) return
-        scope.launch { runAnalysis(preCapturedBase64) }
+        analysisJob = scope.launch { runAnalysis(preCapturedBase64) }
+    }
+
+    /** Batalkan analisis yang nyangkut (tombol Stop di HUD). */
+    fun cancelAnalysis() {
+        analysisJob?.cancel()
+        _isAnalyzing.value = false
     }
 
     private suspend fun runAnalysis(
@@ -871,12 +886,25 @@ object QuizAnalyzer {
                     }
                     appendLine("Balas HANYA JSON sesuai instruksi sistem.")
                 }
-                val (aiText, aiError) = com.example.service.AiChatService.rawCompletion(
-                    systemInstruction = AI_SYSTEM_INSTRUCTION,
-                    prompt = userPrompt,
-                    imageBase64 = frames.firstOrNull(),
-                    extraImagesBase64 = frames.drop(1)
-                )
+                // WATCHDOG: 1 panggilan AI maks 45 dtk; total analisis maks 150 dtk
+                if (System.currentTimeMillis() - startedAt > 150_000L) {
+                    failReason = "Analisis melebihi 150 detik - dihentikan (kurangi capture tambahan / periksa koneksi AI)."
+                    break
+                }
+                val aiResult = withTimeoutOrNull(45_000L) {
+                    com.example.service.AiChatService.rawCompletion(
+                        systemInstruction = AI_SYSTEM_INSTRUCTION,
+                        prompt = userPrompt,
+                        imageBase64 = frames.firstOrNull(),
+                        extraImagesBase64 = frames.drop(1)
+                    )
+                }
+                if (aiResult == null) {
+                    DiagnosticLogger.update(aiApi = QuizStepStatus.FAILED, error = "AI timeout 45 detik")
+                    failReason = "AI tidak merespons dalam 45 detik (koneksi lambat / provider sibuk). Coba lagi."
+                    break
+                }
+                val (aiText, aiError) = aiResult
                 if (aiText.isNullOrBlank()) {
                     DiagnosticLogger.update(aiApi = QuizStepStatus.FAILED, error = aiError ?: "respons kosong")
                     failReason = aiError ?: "AI tidak mengembalikan jawaban."
