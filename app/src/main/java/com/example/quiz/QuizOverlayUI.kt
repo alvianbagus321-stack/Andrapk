@@ -65,6 +65,7 @@ fun QuizOverlayUI() {
     val scrollFromTop by QuizAnalyzer.scrollToTopOnAnalyze.collectAsState()
     val autoSweepOn by QuizAnalyzer.autoSweep.collectAsState()
     val proMode by QuizAnalyzer.proMode.collectAsState()
+    val wheelSide by QuizAnalyzer.wheelSide.collectAsState()
     val sweeping by QuizAnalyzer.sweeping.collectAsState()
     // Status Mode Advance PERSISTEN: dibuka kemarin? hari ini tetap terbuka.
     val showAdvanced by QuizAnalyzer.advancedShown.collectAsState()
@@ -424,7 +425,39 @@ fun QuizOverlayUI() {
                         }
                     }
                     Text(
-                        "Roda StarDesk = drag pelan di widget roda (tepi kanan) - PALING andal utk StarDesk. Otomatis = Roda StarDesk saat remote terdeteksi",
+                        "Roda StarDesk = drag pelan di widget roda (kiri/kanan, dideteksi otomatis) - PALING andal utk StarDesk. Otomatis = Roda StarDesk saat remote terdeteksi",
+                        color = JarvisTextSecondary,
+                        fontSize = 9.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    // Posisi widget roda StarDesk: deteksi otomatis / manual kiri-kanan
+                    Spacer(Modifier.height(6.dp))
+                    Text("Posisi roda StarDesk", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            0 to "Otomatis (deteksi)",
+                            1 to "Kiri",
+                            2 to "Kanan"
+                        ).forEach { (v, label) ->
+                            val selected = wheelSide == v
+                            Text(
+                                text = label,
+                                color = if (selected) Color.Black else JarvisTextPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                    .clickable { QuizAnalyzer.setWheelSide(v) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        "AI mencari letak roda dari screenshot lalu drag tepat di sana; bila roda tak terlihat: kiri saat landscape, kanan saat portrait.",
                         color = JarvisTextSecondary,
                         fontSize = 9.sp,
                         maxLines = 2,

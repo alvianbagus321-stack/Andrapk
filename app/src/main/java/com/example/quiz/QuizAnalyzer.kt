@@ -175,6 +175,7 @@ object QuizAnalyzer {
         _scrollToTopOnAnalyze.value = submitPrefs.getBoolean("quiz_scroll_to_top", true)
         _autoSweep.value = submitPrefs.getBoolean("quiz_auto_sweep", false)
         _proMode.value = submitPrefs.getBoolean("quiz_pro_mode", true)
+        _wheelSide.value = submitPrefs.getInt("quiz_wheel_side", 0).coerceIn(0, 2)
         // autoAnswerLoop SENGAJA tidak dimuat: loop ketuk otomatis tak boleh hidup sendiri saat app restart
     }
 
@@ -242,10 +243,119 @@ object QuizAnalyzer {
 
     private fun capTraceFun2Mark() {} // penanda: langkah mulai-dari-atas selesai (log lewat captureDetail di bawah)
 
+    // ===== WIDGET RODA STARDESK: deteksi posisi dari screenshot =====
+    // Roda bisa di tepi KIRI atau KANAN layar (umumnya KIRI saat landscape).
+    // Jangan menebak: deteksi dulu dari screenshot, lalu drag TEPAT di rodanya.
+
+    /** Posisi roda: 0=otomatis (deteksi; fallback kiri landscape / kanan portrait), 1=kiri, 2=kanan */
+    private val _wheelSide = MutableStateFlow(0)
+    val wheelSide: StateFlow<Int> = _wheelSide.asStateFlow()
+
+    fun setWheelSide(v: Int) {
+        _wheelSide.value = v.coerceIn(0, 2)
+        submitPrefs.edit().putInt("quiz_wheel_side", _wheelSide.value).apply()
+    }
+
+    /** Deteksi terakhir (xNorm, yNorm) 0..1; null = belum terdeteksi sesi ini. */
+    @Volatile
+    private var wheelDetected: Pair<Float, Float>? = null
+
+    /** Deteksi posisi roda SEKALI (hasil di-cache); dipanggil di awal analisis/sweep. */
+    private suspend fun ensureWheelDetected(remote: Boolean) {
+        if (wheelDetected != null) return
+        val jariPref = _scrollFingers.value
+        if (jariPref == 1 || jariPref == 2) return // mode ini tidak memakai roda
+        if (jariPref == 0 && !remote) return // otomatis + bukan remote = swipe biasa
+        runCatching {
+            val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
+            val det = b64?.let { detectWheelNorm(it) }
+            if (det != null) {
+                wheelDetected = det
+                DiagnosticLogger.update(
+                    captureDetail = "\ud83d\udd04 Roda StarDesk terdeteksi di sisi " +
+                        (if (det.first < 0.5f) "KIRI" else "KANAN") + " layar (dari screenshot)"
+                )
+            }
+        }
+    }
+
+    /**
+     * Deteksi widget roda dari screenshot: cari pita gelap vertikal di strip
+     * tepi kiri/kanan (roda = pill semi-transparan gelap dgn tinggi wajar).
+     * @return (xNorm, yNorm) pusat roda 0..1, atau null bila tak ditemukan.
+     */
+    private fun detectWheelNorm(base64: String): Pair<Float, Float>? {
+        return runCatching {
+            val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+            val bmp = BitmapFactory.decodeStream(b64ToStream(base64), null, opts)
+                ?: return null
+            val w = bmp.width
+            val h = bmp.height
+            if (w < 40 || h < 60) return null
+            val px = IntArray(w * h)
+            bmp.getPixels(px, 0, w, 0, 0, w, h)
+            fun lum(x: Int, y: Int): Float {
+                val c = px[y * w + x]
+                return 0.299f * ((c shr 16) and 0xFF) + 0.587f * ((c shr 8) and 0xFF) + 0.114f * (c and 0xFF)
+            }
+            val stripW = (w * 0.09f).toInt().coerceIn(4, 24)
+            var bestLen = 0
+            var bestSide = -1
+            var bestCenterY = 0.5f
+            for (side in 0..1) {
+                val x0 = if (side == 0) 0 else w - stripW
+                val rowMean = FloatArray(h) { y ->
+                    var s = 0f
+                    for (x in x0 until x0 + stripW) s += lum(x, y)
+                    s / stripW
+                }
+                val sorted = rowMean.copyOf()
+                sorted.sort()
+                val med = sorted[h / 2]
+                var runStart = -1
+                var bl = 0
+                var bs = 0
+                for (y in 0..h) {
+                    val dark = y < h && rowMean[y] < med - 28f
+                    if (dark) {
+                        if (runStart < 0) runStart = y
+                    } else if (runStart >= 0) {
+                        if (y - runStart > bl) { bl = y - runStart; bs = runStart }
+                        runStart = -1
+                    }
+                }
+                val minLen = (h * 0.06f).toInt()
+                val maxLen = (h * 0.45f).toInt()
+                if (bl in minLen..maxLen && bl > bestLen) {
+                    bestLen = bl
+                    bestSide = side
+                    bestCenterY = (bs + bl / 2f) / h
+                }
+            }
+            if (bestSide < 0) null
+            else Pair(
+                if (bestSide == 0) (stripW * 0.55f) / w else (w - stripW * 0.55f) / w,
+                bestCenterY
+            )
+        }.getOrNull()
+    }
+
+    /** Koordinat drag roda (px): override manual > deteksi screenshot > fallback orientasi. */
+    private fun resolveWheelPos(w: Int, h: Int): Pair<Float, Float> {
+        when (_wheelSide.value) {
+            1 -> return Pair(w * 0.045f, h * 0.5f)
+            2 -> return Pair(w - w * 0.045f, h * 0.5f)
+        }
+        wheelDetected?.let { return Pair(it.first * w, it.second * h) }
+        // Fallback: landscape -> KIRI (posisi umum roda saat remote), portrait -> kanan
+        return if (h > w) Pair(w * 0.045f, h * 0.5f) else Pair(w - 30f, h * 0.5f)
+    }
+
     /**
      * Mode gulir jari: 1=swipe biasa, 2=dua jari (roda mouse), 3=RODA STARDESK
-     * (drag pelan 1 jari tepat di widget roda di tepi kanan layar — ditarik
-     * atas/bawah = menggulung PC; PALING andal untuk StarDesk).
+     * (drag pelan 1 jari tepat di widget roda — posisinya DIDETEKSI dari
+     * screenshot, kiri/kanan — ditarik atas/bawah = menggulung PC; PALING
+     * andal untuk StarDesk).
      */
     private fun resolveJari(remote: Boolean): Int =
         if (_scrollFingers.value == 0) (if (remote) 3 else 1) else _scrollFingers.value
@@ -260,9 +370,11 @@ object QuizAnalyzer {
     ) {
         runCatching {
             if (jari == 3) {
-                // RODA STARDESK: drag pelan di widget roda (tepi kanan, tengah layar)
-                val wx = met.widthPixels - 30f
-                val cy = met.heightPixels / 2f
+                // RODA STARDESK: drag pelan TEPAT di widget roda — posisinya
+                // dideteksi dari screenshot (kiri/kanan), bukan ditebak.
+                val p = resolveWheelPos(met.widthPixels, met.heightPixels)
+                val wx = p.first
+                val cy = p.second
                 val off = met.heightPixels * 0.06f
                 val y1 = if (atas) cy - off else cy + off
                 val y2 = if (atas) cy + off else cy - off
@@ -559,6 +671,7 @@ object QuizAnalyzer {
             val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
             val remoteNow = remoteActive()
             val jari = resolveJari(remoteNow)
+            ensureWheelDetected(remoteNow)
             suspend fun swipeTo(y1: Float, y2: Float, d: Long) {
                 // arah: y1->y2 dgn y2<y1 = scroll ke bawah; y2>y1 = scroll ke atas
                 doScrollGesture(svc, met, jari, atas = y2 < y1, jarakFraksi = kotlin.math.abs(y2 - y1) / met.heightPixels)
@@ -680,6 +793,14 @@ object QuizAnalyzer {
         if (hudKamiMinimize) {
             com.example.ui.QuizOverlayManager.minimize()
             delay(700) // beri waktu animasi minimize & frame layar stabil
+        }
+
+        // RODA STARDESK: deteksi posisi widget SEKALI di awal (setelah HUD di-
+        // minimize agar HUD tak ikut terdeteksi) — sebelum scroll-to-top yang
+        // sudah membutuhkan roda.
+        if (preCapturedBase64 == null && manualText == null) {
+            wheelDetected = null
+            ensureWheelDetected(remoteActive())
         }
 
         // SOP langkah 1: balik ke puncak dulu SAMPAI BENAR-BENAR MENTOK (swipe+cek
