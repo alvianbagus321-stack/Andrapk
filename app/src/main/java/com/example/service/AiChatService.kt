@@ -234,6 +234,15 @@ object AiChatService {
         val maxSteps = savedConfig.maxAgentLoops
         val isUnlimited = maxSteps == 0
         val effectiveMaxSteps = if (isUnlimited) 200 else maxSteps
+
+        // ANTI-LOOP AGENT: aksi AKTIF (tap/swipe/open_app/dll) yang IDENTIK diulang
+        // tanpa kemajuan -> dilewati, lalu loop dihentikan dgn pesan jelas.
+        // Tool observasi (screenshot/read_screen) tidak dibatasi — repeat itu wajar.
+        val recentSignatures = ArrayList<String>()
+        val actingTools = listOf(
+            "tap", "tap_by_text", "click", "swipe", "type_text", "press_key",
+            "open_app", "adb_shell", "input_text", "drag", "long_press", "scroll"
+        )
         var currentStep = 0
         val loopHistory = history.toMutableList()
         val allThoughts = mutableListOf<String>()
@@ -313,6 +322,36 @@ object AiChatService {
                     }
 
                     val batchLabel = if (parsedActions.size > 1) "$stepLabel | Aksi ${actionIdx + 1}/${parsedActions.size}" else stepLabel
+
+                    // ANTI-LOOP AGENT: tolak aksi aktif identik yang berulang
+                    if (toolName.lowercase() in actingTools) {
+                        val signature = toolName.lowercase() + "?" + params.toString()
+                        val repeatCount = recentSignatures.count { it == signature }
+                        if (repeatCount >= 3) {
+                            val stopMsg = "🛑 Agent dihentikan: aksi '$toolName' dengan parameter sama dijalankan berulang tanpa kemajuan. Coba instruksi yang lebih spesifik."
+                            onStatusUpdate(stopMsg)
+                            return@withContext AiChatResponse(
+                                replyText = stopMsg,
+                                thinkingProcess = allThoughts.joinToString("\n\n"),
+                                actionToolName = lastActionName,
+                                actionResult = lastToolResult
+                            )
+                        }
+                        if (repeatCount >= 2) {
+                            val skippedRes = ToolResult(
+                                "error",
+                                message = "Aksi '$toolName' sudah dijalankan " + (repeatCount + 1) +
+                                    " kali dengan parameter identik - TIDAK dieksekusi lagi. " +
+                                    "Ubah tool/parameternya, verifikasi layar dulu, atau akhiri tugas dengan jawaban final."
+                            )
+                            turnExecutedCount.add(toolName to skippedRes)
+                            turnResultBlocks.add("Aksi ${actionIdx + 1} — Tool: $toolName\nStatus: error\nOutput:\n${skippedRes.message}")
+                            stepSummary.add("$stepLabel: $toolName → DILEWATI (aksi berulang)")
+                            continue
+                        }
+                        recentSignatures.add(signature)
+                    }
+
                     onStatusUpdate("$batchLabel: Mengeksekusi '$toolName'...")
 
                     // Execute tool locally

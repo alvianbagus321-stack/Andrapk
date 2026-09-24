@@ -1015,7 +1015,7 @@ object QuizAnalyzer {
             }
 
             // Mode PILIHAN: lakukan semua scroll+capture dulu (tanpa AI), lalu 1x panggil AI.
-            if (!autoDriven && preCapturedBase64 == null && manualText == null) {
+            if (!autoDriven && _proMode.value && preCapturedBase64 == null && manualText == null) {
                 var donePilihan = 0
                 while (donePilihan < _manualExtraCount.value) {
                     val added = scrollCaptureMerge()
@@ -1101,7 +1101,8 @@ object QuizAnalyzer {
                 result = r
                 // Lanjutan otomatis hanya di mode OTOMATIS & Analyze manual biasa;
                 // di mode PILIHAN jumlahnya sudah ditentukan user di atas.
-                if (!r.needsMore || !autoDriven || preCapturedBase64 != null || manualText != null || extraScrolls >= maxExtras) break
+                if (!r.needsMore || !autoDriven || !_proMode.value ||
+                    preCapturedBase64 != null || manualText != null || extraScrolls >= maxExtras) break
                 val added = scrollCaptureMerge()
                 if (added < 0) break
                 extraScrolls++
