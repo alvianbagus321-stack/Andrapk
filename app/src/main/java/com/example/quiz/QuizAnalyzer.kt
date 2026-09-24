@@ -207,6 +207,26 @@ object QuizAnalyzer {
         com.example.service.JarvisAccessibilityService.instance?.foregroundPackageName()
             ?.let { pkg -> REMOTE_PKG_KEYWORDS.any { pkg.contains(it) } } ?: false
 
+    /**
+     * FOKUS STARDESK: streaming remote terkompresi & teks PC kecil di layar HP —
+     * perbesar bitmap hingga sisi panjang ±2400px (maks 2.5x) sebelum OCR agar
+     * ML Kit sanggup membaca teks mungil dari video remote. Bitmap sumber
+     * didaur ulang bila menghasilkan bitmap baru.
+     */
+    private fun prepRemoteOcr(src: Bitmap): Bitmap {
+        val longSide = maxOf(src.width, src.height)
+        if (longSide >= 2200) return src
+        val scale = (2400f / longSide).coerceIn(1f, 2.5f)
+        val out = Bitmap.createScaledBitmap(
+            src,
+            (src.width * scale).toInt().coerceAtLeast(1),
+            (src.height * scale).toInt().coerceAtLeast(1),
+            true
+        )
+        if (out !== src) src.recycle()
+        return out
+    }
+
     private fun startAutoAnswerLoop() {
         autoAnswerJob?.cancel()
         autoAnswerJob = scope.launch {
@@ -277,7 +297,8 @@ object QuizAnalyzer {
                 DiagnosticLogger.update(captureDetail = "\ud83d\udcf7 gagal: izin Screen Capture tidak tersedia")
                 return@launch
             }
-            val bmp = decodeSampled(b64, 1280)
+            val remoteNow = remoteActive()
+            var bmp = decodeSampled(b64, if (remoteNow) 1568 else 1280)
             if (bmp == null) {
                 DiagnosticLogger.update(captureDetail = "\ud83d\udcf7 gagal: tangkapan tidak bisa diproses")
                 return@launch
@@ -290,6 +311,7 @@ object QuizAnalyzer {
                 DiagnosticLogger.update(captureDetail = "\ud83d\udcf7 gagal: tangkapan kosong/hitam - coba lagi")
                 return@launch
             }
+            if (remoteNow) bmp = prepRemoteOcr(bmp) // teks PC kecil di StarDesk
             val boxes = OcrEngine.recognizeWithBoxes(bmp).getOrNull()
             bmp.recycle()
             if (boxes == null) {
@@ -392,11 +414,22 @@ object QuizAnalyzer {
 
             // 2. DECODE + OCR
             _phase.value = QuizPhase.OCR
-            ocrBitmap = decodeSampled(b64, 1280)
+            ocrBitmap = decodeSampled(b64, if (remoteMode) 1568 else 1280)
             if (ocrBitmap == null) {
                 DiagnosticLogger.update(ocr = QuizStepStatus.FAILED, error = "Gagal decode screenshot")
                 fail("Gagal memproses screenshot (decode gagal).")
                 return@withContext
+            }
+            // FOKUS STARDESK: teks PC kecil di video remote -> perbesar sebelum OCR
+            if (remoteMode && ocrBitmap != null) {
+                val before = ocrBitmap!!
+                val up = prepRemoteOcr(before)
+                if (up !== before) {
+                    DiagnosticLogger.update(
+                        captureDetail = "OCR di-upscale " + before.width + "x" + before.height + " -> " + up.width + "x" + up.height + " (teks PC kecil)"
+                    )
+                }
+                ocrBitmap = up
             }
             // Pratinjau tangkapan untuk overlay (setelah ini OCR bisa mendaur ulang bitmapnya)
             runCatching {
@@ -509,10 +542,11 @@ object QuizAnalyzer {
             suspend fun scrollCaptureMerge(): Int {
                 if (svc == null) return -1
                 geserLayar(atas = true)
-                delay(if (remoteMode) 1200 else 800)
+                delay(if (remoteMode) 1500 else 800) // StarDesk butuh waktu render frame baru
                 val b64x = ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first ?: return -1
-                val bx = decodeSampled(b64x, 1280) ?: return -1
+                var bx = decodeSampled(b64x, if (remoteMode) 1568 else 1280) ?: return -1
                 if (captureIsUniform(bx).first) { bx.recycle(); return -1 }
+                bx = prepRemoteOcr(bx)
                 val boxesX = OcrEngine.recognizeWithBoxes(bx).getOrNull()
                 if (boxesX == null) { bx.recycle(); return -1 }
                 var added = 0
