@@ -863,6 +863,15 @@ object QuizAnalyzer {
         DiagnosticLogger.reset()
         val startedAt = System.currentTimeMillis()
 
+        // KEEP-ALIVE analisis: HiOS (Tecno) kerap membunuh foreground service app
+        // yang berjalan di latar belakang -> Android 14 otomatis MENGHENTIKAN sesi
+        // tangkap layar begitu service-nya mati (itulah "izin capture mati sendiri
+        // saat Analyze"). WakeLock membuat proses dianggap aktif sehingga peluang
+        // dibunuh di tengah analisis jauh lebih kecil. Durasi = batas watchdog.
+        val pm = JarvisApp.instance.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Andrapk:quizAnalyze")
+        runCatching { wakeLock.acquire(300_000L) }
+
         // AUTO-MINIMIZE HUD: kartu HUD ikut tertangkap di screenshot & menutupi soal.
         // Minimize (BUKAN tutup) -> tunggu frame stabil -> baru tangkap.
         val hudKamiMinimize = !com.example.quiz.QuizOverlayManager.isMinimized.value
@@ -1237,6 +1246,7 @@ object QuizAnalyzer {
             DiagnosticLogger.update(error = e.message)
             fail("Error: ${e.message ?: e.javaClass.simpleName}")
         } finally {
+            runCatching { if (wakeLock.isHeld) wakeLock.release() }
             ocrBitmap?.recycle()
             // HUD muncul lagi otomatis menampilkan hasil (kecuali Auto Jawab loop
             // sedang berjalan - iterasi berikutnya akan minimize lagi)
