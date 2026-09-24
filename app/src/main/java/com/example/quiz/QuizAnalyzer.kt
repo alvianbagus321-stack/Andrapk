@@ -263,6 +263,7 @@ object QuizAnalyzer {
     /** Deteksi posisi roda SEKALI (hasil di-cache); dipanggil di awal analisis/sweep. */
     private suspend fun ensureWheelDetected(remote: Boolean) {
         if (wheelDetected != null) return
+        if (!_proMode.value) return // mode DEFAULT: tanpa gesture, roda tak dibutuhkan
         val jariPref = _scrollFingers.value
         if (jariPref == 1 || jariPref == 2) return // mode ini tidak memakai roda
         if (jariPref == 0 && !remote) return // otomatis + bukan remote = swipe biasa
@@ -372,6 +373,16 @@ object QuizAnalyzer {
             if (jari == 3) {
                 // RODA STARDESK: drag pelan TEPAT di widget roda — posisinya
                 // dideteksi dari screenshot (kiri/kanan), bukan ditebak.
+                // PENTING: drag yang menebak di area streaming PC justru
+                // MENGERAKKAN KURSOR remote (bukan scroll). Maka bila roda
+                // tidak terkonfirmasi, drag DILEWATI — bukan ditebak.
+                val manual = _wheelSide.value != 0
+                if (!manual && wheelDetected == null) {
+                    DiagnosticLogger.update(
+                        captureDetail = "Roda StarDesk tidak terkonfirmasi - drag roda dilewati (agar kursor PC tidak ikut bergerak)"
+                    )
+                    return
+                }
                 val p = resolveWheelPos(met.widthPixels, met.heightPixels)
                 val wx = p.first
                 val cy = p.second
@@ -688,8 +699,8 @@ object QuizAnalyzer {
             var step = 0
             val sweepStart = System.currentTimeMillis()
             while (_sweeping.value && step < 12 && noNew < 2) {
-                if (System.currentTimeMillis() - sweepStart > 90_000L) {
-                    DiagnosticLogger.update(captureDetail = "Sweep dihentikan: batas 90 detik")
+                if (System.currentTimeMillis() - sweepStart > 120_000L) {
+                    DiagnosticLogger.update(captureDetail = "Sweep dihentikan: batas 120 detik")
                     break
                 }
                 val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first ?: break
@@ -806,7 +817,9 @@ object QuizAnalyzer {
         // SOP langkah 1: balik ke puncak dulu SAMPAI BENAR-BENAR MENTOK (swipe+cek
         // siklus) agar soal mulai dari baris pertamanya — mencegah menjawab dari
         // soal yang setengah tampil.
-        if (preCapturedBase64 == null && manualText == null && _scrollToTopOnAnalyze.value) {
+        if (preCapturedBase64 == null && manualText == null &&
+            _scrollToTopOnAnalyze.value && _proMode.value
+        ) {
             val c = scrollToTopUntilStuck()
             if (c > 0) capTraceFun2Mark()
         }
@@ -1055,22 +1068,23 @@ object QuizAnalyzer {
                     }
                     appendLine("Balas HANYA JSON sesuai instruksi sistem.")
                 }
-                // WATCHDOG: 1 panggilan AI maks 45 dtk; total analisis maks 150 dtk
-                if (System.currentTimeMillis() - startedAt > 150_000L) {
-                    failReason = "Analisis melebihi 150 detik - dihentikan (kurangi capture tambahan / periksa koneksi AI)."
+                // WATCHDOG: 1 panggilan AI maks 90 dtk; total analisis maks 240 dtk
+                // (dilonggarkan: panggilan ber-gambar butuh waktu lebih dgn koneksi lambat)
+                if (System.currentTimeMillis() - startedAt > 240_000L) {
+                    failReason = "Analisis melebihi 240 detik - dihentikan (kurangi capture tambahan / periksa koneksi AI)."
                     break
                 }
-                val aiResult = withTimeoutOrNull(45_000L) {
+                val aiResult = withTimeoutOrNull(90_000L) {
                     com.example.service.AiChatService.rawCompletion(
                         systemInstruction = AI_SYSTEM_INSTRUCTION,
                         prompt = userPrompt,
-                        imageBase64 = frames.firstOrNull(),
-                        extraImagesBase64 = frames.drop(1)
+                        imageBase64 = frames.firstOrNull()?.let { compressForAi(it) },
+                        extraImagesBase64 = frames.drop(1).map { compressForAi(it) }
                     )
                 }
                 if (aiResult == null) {
-                    DiagnosticLogger.update(aiApi = QuizStepStatus.FAILED, error = "AI timeout 45 detik")
-                    failReason = "AI tidak merespons dalam 45 detik (koneksi lambat / provider sibuk). Coba lagi."
+                    DiagnosticLogger.update(aiApi = QuizStepStatus.FAILED, error = "AI timeout 90 detik")
+                    failReason = "AI tidak merespons dalam 90 detik (koneksi lambat / provider sibuk). Coba lagi."
                     break
                 }
                 val (aiText, aiError) = aiResult
@@ -1300,6 +1314,20 @@ object QuizAnalyzer {
     private fun b64ToStream(base64: String) = java.io.ByteArrayInputStream(Base64.decode(base64, Base64.DEFAULT))
 
     private fun hammingDistance(a: Long, b: Long): Int = java.lang.Long.bitCount(a xor b)
+
+    /**
+     * Kompres tangkapan SEBELUM dikirim ke AI: sisi maks 1280px + JPEG kualitas 80.
+     * Payload screenshot penuh sangat berat (jutaan byte base64) -> upload lambat
+     * di jaringan HP -> AI terlihat "tidak merespons". Kualitas soal tetap terbaca.
+     */
+    private fun compressForAi(base64: String, maxDim: Int = 1280): String {
+        return runCatching {
+            val bmp = decodeSampled(base64, maxDim) ?: return base64
+            val out = java.io.ByteArrayOutputStream()
+            bmp.compress(Bitmap.CompressFormat.JPEG, 80, out)
+            Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        }.getOrDefault(base64)
+    }
 
     private fun decodeSampled(base64: String, maxDim: Int): Bitmap? {
         val bytes = Base64.decode(base64, Base64.DEFAULT)

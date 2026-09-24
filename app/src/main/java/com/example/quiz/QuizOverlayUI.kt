@@ -589,8 +589,9 @@ fun QuizOverlayUI() {
                     )
                 }
                 Text(
-                    "Mode default: satu scan + Auto Submit jawaban (bila Auto Submit ON). " +
-                        "Untuk multi-capture, Scan Penuh, gulir & setelan lanjut: pilih mode PRO.",
+                    "Mode default: satu scan + Auto Submit jawaban (bila Auto Submit ON) - " +
+                        "tanpa gulir/sentuhan otomatis. Untuk multi-capture, Scan Penuh, gulir " +
+                        "& setelan lanjut: pilih mode PRO.",
                     color = JarvisTextSecondary,
                     fontSize = 9.5.sp
                 )
