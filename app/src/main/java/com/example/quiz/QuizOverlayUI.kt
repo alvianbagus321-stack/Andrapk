@@ -499,6 +499,43 @@ fun QuizOverlayUI() {
                         .padding(horizontal = 9.dp, vertical = 4.dp)
                 )
             }
+            // Kontrol gulir manual: posisikan halaman (PC via StarDesk = roda mouse 2 jari)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Gulir:", color = JarvisTextSecondary, fontSize = 10.5.sp)
+                Text(
+                    "\u25b2",
+                    color = Color.Black,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(JarvisCyan)
+                        .clickable { QuizAnalyzer.remoteScroll(up = true) }
+                        .padding(horizontal = 14.dp, vertical = 3.dp)
+                )
+                Text(
+                    "\u25bc",
+                    color = Color.Black,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(JarvisCyan)
+                        .clickable { QuizAnalyzer.remoteScroll(up = false) }
+                        .padding(horizontal = 14.dp, vertical = 3.dp)
+                )
+                Text(
+                    "(2 jari = roda mouse di StarDesk)",
+                    color = JarvisTextSecondary,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Text(
                 "\ud83d\udcf7 = simpan layar sekarang (scroll dulu bila perlu); Kirim = analisis gabungan",
                 color = JarvisTextSecondary,

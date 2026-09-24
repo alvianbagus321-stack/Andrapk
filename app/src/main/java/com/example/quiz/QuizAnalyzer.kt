@@ -352,6 +352,35 @@ object QuizAnalyzer {
         scope.launch { runAnalysis(manualText = pair.first, manualB64 = pair.second) }
     }
 
+    /**
+     * KONTROL GULIR MANUAL (tombol di HUD): gulung layar/PC sekarang tanpa Analyze.
+     * Di StarDesk memakai gesture 2 jari (= roda mouse di PC), di app biasa swipe 1 jari —
+     * mengikuti setelan "Gulir saat multi-capture" (Otomatis/1 jari/2 jari).
+     */
+    fun remoteScroll(up: Boolean) {
+        if (_isAnalyzing.value) return
+        scope.launch {
+            val svc = com.example.service.JarvisAccessibilityService.instance
+            if (svc == null) {
+                DiagnosticLogger.update(captureDetail = "Gulir gagal: Accessibility Service belum aktif")
+                return@launch
+            }
+            val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
+            val jarak = met.heightPixels * 0.35f
+            val y1 = if (up) met.heightPixels * 0.65f else met.heightPixels * 0.35f
+            val y2 = y1 + (if (up) -jarak else jarak)
+            val jari = if (_scrollFingers.value == 0) (if (remoteActive()) 2 else 1) else _scrollFingers.value
+            val res = runCatching {
+                if (jari == 2) svc.twoFingerSwipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, 300)
+                else svc.swipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, 300)
+            }.getOrNull()
+            val ok = res?.status == "ok"
+            DiagnosticLogger.update(
+                captureDetail = (if (up) "\u25b2" else "\u25bc") + " gulir " + (if (jari == 2) "2 jari (roda mouse)" else "1 jari") + (if (ok) "" else " - gagal")
+            )
+        }
+    }
+
     /** Buang buffer tangkapan manual tanpa mengirim. */
     fun clearManualCaptures() {
         synchronized(manualLock) {
