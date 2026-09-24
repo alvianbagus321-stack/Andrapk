@@ -152,6 +152,30 @@ object ToolManager {
             isBuiltIn = true
         ),
         CustomTool(
+            id = "quiz_scroll_page",
+            name = "Gulir Halaman (Sekali, Sesuai Kebutuhan)",
+            description = "Menggulir halaman/PC SEKALI per panggilan: {\"direction\":\"down\"|\"up\",\"page\":false|true}. page=true memakai kunci PageUp/PageDown PC (via Shizuku/Termux-ADB); page=false memakai 1 gesture gulir (roda StarDesk otomatis saat remote desktop). ATURAN: panggil HANYA bila ocr_screenshot menunjukkan konten TERPOTONG — jangan pernah menggulir tanpa alasan; setelah scroll, SELALU ocr_screenshot ulang untuk verifikasi",
+            category = "Inspeksi & Visi",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "quiz_scroll_page",
+            parametersSchema = "{\"direction\": \"down|up\", \"page\": false}",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "quiz_capture",
+            name = "Simpan Frame ke Buffer Analyzer",
+            description = "Menyimpan tangkapan layar saat ini ke buffer analyzer di HUD (seperti tombol \ud83d\udcf7 Tambah). User menekan \"Kirim ke AI\" di HUD untuk menganalisis gabungan semua frame",
+            category = "Inspeksi & Visi",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "quiz_capture",
+            parametersSchema = "{}",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
             id = "adb_shell",
             name = "ADB Shell via Termux (Pengganti Shizuku)",
             description = "Menjalankan perintah shell LEVEL ADB lewat Termux: input keyevent, screencap -p, uiautomator dump, pm grant, dumpsys, dll. Butuh setup sekali: jalankan termux/setup_adb.sh di Termux",

@@ -150,6 +150,7 @@ object AiChatService {
             b. MENGULIR halaman PC: JANGAN swipe dua jari; cari widget RODA (pill gelap vertikal di tepi KIRI/KANAN tengah layar, biasanya KIRI saat landscape) lalu swipe vertikal PELAN 1 jari tepat di rodanya (500ms, jarak pendek).
             c. HATI-HATI: drag/swipe di AREA PC (bukan roda) = menggerakkan KURSOR PC atau menggambar — bukan scroll. Kalau tidak yakin posisi roda, jangan menebak: OCR dulu, atau laporkan ke user.
             d. Teks PC kecil/terkompresi: minta ocr_screenshot, bila buram tunggu wait_stable lalu ulang sekali — jangan menyimpulkan sebelum OCR berhasil.
+            e. GULIR = TOOL CALL: scroll tidak pernah berjalan otomatis. Kumpulkan bukti dulu via ocr_screenshot; bila (dan hanya bila) konten terpotong, panggil quiz_scroll_page sekali, lalu OCR ulang. Ulangi pola ini per halaman — bukan scroll beruntun.
 
             ARSITEKTUR TOOL (3-LAYER MODULAR REGISTRY):
             1. Android & Accessibility Layer:
@@ -162,6 +163,8 @@ object AiChatService {
                - screenshot: Mengambil tangkapan layar perangkat (GAMBAR saja — untuk dilihat AI vision / decode_image kemudian)
                - adb_shell: shell LEVEL ADB via Termux (pengganti Shizuku; butuh setup termux/setup_adb.sh di HP): params {"command":"input keyevent 93"} utk keyevent, {"command":"screencap -p > /sdcard/JARVIS/x.png"} utk screenshot level shell, {"command":"uiautomator dump"} dst
                - ocr_screenshot: Tangkap layar + BACA TEKSNYA langsung (OCR satu langkah) — UTAMAKAN ini untuk membaca teks/soal/chat yang tampil di layar, termasuk konten tanpa elemen UI (remote desktop, game, WebView). Lebih praktis daripada screenshot lalu decode_image
+               - quiz_scroll_page: GULIR halaman SEKALI ({"direction":"down"|"up","page":false|true}; page=true = PageUp/PageDown PC). ATURAN ANTI-SCROLL-TANPA-ALASAN: DILARANG menggulir di awal tugas atau tanpa bukti — gulir HANYA setelah ocr_screenshot menunjukkan konten TERPOTONG; setelah setiap scroll WAJIB ocr_screenshot ulang
+               - quiz_capture: simpan frame layar ke buffer analyzer HUD (user yang menekan Kirim ke AI)
                - decode_image: Mendekode gambar (params: {"source": "last_screenshot"} atau {"base64": "..."} / {"path": "..."} / {"uri": "..."}) menjadi TEKS lengkap: dimensi, warna dominan, kecerahan, tingkat detail, peta bentuk ASCII, dan OCR teks. WAJIB dipakai untuk "melihat" isi gambar/screenshot jika kamu tidak mendukung input gambar (non-vision).
                - ocr_region: OCR hanya AREA tertentu dari screenshot (HEMAT TOKEN — pakai ini dulu sebelum decode_image jika hanya butuh teks): params {"x_percent":0,"y_percent":0,"w_percent":50,"h_percent":30} atau piksel {"left":0,"top":0,"right":400,"bottom":200}
                - record_screen: Rekam layar jadi video MP4 (params: {"action":"start"} lalu {"action":"stop"}; maks 3 menit) — pakai untuk debugging multi-step
@@ -1020,6 +1023,17 @@ object AiChatService {
                         ToolResult("ok", result = "📋 Tampilan Layar Saat Ini (${elements.size} elemen terdeteksi):\n$formatted$extraCount")
                     }
                 } else ToolResult("error", message = "Accessibility Service belum aktif")
+            }
+            "quiz_scroll_page" -> {
+                val dir = params.optString("direction", "down")
+                val page = params.optBoolean("page", false)
+                val (ok, msg) = com.example.quiz.QuizAnalyzer.toolScrollPage(dir, page)
+                if (ok) ToolResult("ok", result = msg)
+                else ToolResult("error", message = msg)
+            }
+            "quiz_capture" -> {
+                com.example.quiz.QuizAnalyzer.addManualCapture()
+                ToolResult("ok", result = "Frame disimpan ke buffer analyzer (hitungan bertambah di HUD). User menekan Kirim ke AI untuk analisis gabungan.")
             }
             "screenshot" -> {
                 val (base64, errorMsg) = ScreenshotManager.captureBase64(com.example.JarvisApp.instance)

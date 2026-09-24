@@ -739,6 +739,23 @@ object QuizAnalyzer {
     }
 
     /**
+     * TOOL CALL utk agent chat: gulir halaman SEKALI, hanya dipanggil AI bila
+     * perlu (keputusan via OCR) — scroll tidak pernah berjalan sendiri.
+     * page=true = kunci keyboard PC (PageUp/PageDown via Shizuku/Termux-ADB);
+     * page=false = 1 gesture gulir (roda StarDesk otomatis saat remote).
+     * @return Pair(sukses terkirim, pesan utk AI)
+     */
+    fun toolScrollPage(direction: String, page: Boolean): Pair<Boolean, String> {
+        return if (page) {
+            scrollKey(if (direction.equals("up", ignoreCase = true)) "pageup" else "pagedown")
+            Pair(true, "Keyevent PageUp/PageDown dikirim (Shizuku/Termux-ADB) - SELALU verifikasi dgn ocr_screenshot setelah ini")
+        } else {
+            remoteScroll(direction.equals("up", ignoreCase = true))
+            Pair(true, "1x gesture gulir dieksekusi (roda StarDesk otomatis saat remote aktif) - SELALU verifikasi dgn ocr_screenshot setelah ini")
+        }
+    }
+
+    /**
      * FALLBACK terakhir: scroll TERUS dari atas ke bawah sambil menangkap frame di
      * tiap langkah. Berhenti otomatis saat MENTOK (2 langkah berturut tanpa baris baru),
      * saat batas 12 langkah, atau saat stopSweep() dipanggil (dari user / keputusan AI).
