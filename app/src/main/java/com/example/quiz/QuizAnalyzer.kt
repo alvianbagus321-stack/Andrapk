@@ -93,6 +93,11 @@ object QuizAnalyzer {
     private val _advancedShown = MutableStateFlow(false)
     val advancedShown: StateFlow<Boolean> = _advancedShown.asStateFlow()
 
+    // SOP soal panjang langkah 1: swipe ke puncak dulu sebelum capture pertama
+    // (jaminan soal terbaca dari baris pertamanya). Bisa dimatikan di Mode Advance.
+    private val _scrollToTopOnAnalyze = MutableStateFlow(true)
+    val scrollToTopOnAnalyze: StateFlow<Boolean> = _scrollToTopOnAnalyze.asStateFlow()
+
     // Jumlah jari utk scroll multi-capture: 0=otomatis (2 jari bila remote PC terdeteksi),
     // 1=swipe biasa, 2=dua jari (= roda mouse di app remote PC)
     private val _scrollFingers = MutableStateFlow(0)
@@ -153,6 +158,7 @@ object QuizAnalyzer {
         _scrollFingers.value = submitPrefs.getInt("quiz_scroll_fingers", 0).coerceIn(0, 2)
         _answerLimitAuto.value = submitPrefs.getBoolean("quiz_answer_limit_auto", true)
         _answerLimitN.value = submitPrefs.getInt("quiz_answer_limit_n", 5).coerceIn(1, 100)
+        _scrollToTopOnAnalyze.value = submitPrefs.getBoolean("quiz_scroll_to_top", true)
         // autoAnswerLoop SENGAJA tidak dimuat: loop ketuk otomatis tak boleh hidup sendiri saat app restart
     }
 
@@ -181,6 +187,11 @@ object QuizAnalyzer {
         submitPrefs.edit().putBoolean("quiz_advance_shown", shown).apply()
     }
 
+    fun setScrollToTopOnAnalyze(v: Boolean) {
+        _scrollToTopOnAnalyze.value = v
+        submitPrefs.edit().putBoolean("quiz_scroll_to_top", v).apply()
+    }
+
     fun setScrollFingers(n: Int) {
         _scrollFingers.value = n.coerceIn(0, 2)
         submitPrefs.edit().putInt("quiz_scroll_fingers", _scrollFingers.value).apply()
@@ -202,6 +213,8 @@ object QuizAnalyzer {
         submitPrefs.edit().putBoolean("quiz_auto_answer", enabled).apply()
         if (enabled) startAutoAnswerLoop() else autoAnswerJob?.cancel()
     }
+
+    private fun capTraceFun2Mark() {} // penanda: langkah mulai-dari-atas selesai (log lewat captureDetail di bawah)
 
     private fun remoteActive(): Boolean =
         com.example.service.JarvisAccessibilityService.instance?.foregroundPackageName()
@@ -456,6 +469,29 @@ object QuizAnalyzer {
             com.example.ui.QuizOverlayManager.minimize()
             delay(700) // beri waktu animasi minimize & frame layar stabil
         }
+
+        // SOP langkah 1: balik ke puncak dulu (2 swipe ke atas) agar soal mulai
+        // dari baris pertamanya — mencegah menjawab dari soal yang setengah tampil.
+        if (preCapturedBase64 == null && manualText == null && _scrollToTopOnAnalyze.value) {
+            val svcTop = com.example.service.JarvisAccessibilityService.instance
+            if (svcTop != null) {
+                val metTop = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
+                val jariTop = if (_scrollFingers.value == 0) (if (remoteActive()) 2 else 1) else _scrollFingers.value
+                repeat(2) {
+                    runCatching {
+                        if (jariTop == 2) svcTop.twoFingerSwipeCoordinates(
+                            metTop.widthPixels / 2f, metTop.heightPixels * 0.35f,
+                            metTop.widthPixels / 2f, metTop.heightPixels * 0.75f, 350
+                        ) else svcTop.swipeCoordinates(
+                            metTop.widthPixels / 2f, metTop.heightPixels * 0.35f,
+                            metTop.widthPixels / 2f, metTop.heightPixels * 0.75f, 350
+                        )
+                    }
+                    delay(if (remoteActive()) 1000 else 600)
+                }
+                capTraceFun2Mark()
+            }
+        }
         var ocrBitmap: Bitmap? = null
 
         // Konteks otomatis: app remote desktop (StarDesk/AnyDesk/dll) sedang tampil?
@@ -675,6 +711,19 @@ object QuizAnalyzer {
                     } else {
                         appendLine("OCR mentah (soal mungkin dalam gambar/WebView, parser tidak menemukan opsi):")
                         appendLine(ocrTextFinal.take(if (extraScrolls > 0) 4200 else 1500))
+                        // Prioritas read_screen: bila WebView mengekspos DOM ke accessibility,
+                        // teks elemen sering berisi soal UTUH (walau tak tampil di layar)
+                        val uiTexts = com.example.service.JarvisAccessibilityService.instance
+                            ?.readScreenElements()
+                            ?.mapNotNull { el -> (el.text.ifBlank { el.contentDescription }).trim().take(150) }
+                            ?.filter { it.length >= 3 }
+                            ?.distinct()
+                            ?.take(40)
+                            .orEmpty()
+                        if (uiTexts.isNotEmpty()) {
+                            appendLine("Teks elemen UI (accessibility) yang terdeteksi di layar:")
+                            appendLine(uiTexts.joinToString("\n").take(1200))
+                        }
                     }
                     appendLine("Balas HANYA JSON sesuai instruksi sistem.")
                 }
