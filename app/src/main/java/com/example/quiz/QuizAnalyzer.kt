@@ -381,6 +381,28 @@ object QuizAnalyzer {
         }
     }
 
+    /**
+     * Gulir via TOMBOL KEYBOARD PC — dikirim `input keyevent` lewat Shizuku; app remote
+     * (StarDesk) meneruskan keyevent Android ke PC. Ini jalur paling pasti menggulung
+     * halaman browser PC saat gesture 2 jari tidak mempan.
+     * mode: pageup=PageUp(92), pagedown=PageDown(93)
+     */
+    fun scrollKey(mode: String) {
+        if (_isAnalyzing.value) return
+        scope.launch {
+            val code = when (mode) {
+                "pageup" -> 92
+                "pagedown" -> 93
+                else -> 93
+            }
+            val ok = com.example.service.AdbShizukuManager.inputKeyevent(code)
+            DiagnosticLogger.update(
+                captureDetail = if (ok) "\u2328 kunci terkirim ke PC via Shizuku"
+                else "\u2328 gagal: Shizuku belum terhubung - buka Dashboard > Shizuku ADB Connector > Sambungkan"
+            )
+        }
+    }
+
     /** Buang buffer tangkapan manual tanpa mengirim. */
     fun clearManualCaptures() {
         synchronized(manualLock) {

@@ -528,8 +528,32 @@ fun QuizOverlayUI() {
                         .clickable { QuizAnalyzer.remoteScroll(up = false) }
                         .padding(horizontal = 14.dp, vertical = 3.dp)
                 )
+                // Jalur PASTI: PageUp/PageDown dikirim via Shizuku -> StarDesk meneruskan
+                // ke PC sbg tombol keyboard -> halaman PC tergulung walau gesture 2 jari tak mempan
                 Text(
-                    "(2 jari = roda mouse di StarDesk)",
+                    "\u21de",
+                    color = Color.Black,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(JarvisEmerald)
+                        .clickable { QuizAnalyzer.scrollKey("pageup") }
+                        .padding(horizontal = 12.dp, vertical = 3.dp)
+                )
+                Text(
+                    "\u21df",
+                    color = Color.Black,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(JarvisEmerald)
+                        .clickable { QuizAnalyzer.scrollKey("pagedown") }
+                        .padding(horizontal = 12.dp, vertical = 3.dp)
+                )
+                Text(
+                    "(hijau = PageUp/Dn via Shizuku)",
                     color = JarvisTextSecondary,
                     fontSize = 9.sp,
                     maxLines = 1,

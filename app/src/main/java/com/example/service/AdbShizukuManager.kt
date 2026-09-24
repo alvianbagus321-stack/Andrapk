@@ -220,6 +220,26 @@ object AdbShizukuManager {
         return shizukuRequestPermission()
     }
 
+    /**
+     * Kirim keyevent Android via Shizuku (`input keyevent`). Di app remote desktop
+     * (StarDesk dll) keyevent dari sistem Android diteruskan ke PC sebagai penekanan
+     * tombol keyboard — dipakai untuk menggulung halaman PC (PAGE_UP/PAGE_DOWN)
+     * saat gesture 2 jari tidak mempan. Butuh Shizuku aktif + izin.
+     */
+    fun inputKeyevent(keycode: Int): Boolean {
+        if (!waitForBinder(600)) return false
+        if (!shizukuPermissionGranted()) return false
+        val proc = shizukuNewProcess(arrayOf("input", "keyevent", keycode.toString())) ?: return false
+        return try {
+            val code = runCatching { proc.waitFor() }.getOrDefault(-1)
+            code == 0
+        } catch (_: Throwable) {
+            false
+        } finally {
+            runCatching { proc.destroy() }
+        }
+    }
+
     /** screencap hanya bila binder hidup + izin ada (menunggu binder sebentar). @return bytes PNG/null. */
     fun screencapIfPermitted(): ByteArray? {
         if (!waitForBinder(600)) return null
