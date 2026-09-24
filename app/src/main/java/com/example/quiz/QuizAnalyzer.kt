@@ -307,14 +307,28 @@ object QuizAnalyzer {
     }
 
     /** Deteksi posisi roda SEKALI (hasil di-cache); dipanggil di awal analisis/sweep.
-     *  Urutan: UI HIERARCHY (tanpa screenshot) dulu -> screenshot sbg cadangan. */
+     *  Urutan: PINDAI SCREENSHOT dulu (roda = overlay gambar StarDesk, bukan
+     *  node UI) -> UI hierarchy hanya sebagai cadangan. */
     private suspend fun ensureWheelDetected(remote: Boolean) {
         if (wheelDetected != null) return
         if (!_proMode.value) return // mode DEFAULT: tanpa gesture, roda tak dibutuhkan
         val jariPref = _scrollFingers.value
         if (jariPref == 1 || jariPref == 2) return // mode ini tidak memakai roda
         if (jariPref == 0 && !remote) return // otomatis + bukan remote = swipe biasa
-        // 1) UI HIERARCHY: baca node StarDesk langsung (gratis, tanpa capture)
+        // 1) UTAMA: pindai SCREENSHOT (widget roda = overlay gambar, bukan node UI)
+        runCatching {
+            val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
+            val det = b64?.let { detectWheelNorm(it) }
+            if (det != null) {
+                wheelDetected = det
+                DiagnosticLogger.update(
+                    captureDetail = "\ud83d\udd04 Roda StarDesk terdeteksi via SCREENSHOT di sisi " +
+                        (if (det.first < 0.5f) "KIRI" else "KANAN") + " layar"
+                )
+                return
+            }
+        }
+        // 2) CADANGAN: UI hierarchy (kalau suatu saat roda diekspos sbg node)
         runCatching {
             val viaHierarchy = findWheelViaHierarchy()
             if (viaHierarchy != null) {
@@ -322,19 +336,6 @@ object QuizAnalyzer {
                 DiagnosticLogger.update(
                     captureDetail = "\ud83d\udd04 Roda StarDesk terdeteksi via UI HIERARCHY di sisi " +
                         (if (viaHierarchy.first < 0.5f) "KIRI" else "KANAN") + " layar"
-                )
-                return
-            }
-        }
-        // 2) CADANGAN: pindai screenshot
-        runCatching {
-            val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
-            val det = b64?.let { detectWheelNorm(it) }
-            if (det != null) {
-                wheelDetected = det
-                DiagnosticLogger.update(
-                    captureDetail = "\ud83d\udd04 Roda StarDesk terdeteksi di sisi " +
-                        (if (det.first < 0.5f) "KIRI" else "KANAN") + " layar (dari screenshot)"
                 )
             }
         }

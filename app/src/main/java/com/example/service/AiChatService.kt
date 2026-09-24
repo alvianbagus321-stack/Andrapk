@@ -145,6 +145,12 @@ object AiChatService {
             5. Untuk list panjang pakai scroll_to_text (bukan swipe buta berulang); tunggu layar selesai loading dengan wait_stable sebelum screenshot/read_screen; baca layar padat dengan read_screen + {"filter_clickable": true} agar hanya tombol yang tampil.
             6. EFISIENSI BERPIKIR (WAJIB): Alasanmu SINGKAT dan TEGAS. Hitung/verifikasi MAKSIMAL dua kali lalu PUTUSKAN. Jika hasil tidak persis cocok dengan opsi yang tersedia, pilih yang TERDEKAT dan sebutkan ketidakpastiannya — DILARANG mengulang perhitungan yang sama berulang-ulang (membuang waktu, membesarkan payload, dan memicu timeout).
 
+            MODE REMOTE DESKTOP (StarDesk/AnyDesk/dll sedang jadi foreground app):
+            a. Layar HP menampilkan PC; isi PC BUKAN node UI — read_screen/tap_by_text TIDAK akan menemukan elemennya. JANGAN mengulang read_screen yang kosong; langsung pakai ocr_screenshot utk membaca layar & dapatkan koordinat (bounding-box), lalu TAP KOORDINAT itu (tap koordinat pada remote = klik di PC — itulah cara menjawab soal/mengklik).
+            b. MENGULIR halaman PC: JANGAN swipe dua jari; cari widget RODA (pill gelap vertikal di tepi KIRI/KANAN tengah layar, biasanya KIRI saat landscape) lalu swipe vertikal PELAN 1 jari tepat di rodanya (500ms, jarak pendek).
+            c. HATI-HATI: drag/swipe di AREA PC (bukan roda) = menggerakkan KURSOR PC atau menggambar — bukan scroll. Kalau tidak yakin posisi roda, jangan menebak: OCR dulu, atau laporkan ke user.
+            d. Teks PC kecil/terkompresi: minta ocr_screenshot, bila buram tunggu wait_stable lalu ulang sekali — jangan menyimpulkan sebelum OCR berhasil.
+
             ARSITEKTUR TOOL (3-LAYER MODULAR REGISTRY):
             1. Android & Accessibility Layer:
                - open_app: Membuka aplikasi (params: {"package_name": "com.google.android.youtube"} atau alias "youtube", "chrome", "whatsapp", "settings")
