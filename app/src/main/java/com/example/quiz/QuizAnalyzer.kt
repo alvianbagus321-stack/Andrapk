@@ -543,7 +543,10 @@ object QuizAnalyzer {
             try {
             val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
             if (b64 == null) {
-                DiagnosticLogger.update(captureDetail = "\ud83d\udcf7 gagal: izin Screen Capture tidak tersedia")
+                DiagnosticLogger.update(
+                    captureDetail = "\ud83d\udcf7 gagal: sesi tangkap layar MATI - ketuk " +
+                        "peringatan merah di HUD utk izin ulang (Termux-ADB tetap dicoba otomatis)"
+                )
                 return@launch
             }
             val remoteNow = remoteActive()

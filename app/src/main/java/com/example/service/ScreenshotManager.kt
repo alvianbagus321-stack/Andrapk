@@ -54,6 +54,10 @@ object ScreenshotManager {
     private val _isMediaProjectionActive = MutableStateFlow(false)
     val isMediaProjectionActive = _isMediaProjectionActive.asStateFlow()
 
+    /** Timestamp terakhir sesi capture dimatikan (0 = tidak pernah/tidak tahu). */
+    private val _projectionDiedAt = MutableStateFlow(0L)
+    val projectionDiedAt = _projectionDiedAt.asStateFlow()
+
     data class ScreenMetrics(
         val widthPixels: Int,
         val heightPixels: Int,
@@ -100,6 +104,7 @@ object ScreenshotManager {
             override fun onStop() {
                 super.onStop()
                 Log.i(TAG, "MediaProjection session stopped by system")
+                _projectionDiedAt.value = System.currentTimeMillis()
                 release()
             }
         }

@@ -255,4 +255,14 @@ object QuizOverlayManager {
             return true
         }
     }
+
+    /** Sesi tangkap layar mati: buka MainActivity + otomatis tampilkan dialog izin ulang. */
+    fun requestProjectionFix() {
+        val ctx = com.example.JarvisApp.instance
+        val i = android.content.Intent(ctx, com.example.MainActivity::class.java).apply {
+            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra("auto_request_projection", true)
+        }
+        runCatching { ctx.startActivity(i) }
+    }
 }

@@ -78,6 +78,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Dari HUD: sesi tangkap layar mati -> langsung tampilkan dialog izin ulang
+        if (intent?.getBooleanExtra("auto_request_projection", false) == true) {
+            requestMediaProjection()
+        }
+
         // Request runtime permissions (Storage, Notifications)
         val permissionsToRequest = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

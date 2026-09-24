@@ -66,6 +66,8 @@ fun QuizOverlayUI() {
     val autoSweepOn by QuizAnalyzer.autoSweep.collectAsState()
     val proMode by QuizAnalyzer.proMode.collectAsState()
     val wheelSide by QuizAnalyzer.wheelSide.collectAsState()
+    val captureActive by com.example.service.ScreenshotManager.isMediaProjectionActive.collectAsState()
+    val captureDiedAt by com.example.service.ScreenshotManager.projectionDiedAt.collectAsState()
     val sweeping by QuizAnalyzer.sweeping.collectAsState()
     // Status Mode Advance PERSISTEN: dibuka kemarin? hari ini tetap terbuka.
     val showAdvanced by QuizAnalyzer.advancedShown.collectAsState()
@@ -170,6 +172,26 @@ fun QuizOverlayUI() {
             }
 
             Spacer(Modifier.height(8.dp))
+
+            if (!captureActive) {
+                val diedStr = if (captureDiedAt > 0L)
+                    java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                        .format(java.util.Date(captureDiedAt)) else ""
+                Text(
+                    "\u26a0 Sesi tangkap layar MATI" + (if (diedStr.isNotEmpty()) " ($diedStr)" else "") +
+                        " - ketuk di sini untuk izin ulang",
+                    color = JarvisRed,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0x22FF5252))
+                        .clickable { QuizOverlayManager.requestProjectionFix() }
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                )
+                Spacer(Modifier.height(8.dp))
+            }
 
             // Mode analyzer: PRO (lengkap) / DEFAULT (bersih)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
