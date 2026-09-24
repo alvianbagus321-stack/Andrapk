@@ -164,7 +164,7 @@ object QuizAnalyzer {
         _manualExtraCount.value = submitPrefs.getInt("quiz_manual_extra", 2).coerceIn(1, 100)
         _scrollOverlapPercent.value = submitPrefs.getInt("quiz_scroll_overlap", 70).coerceIn(40, 90)
         _advancedShown.value = submitPrefs.getBoolean("quiz_advance_shown", false)
-        _scrollFingers.value = submitPrefs.getInt("quiz_scroll_fingers", 0).coerceIn(0, 2)
+        _scrollFingers.value = submitPrefs.getInt("quiz_scroll_fingers", 0).coerceIn(0, 3)
         _answerLimitAuto.value = submitPrefs.getBoolean("quiz_answer_limit_auto", true)
         _answerLimitN.value = submitPrefs.getInt("quiz_answer_limit_n", 5).coerceIn(1, 100)
         _scrollToTopOnAnalyze.value = submitPrefs.getBoolean("quiz_scroll_to_top", true)
@@ -208,7 +208,7 @@ object QuizAnalyzer {
     }
 
     fun setScrollFingers(n: Int) {
-        _scrollFingers.value = n.coerceIn(0, 2)
+        _scrollFingers.value = n.coerceIn(0, 3)
         submitPrefs.edit().putInt("quiz_scroll_fingers", _scrollFingers.value).apply()
     }
 
@@ -232,6 +232,41 @@ object QuizAnalyzer {
     private fun capTraceFun2Mark() {} // penanda: langkah mulai-dari-atas selesai (log lewat captureDetail di bawah)
 
     /**
+     * Mode gulir jari: 1=swipe biasa, 2=dua jari (roda mouse), 3=RODA STARDESK
+     * (drag pelan 1 jari tepat di widget roda di tepi kanan layar — ditarik
+     * atas/bawah = menggulung PC; PALING andal untuk StarDesk).
+     */
+    private fun resolveJari(remote: Boolean): Int =
+        if (_scrollFingers.value == 0) (if (remote) 3 else 1) else _scrollFingers.value
+
+    /** Eksekusi gesture gulir sesuai mode jari. atas=true = konten bergulir ke bawah. */
+    private suspend fun doScrollGesture(
+        svc: com.example.service.JarvisAccessibilityService,
+        met: ScreenshotManager.ScreenMetrics,
+        jari: Int,
+        atas: Boolean,
+        jarakFraksi: Float = 0.40f
+    ) {
+        runCatching {
+            if (jari == 3) {
+                // RODA STARDESK: drag pelan di widget roda (tepi kanan, tengah layar)
+                val wx = met.widthPixels - 30f
+                val cy = met.heightPixels / 2f
+                val off = met.heightPixels * 0.06f
+                val y1 = if (atas) cy - off else cy + off
+                val y2 = if (atas) cy + off else cy - off
+                svc.swipeCoordinates(wx, y1, wx, y2, 500)
+            } else {
+                val cx = met.widthPixels / 2f
+                val y1 = met.heightPixels * (if (atas) 0.75f else 0.35f)
+                val y2 = y1 + (if (atas) -1f else 1f) * met.heightPixels * jarakFraksi
+                if (jari == 2) svc.twoFingerSwipeCoordinates(cx, y1, cx, y2, 400)
+                else svc.swipeCoordinates(cx, y1, cx, y2, 400)
+            }
+        }
+    }
+
+    /**
      * Scroll ke atas SAMPAI BENAR-BENAR MENTOK (bukan swipe buta).
      * Siklus: [swipe-ke-atas beberapa kali] -> [capture+OCR pembanding] ->
      * bila masih ada baris baru = halaman masih bergerak -> ulangi;
@@ -244,18 +279,8 @@ object QuizAnalyzer {
             ?: return@withContext 0
         val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
         val remoteNow = remoteActive()
-        val jari = if (_scrollFingers.value == 0) (if (remoteNow) 2 else 1) else _scrollFingers.value
-        suspend fun swipeUp() {
-            runCatching {
-                if (jari == 2) svc.twoFingerSwipeCoordinates(
-                    met.widthPixels / 2f, met.heightPixels * 0.35f,
-                    met.widthPixels / 2f, met.heightPixels * 0.75f, 350
-                ) else svc.swipeCoordinates(
-                    met.widthPixels / 2f, met.heightPixels * 0.35f,
-                    met.widthPixels / 2f, met.heightPixels * 0.75f, 350
-                )
-            }
-        }
+        val jari = resolveJari(remoteNow)
+        suspend fun swipeUp() { doScrollGesture(svc, met, jari, atas = false, jarakFraksi = 0.40f) }
         val seen = HashSet<String>()
         var prevNew = -1
         while (cycles < 6) { // pengaman: maks 6 siklus
@@ -460,15 +485,9 @@ object QuizAnalyzer {
                 return@launch
             }
             val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
-            val jarak = met.heightPixels * 0.35f
-            val y1 = if (up) met.heightPixels * 0.65f else met.heightPixels * 0.35f
-            val y2 = y1 + (if (up) -jarak else jarak)
-            val jari = if (_scrollFingers.value == 0) (if (remoteActive()) 2 else 1) else _scrollFingers.value
-            val res = runCatching {
-                if (jari == 2) svc.twoFingerSwipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, 300)
-                else svc.swipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, 300)
-            }.getOrNull()
-            val ok = res?.status == "ok"
+            val jari = resolveJari(remoteActive())
+            doScrollGesture(svc, met, jari, atas = up, jarakFraksi = 0.35f)
+            val ok = true
             DiagnosticLogger.update(
                 captureDetail = (if (up) "\u25b2" else "\u25bc") + " gulir " + (if (jari == 2) "2 jari (roda mouse)" else "1 jari") + (if (ok) "" else " - gagal")
             )
@@ -528,12 +547,10 @@ object QuizAnalyzer {
                 ?: return@withContext null
             val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
             val remoteNow = remoteActive()
-            val jari = if (_scrollFingers.value == 0) (if (remoteNow) 2 else 1) else _scrollFingers.value
+            val jari = resolveJari(remoteNow)
             suspend fun swipeTo(y1: Float, y2: Float, d: Long) {
-                runCatching {
-                    if (jari == 2) svc.twoFingerSwipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, d)
-                    else svc.swipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, d)
-                }
+                // arah: y1->y2 dgn y2<y1 = scroll ke bawah; y2>y1 = scroll ke atas
+                doScrollGesture(svc, met, jari, atas = y2 < y1, jarakFraksi = kotlin.math.abs(y2 - y1) / met.heightPixels)
             }
             // mulai dari PUNCAK halaman — sampai BENAR-BENAR mentok (swipe+cek siklus)
             scrollToTopUntilStuck()
@@ -811,21 +828,29 @@ object QuizAnalyzer {
             val geser = (100 - _scrollOverlapPercent.value.coerceIn(40, 90)) / 100f
             val yAtas = met.heightPixels * 0.75f
             val yBawah = yAtas - met.heightPixels * geser
-            val jari = if (_scrollFingers.value == 0) (if (remoteMode) 2 else 1) else _scrollFingers.value
+            val jari = resolveJari(remoteMode)
             suspend fun geserLayar(atas: Boolean) {
                 if (svc == null) return
                 val y1 = if (atas) yAtas else yBawah
                 val y2 = if (atas) yBawah else yAtas
-                runCatching {
-                    if (jari == 2) svc.twoFingerSwipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, 400)
-                    else svc.swipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, 400)
-                }
+                doScrollGesture(svc, met, jari, atas = atas, jarakFraksi = kotlin.math.abs(y2 - y1) / met.heightPixels)
             }
             suspend fun scrollCaptureMerge(): Int {
                 if (svc == null) return -1
+                val prevHash = runCatching { quickHash(frames.last()) }.getOrDefault(0L)
                 geserLayar(atas = true)
                 delay(if (remoteMode) 1500 else 800) // StarDesk butuh waktu render frame baru
                 val b64x = ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first ?: return -1
+                // ANTI-LOOP: layar tak berubah setelah scroll = scroll GAGAL (widget
+                // roda StarDesk nonaktif / mode jari salah) -> HENTIKAN loop, jangan
+                // biarkan AI meminta lanjutan yang tidak pernah datang.
+                val newHash = runCatching { quickHash(b64x) }.getOrDefault(0L)
+                if (prevHash != 0L && newHash != 0L && hammingDistance(prevHash, newHash) < 6) {
+                    DiagnosticLogger.update(
+                        captureDetail = "Scroll tidak menggerakkan layar - loop dihentikan. Cek widget Roda StarDesk aktif / ganti mode Gulir di Mode advance"
+                    )
+                    return -2
+                }
                 var bx = decodeSampled(b64x, if (remoteMode) 1568 else 1280) ?: return -1
                 if (captureIsUniform(bx).first) { bx.recycle(); return -1 }
                 bx = prepRemoteOcr(bx)
@@ -846,11 +871,13 @@ object QuizAnalyzer {
 
             // Mode PILIHAN: lakukan semua scroll+capture dulu (tanpa AI), lalu 1x panggil AI.
             if (!autoDriven && preCapturedBase64 == null && manualText == null) {
-                repeat(_manualExtraCount.value) {
+                var donePilihan = 0
+                while (donePilihan < _manualExtraCount.value) {
                     val added = scrollCaptureMerge()
-                    if (added < 0) return@repeat
+                    if (added < 0) break // scroll gagal/tak bergerak -> jangan ulangi
                     extraScrolls++
                     addedTotal += added
+                    donePilihan++
                 }
             }
 

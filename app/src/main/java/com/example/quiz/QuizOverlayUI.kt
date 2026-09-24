@@ -372,7 +372,8 @@ fun QuizOverlayUI() {
                     listOf(
                         0 to "Otomatis",
                         1 to "1 jari",
-                        2 to "2 jari (roda mouse)"
+                        2 to "2 jari",
+                        3 to "Roda StarDesk"
                     ).forEach { (v, label) ->
                         val selected = scrollFingers == v
                         Text(
@@ -389,7 +390,7 @@ fun QuizOverlayUI() {
                     }
                 }
                 Text(
-                    "2 jari = roda mouse di remote PC (StarDesk dll). Otomatis = 2 jari saat remote terdeteksi",
+                    "Roda StarDesk = drag pelan di widget roda (tepi kanan) - PALING andal utk StarDesk. Otomatis = Roda StarDesk saat remote terdeteksi",
                     color = JarvisTextSecondary,
                     fontSize = 9.sp,
                     maxLines = 2,
