@@ -7,6 +7,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import com.example.JarvisApp
 import com.example.model.ToolResult
 import java.io.BufferedReader
@@ -238,6 +241,68 @@ object AdbShizukuManager {
         } finally {
             runCatching { proc.destroy() }
         }
+    }
+
+    // ================= TERMUX-ADB (PENGGANTI SHIZUKU) =================
+
+    /** Termux-ADB siap? (Termux terpasang + binary adb ada -> setup_adb.sh sudah dijalankan) */
+    fun isTermuxAdbReady(): Boolean =
+        isTermuxInstalled(JarvisApp.instance) &&
+            File("/data/data/com.termux/files/usr/bin/adb").exists()
+
+    private const val ADB_OUT_DIR = "/sdcard/JARVIS"
+
+    /**
+     * Jalankan `adb shell <cmd>` lewat Termux RUN_COMMAND (pengganti Shizuku).
+     * Output diarahkan ke file di /sdcard/JARVIS agar bisa dibaca app ini.
+     * Syarat: setup_adb.sh sudah dijalankan di Termux (adb connect + allow-external-apps).
+     */
+    fun termuxAdbShell(cmd: String, outFile: String? = null): Boolean {
+        val ctx = JarvisApp.instance
+        if (!isTermuxAdbReady()) return false
+        val redirect = if (outFile != null) " > '$outFile' 2>&1" else ""
+        return try {
+            sendTermuxRunCommandIntent(
+                ctx,
+                "/data/data/com.termux/files/usr/bin/bash",
+                arrayOf("-c", "adb shell $cmd$redirect")
+            )
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** screencap level-ADB via Termux: tembak + tunggu file PNG muncul (maks ~6 dtk). */
+    suspend fun termuxScreencapPng(timeoutMs: Long = 6000L): ByteArray? = withContext(Dispatchers.IO) {
+        val out = File(ADB_OUT_DIR, "adb_screen.png")
+        runCatching { out.delete() }
+        if (!termuxAdbShell("exec-out screencap -p", out.absolutePath)) return@withContext null
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (out.exists() && out.length() > 8) {
+                delay(150)
+                return@withContext runCatching { out.readBytes() }.getOrNull()
+            }
+            delay(200)
+        }
+        null
+    }
+
+    /** adb shell dengan output TEKS (dibaca balik dari /sdcard/JARVIS/adb_out.txt). */
+    suspend fun termuxAdbShellWithOutput(cmd: String, timeoutMs: Long = 6000L): String? = withContext(Dispatchers.IO) {
+        val out = File(ADB_OUT_DIR, "adb_out.txt")
+        runCatching { out.delete() }
+        if (!termuxAdbShell(cmd, out.absolutePath)) return@withContext null
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (out.exists() && out.length() > 0) {
+                delay(150)
+                return@withContext runCatching { out.readText() }.getOrNull()
+            }
+            delay(200)
+        }
+        null
     }
 
     /** screencap hanya bila binder hidup + izin ada (menunggu binder sebentar). @return bytes PNG/null. */

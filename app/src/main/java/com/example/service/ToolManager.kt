@@ -152,6 +152,18 @@ object ToolManager {
             isBuiltIn = true
         ),
         CustomTool(
+            id = "adb_shell",
+            name = "ADB Shell via Termux (Pengganti Shizuku)",
+            description = "Menjalankan perintah shell LEVEL ADB lewat Termux: input keyevent, screencap -p, uiautomator dump, pm grant, dumpsys, dll. Butuh setup sekali: jalankan termux/setup_adb.sh di Termux",
+            category = "Terminal & Shizuku",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "adb_shell",
+            parametersSchema = """{"command": "input keyevent 93"}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
             id = "battery",
             name = "Info Baterai",
             description = "Memeriksa persentase baterai, voltase, status pengisian, dan temperatur",
@@ -998,6 +1010,18 @@ object ToolManager {
                         )
                     } else {
                         ToolResult("error", message = err ?: "Gagal mengambil screenshot.")
+                    }
+                } else if (cmdLower == "adb_shell") {
+                    val cmd = params.optString("command", "")
+                    if (cmd.isBlank()) {
+                        ToolResult("error", message = "Parameter 'command' wajib, mis. {\"command\":\"input keyevent 93\"}")
+                    } else {
+                        val out = AdbShizukuManager.termuxAdbShellWithOutput(cmd)
+                        if (out != null) {
+                            ToolResult("ok", result = "🖥️ adb shell ($cmd):\n" + out.take(3000))
+                        } else {
+                            ToolResult("error", message = "Gagal. Pastikan Termux+ADB siap: buka Termux, jalankan termux/setup_adb.sh lalu 'jad status'")
+                        }
                     }
                 } else if (cmdLower == "ocr_screenshot") {
                     val (base64, err) = ScreenshotManager.captureBase64(context)

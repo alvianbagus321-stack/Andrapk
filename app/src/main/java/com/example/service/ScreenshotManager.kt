@@ -397,6 +397,27 @@ object ScreenshotManager {
             trace?.invoke("Shizuku: " + AdbShizukuManager.diagnose())
         }
 
+        // Attempt 4: screencap via TERMUX-ADB (pengganti Shizuku bila Shizuku mati).
+        // Butuh sekali jalan: termux/setup_adb.sh di Termux (adb connect).
+        if (AdbShizukuManager.isTermuxAdbReady()) {
+            val png4 = AdbShizukuManager.termuxScreencapPng()
+            val bmp4 = if (png4 != null) BitmapFactory.decodeByteArray(png4, 0, png4.size) else null
+            if (bmp4 != null) {
+                if (isUniformBlank(bmp4)) {
+                    trace?.invoke("Termux-ADB: gambar kosong")
+                    bmp4.recycle()
+                } else {
+                    val base64 = bitmapToBase64(bmp4)
+                    trace?.invoke("Sumber: Termux-ADB screencap (tahan FLAG_SECURE)")
+                    captureInfo(bmp4.width, bmp4.height, "Termux-ADB screencap")
+                    bmp4.recycle()
+                    return@withContext Pair(base64, null)
+                }
+            } else {
+                trace?.invoke("Termux-ADB: screencap tidak sampai (jalankan 'jad status' di Termux)")
+            }
+        }
+
         if (blankFallbackBase64 != null) return@withContext Pair(blankFallbackBase64, null)
 
         Pair(

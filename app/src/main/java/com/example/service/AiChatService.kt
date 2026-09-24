@@ -153,6 +153,7 @@ object AiChatService {
                - press_key: Menekan tombol sistem (params: {"keycode": "ENTER"|"BACK"|"HOME"|"RECENTS"|"VOLUME_UP"|"VOLUME_DOWN"})
                - swipe: Menggeser layar (params: {"x1": 500, "y1": 1500, "x2": 500, "y2": 500, "duration_ms": 300})
                - screenshot: Mengambil tangkapan layar perangkat (GAMBAR saja — untuk dilihat AI vision / decode_image kemudian)
+               - adb_shell: shell LEVEL ADB via Termux (pengganti Shizuku; butuh setup termux/setup_adb.sh di HP): params {"command":"input keyevent 93"} utk keyevent, {"command":"screencap -p > /sdcard/JARVIS/x.png"} utk screenshot level shell, {"command":"uiautomator dump"} dst
                - ocr_screenshot: Tangkap layar + BACA TEKSNYA langsung (OCR satu langkah) — UTAMAKAN ini untuk membaca teks/soal/chat yang tampil di layar, termasuk konten tanpa elemen UI (remote desktop, game, WebView). Lebih praktis daripada screenshot lalu decode_image
                - decode_image: Mendekode gambar (params: {"source": "last_screenshot"} atau {"base64": "..."} / {"path": "..."} / {"uri": "..."}) menjadi TEKS lengkap: dimensi, warna dominan, kecerahan, tingkat detail, peta bentuk ASCII, dan OCR teks. WAJIB dipakai untuk "melihat" isi gambar/screenshot jika kamu tidak mendukung input gambar (non-vision).
                - ocr_region: OCR hanya AREA tertentu dari screenshot (HEMAT TOKEN — pakai ini dulu sebelum decode_image jika hanya butuh teks): params {"x_percent":0,"y_percent":0,"w_percent":50,"h_percent":30} atau piksel {"left":0,"top":0,"right":400,"bottom":200}
@@ -993,6 +994,19 @@ object AiChatService {
                     }
                 } else {
                     ToolResult("error", message = errorMsg ?: "Gagal mengambil tangkapan layar.")
+                }
+            }
+            "adb_shell" -> {
+                val cmd = params.optString("command", "")
+                if (cmd.isBlank()) {
+                    ToolResult("error", message = "Parameter 'command' wajib, mis. {\"command\":\"input keyevent 93\"}")
+                } else {
+                    val out = AdbShizukuManager.termuxAdbShellWithOutput(cmd)
+                    if (out != null) {
+                        ToolResult("ok", result = "🖥️ adb shell ($cmd):\n" + out.take(3000))
+                    } else {
+                        ToolResult("error", message = "Gagal. Pastikan Termux+ADB siap: buka Termux, jalankan termux/setup_adb.sh lalu 'jad status'")
+                    }
                 }
             }
             "battery", "get_battery" -> {
