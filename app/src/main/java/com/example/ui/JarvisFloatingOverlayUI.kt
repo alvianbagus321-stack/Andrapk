@@ -385,10 +385,17 @@ private fun LiquidGlassCardContainer(
             // Cybernetic corner markers overlay
             CyberneticCornerCrosshairs(tint = borderColor.copy(alpha = 0.5f))
 
+            // FIX OVERFLOW: kartu floating yang dibuka penuh tak boleh menjebak
+            // keluar bawah layar (dulu kepotong & tak bisa digulir). Tinggi dibatasi
+            // 85% tinggi layar; kelebihan konten DIGULIR di dalam panel.
+            val scrHdp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+            val scrollSt = androidx.compose.foundation.rememberScrollState()
             Column(
                 modifier = Modifier
                     .padding(16.dp)
                     .fillMaxWidth()
+                    .heightIn(max = (scrHdp * 0.85f).dp)
+                    .verticalScroll(scrollSt)
             ) {
                 content()
             }
