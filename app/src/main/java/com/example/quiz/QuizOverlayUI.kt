@@ -479,7 +479,7 @@ fun QuizOverlayUI() {
                         }
                     }
                     Text(
-                        "AI mencari letak roda dari screenshot lalu drag tepat di sana; bila roda tak terlihat: kiri saat landscape, kanan saat portrait.",
+                        "AI mencari roda via UI hierarchy StarDesk (tanpa screenshot) + pindai screenshot sbg cadangan, lalu drag tepat di sana; bila roda tak terlihat: kiri saat landscape, kanan saat portrait.",
                         color = JarvisTextSecondary,
                         fontSize = 9.sp,
                         maxLines = 2,

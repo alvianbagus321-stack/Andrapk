@@ -260,13 +260,73 @@ object QuizAnalyzer {
     @Volatile
     private var wheelDetected: Pair<Float, Float>? = null
 
-    /** Deteksi posisi roda SEKALI (hasil di-cache); dipanggil di awal analisis/sweep. */
+    /**
+     * Cari widget roda StarDesk lewat UI HIERARCHY (accessibility) — TANPA
+     * screenshot, instan. Roda = view SEMPIT & menjulur di strip tepi
+     * kiri/kanan layar (pilar gelap tanpa teks).
+     * @return (xNorm, yNorm) pusat roda 0..1, atau null bila tidak ketemu.
+     */
+    private fun findWheelViaHierarchy(): Pair<Float, Float>? {
+        val svc = com.example.service.JarvisAccessibilityService.instance ?: return null
+        return runCatching {
+            val roots = ArrayList<android.view.accessibility.AccessibilityNodeInfo>()
+            runCatching { svc.windows?.forEach { w -> w.root?.let { roots.add(it) } } }
+            if (roots.isEmpty()) svc.rootInActiveWindow?.let { roots.add(it) }
+            if (roots.isEmpty()) return null
+            val dm = android.content.res.Resources.getSystem().displayMetrics
+            val sw = dm.widthPixels.toFloat()
+            val sh = dm.heightPixels.toFloat()
+            var best: Pair<Float, Float>? = null
+            var bestScore = 0f
+            fun walk(n: android.view.accessibility.AccessibilityNodeInfo?) {
+                if (n == null) return
+                val r = android.graphics.Rect()
+                if (n.isVisibleToUser && n.getBoundsInScreen(r)) {
+                    val w = r.width().toFloat()
+                    val h = r.height().toFloat()
+                    val cx = r.centerX().toFloat()
+                    val cy = r.centerY().toFloat()
+                    val nearEdge = cx < sw * 0.12f || cx > sw * 0.88f
+                    val narrow = w <= sw * 0.09f
+                    val tallEnough = h >= sh * 0.06f && h <= sh * 0.45f
+                    val midY = cy in sh * 0.15f..sh * 0.85f
+                    if (nearEdge && narrow && tallEnough && midY && h > w) {
+                        val edgeDist = minOf(cx, sw - cx) / sw
+                        val score = (h / sh) * 2f - edgeDist * 4f
+                        if (score > bestScore) {
+                            bestScore = score
+                            best = Pair(cx / sw, cy / sh)
+                        }
+                    }
+                }
+                for (i in 0 until n.childCount) walk(n.getChild(i))
+            }
+            roots.forEach { walk(it) }
+            best
+        }.getOrNull()
+    }
+
+    /** Deteksi posisi roda SEKALI (hasil di-cache); dipanggil di awal analisis/sweep.
+     *  Urutan: UI HIERARCHY (tanpa screenshot) dulu -> screenshot sbg cadangan. */
     private suspend fun ensureWheelDetected(remote: Boolean) {
         if (wheelDetected != null) return
         if (!_proMode.value) return // mode DEFAULT: tanpa gesture, roda tak dibutuhkan
         val jariPref = _scrollFingers.value
         if (jariPref == 1 || jariPref == 2) return // mode ini tidak memakai roda
         if (jariPref == 0 && !remote) return // otomatis + bukan remote = swipe biasa
+        // 1) UI HIERARCHY: baca node StarDesk langsung (gratis, tanpa capture)
+        runCatching {
+            val viaHierarchy = findWheelViaHierarchy()
+            if (viaHierarchy != null) {
+                wheelDetected = viaHierarchy
+                DiagnosticLogger.update(
+                    captureDetail = "\ud83d\udd04 Roda StarDesk terdeteksi via UI HIERARCHY di sisi " +
+                        (if (viaHierarchy.first < 0.5f) "KIRI" else "KANAN") + " layar"
+                )
+                return
+            }
+        }
+        // 2) CADANGAN: pindai screenshot
         runCatching {
             val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
             val det = b64?.let { detectWheelNorm(it) }
