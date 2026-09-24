@@ -147,12 +147,12 @@ object QuizAnalyzer {
     fun loadPersisted() {
         _autoSubmit.value = submitPrefs.getBoolean("quiz_auto_submit", false)
         _captureModeAuto.value = submitPrefs.getBoolean("quiz_capture_auto", true)
-        _manualExtraCount.value = submitPrefs.getInt("quiz_manual_extra", 2).coerceIn(1, 4)
+        _manualExtraCount.value = submitPrefs.getInt("quiz_manual_extra", 2).coerceIn(1, 100)
         _scrollOverlapPercent.value = submitPrefs.getInt("quiz_scroll_overlap", 70).coerceIn(40, 90)
         _advancedShown.value = submitPrefs.getBoolean("quiz_advance_shown", false)
         _scrollFingers.value = submitPrefs.getInt("quiz_scroll_fingers", 0).coerceIn(0, 2)
         _answerLimitAuto.value = submitPrefs.getBoolean("quiz_answer_limit_auto", true)
-        _answerLimitN.value = submitPrefs.getInt("quiz_answer_limit_n", 5).coerceIn(1, 20)
+        _answerLimitN.value = submitPrefs.getInt("quiz_answer_limit_n", 5).coerceIn(1, 100)
         // autoAnswerLoop SENGAJA tidak dimuat: loop ketuk otomatis tak boleh hidup sendiri saat app restart
     }
 
@@ -166,7 +166,7 @@ object QuizAnalyzer {
     }
 
     fun setManualExtraCount(n: Int) {
-        _manualExtraCount.value = n.coerceIn(1, 4)
+        _manualExtraCount.value = n.coerceIn(1, 100) // bebas: user yang putuskan (s.d. 100)
         submitPrefs.edit().putInt("quiz_manual_extra", _manualExtraCount.value).apply()
     }
 
@@ -192,7 +192,7 @@ object QuizAnalyzer {
     }
 
     fun setAnswerLimitN(n: Int) {
-        _answerLimitN.value = n.coerceIn(1, 20)
+        _answerLimitN.value = n.coerceIn(1, 100) // bebas: user yang putuskan (s.d. 100)
         submitPrefs.edit().putInt("quiz_answer_limit_n", _answerLimitN.value).apply()
     }
 
@@ -220,8 +220,8 @@ object QuizAnalyzer {
                     DiagnosticLogger.update(captureDetail = "\ud83e\udd16 Auto jawab SELESAI: batas " + _answerLimitN.value + " soal tercapai")
                     break
                 }
-                if (_answerLimitAuto.value && done >= 30) { // pengaman loop tak terbatas
-                    DiagnosticLogger.update(captureDetail = "\ud83e\udd16 Auto jawab berhenti: pengaman 30 soal")
+                if (_answerLimitAuto.value && done >= 100) { // pengaman loop tak terbatas
+                    DiagnosticLogger.update(captureDetail = "\ud83e\udd16 Auto jawab berhenti: pengaman 100 soal")
                     break
                 }
                 // reset hasil lama supaya tidak salah submit ke soal baru
@@ -484,7 +484,7 @@ object QuizAnalyzer {
             // bagian soal yang terlewat di antara dua tangkapan berurutan.
             _phase.value = QuizPhase.AI
             val autoDriven = _captureModeAuto.value
-            val maxExtras = if (autoDriven) 4 else _manualExtraCount.value
+            val maxExtras = if (autoDriven) 8 else _manualExtraCount.value
             var extraScrolls = 0
             var addedTotal = 0
             var result: QuizAnswerResult? = null

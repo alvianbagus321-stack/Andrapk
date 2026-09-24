@@ -331,7 +331,7 @@ fun QuizOverlayUI() {
                                 .clickable { QuizAnalyzer.setManualExtraCount(manualExtraCount + 1) }
                                 .padding(horizontal = 10.dp, vertical = 2.dp)
                         )
-                        Text("(1-4)", color = JarvisTextSecondary, fontSize = 9.sp)
+                        Text("(1-100)", color = JarvisTextSecondary, fontSize = 9.sp)
                     }
                 }
                 Spacer(Modifier.height(5.dp))
@@ -441,7 +441,7 @@ fun QuizOverlayUI() {
                                 .clickable { QuizAnalyzer.setAnswerLimitN(answerLimitN + 1) }
                                 .padding(horizontal = 10.dp, vertical = 2.dp)
                         )
-                        Text("(1-20)", color = JarvisTextSecondary, fontSize = 9.sp)
+                        Text("(1-100)", color = JarvisTextSecondary, fontSize = 9.sp)
                     }
                 }
             }
