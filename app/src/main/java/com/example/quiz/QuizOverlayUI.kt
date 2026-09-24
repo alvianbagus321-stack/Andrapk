@@ -250,6 +250,7 @@ fun QuizOverlayUI() {
                 )
             }
 
+            if (proMode) { // baris ini khusus PRO; mode DEFAULT punya barisnya sendiri di bawah
             // Auto Jawab: loop analisis+jawab+submit sampai selesai / batas soal (atur di Mode advance)
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -269,6 +270,7 @@ fun QuizOverlayUI() {
                     colors = SwitchDefaults.colors(checkedTrackColor = JarvisCyan)
                 )
             }
+            // akhir Auto Jawab PRO
 
             if (proMode) {
                 // MODE ADVANCE: setelan lanjutan disembunyikan agar HUD tetap ringkas
@@ -650,7 +652,7 @@ fun QuizOverlayUI() {
                         .clickable { QuizAnalyzer.stopSweep() }
                         .padding(vertical = 7.dp)
                 )
-            } else {
+            } else if (proMode) { // alat sweep khusus mode PRO
                 Text(
                     "\u2913 Scan Penuh (scroll sampai mentok)",
                     color = JarvisTextPrimary,

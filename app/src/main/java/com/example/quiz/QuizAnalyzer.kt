@@ -45,6 +45,11 @@ object QuizAnalyzer {
         4. "confidence" angka 0.0-1.0 = keyakinanmu.
         5. Jika gambar buram, soal tidak utuh, atau kamu TIDAK YAKIN: jangan mengarang —
            isi "answer" dengan "?", confidence <= 0.2, dan tulis alasannya di "explanation".
+        5a. KEBENARAN HITUNG (WAJIB): verifikasi hitunganmu SEKALI lagi sebelum memilih.
+           Bila hasil hitung TIDAK persis sama dengan salah satu opsi: pilih opsi TERDEKAT,
+           tapi "confidence" MAKSIMAL 0.4, dan tulis di "explanation": "Hasil hitung = X -
+           tidak ada opsi yang persis; dipilih yang terdekat". DILARANG memberi confidence
+           >= 0.9 untuk jawaban yang tidak persis cocok dengan opsi manapun.
         6. Jika soal ISIAN/bukan pilihan ganda (tidak ada opsi): isi "answer" dengan "?",
            dan "answerText" HANYA jawaban akhir sesingkat mungkin (angka + satuan / kata /
            frasa kunci) TANPA kalimat penjelas — jawaban ini akan diketik ke kolom isian.
@@ -1233,7 +1238,7 @@ object QuizAnalyzer {
 
             // 5. AUTO SUBMIT (opsional — default OFF, hanya bila AI yakin)
             // skipAutoSubmit=true dipakai loop Auto Jawab (submit dikendalikan loop itu sendiri)
-            if (!skipAutoSubmit && _autoSubmit.value && !result.isUncertain && result.confidence >= 0.5f) {
+            if (!skipAutoSubmit && _autoSubmit.value && !result.isUncertain && result.confidence >= 0.7f) {
                 kotlinx.coroutines.delay(400) // beri waktu UI menampilkan hasil dulu
                 try {
                     val msg = if (result.isFillIn) AutoSubmitter.fillAnswer(result, lastAnalysisBase64)
@@ -1247,7 +1252,8 @@ object QuizAnalyzer {
                 }
             } else if (_autoSubmit.value) {
                 DiagnosticLogger.update(autoSubmit = QuizStepStatus.SKIPPED, autoSubmitDetail = "Dilewati (AI kurang yakin)")
-                _submitInfo.value = null
+                _submitInfo.value = "\u26a0 AI kurang yakin (keyakinan " +
+                    (result.confidence * 100).toInt() + "%) - Auto Submit DILEWATI, periksa dulu jawabannya"
             } else {
                 DiagnosticLogger.update(clearAutoSubmitDetail = true)
                 _submitInfo.value = null
