@@ -468,7 +468,8 @@ object AiChatService {
     suspend fun rawCompletion(
         systemInstruction: String,
         prompt: String,
-        imageBase64: String? = null
+        imageBase64: String? = null,
+        extraImagesBase64: List<String>? = null
     ): Pair<String?, String?> = withContext(Dispatchers.IO) {
         val cfg = com.example.data.AiConfigManager.config.value
         if (cfg.apiKey.isBlank()) {
@@ -479,7 +480,7 @@ object AiChatService {
         val isGemini = cfg.providerLabel.contains("gemini", ignoreCase = true) ||
                 cfg.baseUrl.contains("generativelanguage", ignoreCase = true)
         val (text, _) = if (isGemini) {
-            callGeminiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt, imageBase64)
+            callGeminiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt, imageBase64, null, extraImagesBase64)
         } else {
             // Provider OpenAI-compatible: teks saja (gambar tidak didukung jalur ini)
             callOpenAiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt) to null
@@ -498,7 +499,8 @@ object AiChatService {
         history: List<Pair<String, String>>,
         prompt: String,
         imageBase64: String? = null,
-        imageMimeType: String? = "image/jpeg"
+        imageMimeType: String? = "image/jpeg",
+        extraImagesBase64: List<String>? = null
     ): Pair<String, String?> {
         val endpoint = "$baseUrl/v1beta/models/$model:generateContent?key=$apiKey"
 
@@ -549,6 +551,17 @@ object AiChatService {
                     put("inline_data", JSONObject().apply {
                         put("mime_type", imageMimeType ?: "image/jpeg")
                         put("data", imageBase64)
+                    })
+                })
+            }
+            // Multi-gambar: tangkapan tambahan (scroll-capture / pilihan user) ikut
+            // dilampirkan — AI melihat SEMUA frame, bukan cuma yang terakhir.
+            for (img in extraImagesBase64.orEmpty()) {
+                if (img.isBlank()) continue
+                partsArr.put(JSONObject().apply {
+                    put("inline_data", JSONObject().apply {
+                        put("mime_type", imageMimeType ?: "image/jpeg")
+                        put("data", img)
                     })
                 })
             }

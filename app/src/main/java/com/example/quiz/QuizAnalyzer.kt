@@ -117,7 +117,7 @@ object QuizAnalyzer {
     private val manualLock = Any()
     private val manualSeen = LinkedHashSet<String>()
     private var manualBufferText = ""
-    private var manualB64Last: String? = null
+    private val manualB64List = ArrayList<String>() // SEMUA gambar tangkapan manual (maks 6)
 
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
@@ -335,7 +335,7 @@ object QuizAnalyzer {
                     manualBufferText += "\n" + line.trim()
                     added++
                 }
-                manualB64Last = b64
+                if (manualB64List.size < 6) manualB64List.add(b64)
                 _manualCaptures.value = _manualCaptures.value + 1
             }
             DiagnosticLogger.update(
@@ -352,15 +352,15 @@ object QuizAnalyzer {
     fun sendManualCaptures() {
         if (_isAnalyzing.value) return
         val pair = synchronized(manualLock) {
-            val t = Pair(manualBufferText, manualB64Last)
+            val t = Pair(manualBufferText, ArrayList(manualB64List))
             manualBufferText = ""
-            manualB64Last = null
+            manualB64List.clear()
             manualSeen.clear()
             _manualCaptures.value = 0
             t
         }
         if (pair.first.isBlank()) return
-        scope.launch { runAnalysis(manualText = pair.first, manualB64 = pair.second) }
+        scope.launch { runAnalysis(manualText = pair.first, manualFrames = pair.second) }
     }
 
     /**
@@ -418,7 +418,7 @@ object QuizAnalyzer {
     fun clearManualCaptures() {
         synchronized(manualLock) {
             manualBufferText = ""
-            manualB64Last = null
+            manualB64List.clear()
             manualSeen.clear()
             _manualCaptures.value = 0
         }
@@ -441,7 +441,7 @@ object QuizAnalyzer {
     private suspend fun runAnalysis(
         preCapturedBase64: String? = null,
         manualText: String? = null,
-        manualB64: String? = null,
+        manualFrames: List<String>? = null,
         skipAutoSubmit: Boolean = false
     ): Unit = withContext(Dispatchers.IO) {
         _isAnalyzing.value = true
@@ -473,7 +473,7 @@ object QuizAnalyzer {
                 if (capTrace.isNotEmpty()) capTrace.append("; ")
                 capTrace.append(s)
             }
-            var b64 = preCapturedBase64 ?: manualB64 ?: ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
+            var b64 = preCapturedBase64 ?: manualFrames?.firstOrNull() ?: ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
             if (b64 == null) {
                 DiagnosticLogger.update(capture = QuizStepStatus.FAILED, error = "Izin Screen Capture belum diberikan / screenshot gagal")
                 fail("Izin Screen Capture belum aktif. Buka app JARVIS dan izinkan 'Screen Capture' (yang dipakai untuk screenshot), lalu Analyze lagi.")
@@ -481,6 +481,13 @@ object QuizAnalyzer {
             }
             DiagnosticLogger.update(capture = QuizStepStatus.OK)
             lastAnalysisBase64 = b64
+
+            // SEMUA frame tangkapan dikirim ke AI (bukan cuma yang terakhir)
+            val frames = ArrayList<String>()
+            frames.add(b64)
+            if (manualFrames != null) {
+                for (f in manualFrames) if (f != b64 && frames.size < 6) frames.add(f)
+            }
 
             // 2. DECODE + OCR
             _phase.value = QuizPhase.OCR
@@ -619,6 +626,7 @@ object QuizAnalyzer {
                 bx = prepRemoteOcr(bx)
                 val boxesX = OcrEngine.recognizeWithBoxes(bx).getOrNull()
                 if (boxesX == null) { bx.recycle(); return -1 }
+                if (frames.size < 6) frames.add(b64x) // gambar frame baru ikut ke AI
                 var added = 0
                 for (line in boxesX.map { it.text }) {
                     val n = normalizeLine(line)
@@ -651,7 +659,10 @@ object QuizAnalyzer {
                     }
                     if (extraScrolls > 0) {
                         appendLine("Catatan: OCR diambil dari " + (extraScrolls + 1) + " tangkapan berurutan (layar di-scroll, saling tumpang-tindih) - duplikat dihapus, urutan baris = urutan baca.")
-                        if (autoDriven) {
+                    }
+                    if (frames.size > 1) {
+                        appendLine("Terlampir " + frames.size + " GAMBAR tangkapan berurutan - perhatikan SEMUANYA (bukan hanya gambar pertama); gambar-gambar itu satu konten kontinyu yang di-scroll.")
+                        if (autoDriven && manualText == null) {
                             appendLine("Bila soal & SEMUA opsinya sudah terbaca utuh: jawab normal (needsMore=false). Bila masih terpotong: needsMore=true.")
                         }
                     }
@@ -670,7 +681,8 @@ object QuizAnalyzer {
                 val (aiText, aiError) = com.example.service.AiChatService.rawCompletion(
                     systemInstruction = AI_SYSTEM_INSTRUCTION,
                     prompt = userPrompt,
-                    imageBase64 = b64
+                    imageBase64 = frames.firstOrNull(),
+                    extraImagesBase64 = frames.drop(1)
                 )
                 if (aiText.isNullOrBlank()) {
                     DiagnosticLogger.update(aiApi = QuizStepStatus.FAILED, error = aiError ?: "respons kosong")
