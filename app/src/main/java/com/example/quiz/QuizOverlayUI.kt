@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -197,6 +199,35 @@ fun QuizOverlayUI() {
                         )
                     }
                 }
+                Spacer(Modifier.height(5.dp))
+                // Atur bebas: -/+ 100ms. Batas aman ditegakkan di setDelayMs (300ms-10s):
+                // di bawah 300ms loop cuma bikin panas/boros baterai tanpa manfaat.
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "-",
+                        color = Color.Black,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(JarvisCyan)
+                            .clickable { QuizAnalyzer.setDelayMs(delayMs - 100L) }
+                            .padding(horizontal = 12.dp, vertical = 2.dp)
+                    )
+                    Text(delayMs.toString() + " ms", color = JarvisCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "+",
+                        color = Color.Black,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(JarvisCyan)
+                            .clickable { QuizAnalyzer.setDelayMs(delayMs + 100L) }
+                            .padding(horizontal = 10.dp, vertical = 2.dp)
+                    )
+                    Text("(bebas 300ms-10s)", color = JarvisTextSecondary, fontSize = 9.sp)
+                }
             }
 
             Spacer(Modifier.height(6.dp))
@@ -249,6 +280,39 @@ fun QuizOverlayUI() {
                     Text("Confidence: ${(result.confidence * 100).toInt()}%", color = JarvisCyan, fontSize = 10.5.sp)
                     if (submitInfo != null) {
                         Text("▸ $submitInfo", color = JarvisAmber, fontSize = 9.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    // Menu PENJELASAN: tap untuk membuka; teks panjang bisa digulir
+                    if (result.explanation.isNotBlank()) {
+                        var showExpl by remember { mutableStateOf(false) }
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { showExpl = !showExpl }
+                                .padding(vertical = 2.dp)
+                        ) {
+                            Icon(
+                                if (showExpl) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = JarvisCyan,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("Penjelasan", color = JarvisCyan, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        if (showExpl) {
+                            Text(
+                                result.explanation,
+                                color = JarvisTextSecondary,
+                                fontSize = 10.5.sp,
+                                lineHeight = 14.sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 160.dp)
+                                    .verticalScroll(rememberScrollState())
+                            )
+                        }
                     }
                 }
                 result != null && result.isUncertain -> {
