@@ -70,6 +70,13 @@ class JarvisAccessibilityService : AccessibilityService() {
         Log.i(TAG, "JarvisAccessibilityService destroyed")
     }
 
+    /** Package name app yang sedang tampil di depan (untuk deteksi konteks, mis. remote desktop). */
+    fun foregroundPackageName(): String? = try {
+        rootInActiveWindow?.packageName?.toString()
+    } catch (_: Exception) {
+        null
+    }
+
     /**
      * Inspects active window hierarchy and returns structured UI elements.
      * Uses windows fallback and rootInActiveWindow with interactive window support.

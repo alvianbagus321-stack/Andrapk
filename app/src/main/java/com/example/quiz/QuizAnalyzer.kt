@@ -125,6 +125,13 @@ object QuizAnalyzer {
         val startedAt = System.currentTimeMillis()
         var ocrBitmap: Bitmap? = null
 
+        // Konteks otomatis: app remote desktop (StarDesk/AnyDesk/dll) sedang tampil?
+        val fgPkg = com.example.service.JarvisAccessibilityService.instance?.foregroundPackageName()
+        val remoteMode = fgPkg != null && REMOTE_PKG_KEYWORDS.any { fgPkg.contains(it) }
+        if (remoteMode) {
+            DiagnosticLogger.update(captureDetail = "Mode remote PC terdeteksi ($fgPkg) - interaksi touch tetap dipakai")
+        }
+
         try {
             // 1. CAPTURE
             _phase.value = QuizPhase.CAPTURING
@@ -159,7 +166,8 @@ object QuizAnalyzer {
             // Deteksi tangkapan kosong/hitam (FLAG_SECURE / display salah / frame pertama hitam)
             val (uniform, meanLum) = captureIsUniform(ocrBitmap)
             DiagnosticLogger.update(
-                captureDetail = (if (capTrace.isNotEmpty()) capTrace.toString() + " | " else "") +
+                captureDetail = (if (remoteMode) "[RemotePC] " else "") +
+                    (if (capTrace.isNotEmpty()) capTrace.toString() + " | " else "") +
                     (ocrBitmap.width.toString() + "x" + ocrBitmap.height + "px, terang rata-rata " + meanLum) +
                     if (uniform && meanLum < 45) " - GELAP SERAGAM (frame gagal tangkap)" else ""
             )
@@ -192,12 +200,13 @@ object QuizAnalyzer {
                 }
             }
 
-            val ocrResult = OcrEngine.recognize(ocrBitmap)
-            val ocrText = ocrResult.getOrElse {
+            val ocrBoxesResult = OcrEngine.recognizeWithBoxes(ocrBitmap)
+            val ocrBoxes = ocrBoxesResult.getOrElse {
                 DiagnosticLogger.update(ocr = QuizStepStatus.FAILED, error = it.message)
                 fail("OCR gagal: ${it.message ?: "tidak diketahui"}. Coba Analyze lagi.")
                 return@withContext
             }
+            val ocrText = ocrBoxes.joinToString("\n") { it.text }
             DiagnosticLogger.update(ocr = QuizStepStatus.OK)
 
             // OCR hampir kosong tapi gambar tidak blank -> ulangi dgn skala 2x (teks kecil/layar low-DPI)
@@ -219,6 +228,66 @@ object QuizAnalyzer {
                 }
             }
 
+            // ===== MULTI-CAPTURE: soal/opsi terpotong di bawah layar? =====
+            // Hanya di Analyze MANUAL (auto loop tidak scroll agar layar tidak liar).
+            // Bila baris teks terakhir mepet tepi bawah -> scroll + capture lagi (maks 2x),
+            // gabungkan teks tanpa duplikat, lalu posisi scroll DIKEMBALIKAN ke semula.
+            var extraScrolls = 0
+            var addedTotal = 0
+            val svc = com.example.service.JarvisAccessibilityService.instance
+            if (preCapturedBase64 == null && svc != null && ocrTextFinal.length > 40) {
+                val seen = ocrTextFinal.lines().map { normalizeLine(it) }.filter { it.length >= 2 }.toMutableSet()
+                var combined = ocrTextFinal
+                var boxesNow = ocrBoxes
+                val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
+                while (stitched < 2) {
+                    val maxBottom = boxesNow.maxOfOrNull { it.bottom } ?: 0
+                    if (maxBottom <= (ocrBitmap.height * 0.90).toInt()) break // tidak mepet bawah = sudah utuh
+                    runCatching {
+                        svc.swipeCoordinates(
+                            met.widthPixels / 2f, met.heightPixels * 0.75f,
+                            met.widthPixels / 2f, met.heightPixels * 0.25f, 400
+                        )
+                    }
+                    delay(if (remoteMode) 1200 else 800)
+                    val b64x = ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
+                        ?: break
+                    val bx = decodeSampled(b64x, 1280) ?: break
+                    if (captureIsUniform(bx).first) { bx.recycle(); break }
+                    val boxesX = OcrEngine.recognizeWithBoxes(bx).getOrNull()
+                    if (boxesX == null) { bx.recycle(); break }
+                    var added = 0
+                    for (line in boxesX.map { it.text }) {
+                        val n = normalizeLine(line)
+                        if (n.length < 2) continue
+                        if (!seen.add(n)) continue
+                        if (combined.contains(n, ignoreCase = true)) continue
+                        combined += "\n" + n
+                        added++
+                    }
+                    addedTotal += added
+                    stitched++
+                    boxesNow = boxesX
+                    if (added < 2) break // capture tambahan tak membawa info baru -> berhenti
+                }
+                if (stitched > 0) {
+                    ocrTextFinal = combined
+                    // kembalikan posisi scroll ke atas seperti semula
+                    repeat(stitched) {
+                        runCatching {
+                            svc.swipeCoordinates(
+                                met.widthPixels / 2f, met.heightPixels * 0.25f,
+                                met.widthPixels / 2f, met.heightPixels * 0.75f, 400
+                            )
+                        }
+                        delay(350)
+                    }
+                    DiagnosticLogger.update(
+                        captureDetail = "Multi-scroll: $stitched capture tambahan (+$addedTotal baris baru), posisi dikembalikan"
+                    )
+                }
+            }
+
             val parsed = QuestionParser.parse(ocrTextFinal)
             DiagnosticLogger.update(questionDetected = parsed != null, optionCount = parsed?.options?.size ?: 0)
 
@@ -226,9 +295,15 @@ object QuizAnalyzer {
             _phase.value = QuizPhase.AI
             val userPrompt = buildString {
                 appendLine("Analisa soal pada screenshot berikut.")
+                if (remoteMode) {
+                    appendLine("Konteks: layar adalah remote desktop PC ($fgPkg). Konten PC tampil di layar HP - baca teks kecil dengan teliti, abaikan UI remote desktop-nya.")
+                }
+                if (extraScrolls > 0) {
+                    appendLine("Catatan: OCR diambil dari " + (extraScrolls + 1) + " tangkapan berurutan (layar di-scroll) - duplikat sudah dihapus, urutan baris = urutan baca. Soal bisa lebih panjang dari satu layar; pastikan opsi terakhir terbaca sebelum menjawab.")
+                }
                 if (parsed != null) {
                     appendLine("Hasil OCR layar:")
-                    appendLine(ocrTextFinal.take(2500))
+                    appendLine(ocrTextFinal.take(if (extraScrolls > 0) 3600 else 2500))
                 } else {
                     appendLine("OCR mentah (soal mungkin dalam gambar/WebView, parser tidak menemukan opsi):")
                     appendLine(ocrTextFinal.take(1500))
@@ -322,6 +397,16 @@ object QuizAnalyzer {
             }
         }
     }
+
+    // Keyword package app remote desktop (deteksi otomatis konteks PC)
+    private val REMOTE_PKG_KEYWORDS = listOf(
+        "stardesk", "anydesk", "teamviewer", "rustdesk", "chromeremotedesktop",
+        "todesk", "sunlogin", "parsec", "splashtop", "vnc"
+    )
+
+    /** Normalisasi baris OCR utk dedup lintas tangkapan. */
+    private fun normalizeLine(s: String): String =
+        s.trim().lowercase().replace(Regex("\\s+"), " ")
 
     /**
      * Cek "frame gagal tangkap": seragam DAN gelap (hitam). Frame pertama projection /
