@@ -478,10 +478,28 @@ object QuizAnalyzer {
                 "pagedown" -> 93
                 else -> 93
             }
-            val ok = com.example.service.AdbShizukuManager.inputKeyevent(code)
+            // Jalur 1: Shizuku (paling cepat)
+            var ok = com.example.service.AdbShizukuManager.inputKeyevent(code)
+            var via = "Shizuku"
+            // Jalur 2: Termux-ADB (fire-and-forget via RUN_COMMAND; butuh setup_adb.sh
+            // dijalankan sekali di Termux: adb connect + allow-external-apps)
+            if (!ok) {
+                val ctx = JarvisApp.instance
+                if (com.example.service.AdbShizukuManager.isTermuxInstalled(ctx)) {
+                    runCatching {
+                        com.example.service.AdbShizukuManager.sendTermuxRunCommandIntent(
+                            ctx,
+                            "/data/data/com.termux/files/usr/bin/adb",
+                            arrayOf("shell", "input", "keyevent", code.toString())
+                        )
+                    }
+                    ok = true
+                    via = "Termux-ADB (tanpa konfirmasi hasil)"
+                }
+            }
             DiagnosticLogger.update(
-                captureDetail = if (ok) "\u2328 kunci terkirim ke PC via Shizuku"
-                else "\u2328 gagal: Shizuku belum terhubung - buka Dashboard > Shizuku ADB Connector > Sambungkan"
+                captureDetail = if (ok) "\u2328 kunci terkirim via " + via
+                else "\u2328 gagal: Shizuku belum terhubung & Termux/ADB belum disiapkan (jalankan termux/setup_adb.sh)"
             )
         }
     }
