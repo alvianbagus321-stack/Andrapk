@@ -270,7 +270,7 @@ fun QuizOverlayUI() {
                     colors = SwitchDefaults.colors(checkedTrackColor = JarvisCyan)
                 )
             }
-            // akhir Auto Jawab PRO
+            } // akhir Auto Jawab PRO
 
             if (proMode) {
                 // MODE ADVANCE: setelan lanjutan disembunyikan agar HUD tetap ringkas
