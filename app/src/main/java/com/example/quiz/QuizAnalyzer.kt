@@ -220,6 +220,61 @@ object QuizAnalyzer {
 
     private fun capTraceFun2Mark() {} // penanda: langkah mulai-dari-atas selesai (log lewat captureDetail di bawah)
 
+    /**
+     * Scroll ke atas SAMPAI BENAR-BENAR MENTOK (bukan swipe buta).
+     * Siklus: [swipe-ke-atas beberapa kali] -> [capture+OCR pembanding] ->
+     * bila masih ada baris baru = halaman masih bergerak -> ulangi;
+     * bila layar tidak berubah = puncak tercapai -> selesai.
+     * @return jumlah siklus yang dilakukan (0 = Accessibility tidak aktif).
+     */
+    private suspend fun scrollToTopUntilStuck(): Int = withContext(Dispatchers.IO) {
+        var cycles = 0
+        val svc = com.example.service.JarvisAccessibilityService.instance
+            ?: return@withContext 0
+        val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
+        val remoteNow = remoteActive()
+        val jari = if (_scrollFingers.value == 0) (if (remoteNow) 2 else 1) else _scrollFingers.value
+        suspend fun swipeUp() {
+            runCatching {
+                if (jari == 2) svc.twoFingerSwipeCoordinates(
+                    met.widthPixels / 2f, met.heightPixels * 0.35f,
+                    met.widthPixels / 2f, met.heightPixels * 0.75f, 350
+                ) else svc.swipeCoordinates(
+                    met.widthPixels / 2f, met.heightPixels * 0.35f,
+                    met.widthPixels / 2f, met.heightPixels * 0.75f, 350
+                )
+            }
+        }
+        val seen = HashSet<String>()
+        var prevNew = -1
+        while (cycles < 6) { // pengaman: maks 6 siklus
+            repeat(3) { swipeUp(); delay(if (remoteNow) 900 else 450) }
+            val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
+                ?: break
+            var bmp = decodeSampled(b64, if (remoteNow) 1568 else 1280) ?: break
+            val (uni, lum) = captureIsUniform(bmp)
+            if (uni && lum < 45) { bmp.recycle(); break }
+            bmp = prepRemoteOcr(bmp)
+            val boxes = OcrEngine.recognizeWithBoxes(bmp).getOrNull()
+            bmp.recycle()
+            if (boxes == null) break
+            var newLines = 0
+            for (line in boxes.map { it.text }) {
+                val n = normalizeLine(line)
+                if (n.length >= 2 && seen.add(n)) newLines++
+            }
+            cycles++
+            DiagnosticLogger.update(
+                captureDetail = "Ke atas: siklus " + cycles + " (+" + newLines + " baris baru)" +
+                    (if (newLines == 0) " - PUNCAK tercapai" else "")
+            )
+            if (newLines == 0) break // layar tak menghasilkan konten baru -> mentok atas
+            if (prevNew == 0 && newLines == 0) break
+            prevNew = newLines
+        }
+        cycles
+    }
+
     private fun remoteActive(): Boolean =
         com.example.service.JarvisAccessibilityService.instance?.foregroundPackageName()
             ?.let { pkg -> REMOTE_PKG_KEYWORDS.any { pkg.contains(it) } } ?: false
@@ -451,11 +506,8 @@ object QuizAnalyzer {
                     else svc.swipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, d)
                 }
             }
-            // mulai dari PUNCAK halaman
-            repeat(3) {
-                swipeTo(met.heightPixels * 0.35f, met.heightPixels * 0.75f, 350)
-                delay(if (remoteNow) 900 else 500)
-            }
+            // mulai dari PUNCAK halaman — sampai BENAR-BENAR mentok (swipe+cek siklus)
+            scrollToTopUntilStuck()
             val seen = HashSet<String>()
             val combined = StringBuilder()
             val frames = ArrayList<String>()
@@ -559,27 +611,12 @@ object QuizAnalyzer {
             delay(700) // beri waktu animasi minimize & frame layar stabil
         }
 
-        // SOP langkah 1: balik ke puncak dulu (2 swipe ke atas) agar soal mulai
-        // dari baris pertamanya — mencegah menjawab dari soal yang setengah tampil.
+        // SOP langkah 1: balik ke puncak dulu SAMPAI BENAR-BENAR MENTOK (swipe+cek
+        // siklus) agar soal mulai dari baris pertamanya — mencegah menjawab dari
+        // soal yang setengah tampil.
         if (preCapturedBase64 == null && manualText == null && _scrollToTopOnAnalyze.value) {
-            val svcTop = com.example.service.JarvisAccessibilityService.instance
-            if (svcTop != null) {
-                val metTop = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
-                val jariTop = if (_scrollFingers.value == 0) (if (remoteActive()) 2 else 1) else _scrollFingers.value
-                repeat(2) {
-                    runCatching {
-                        if (jariTop == 2) svcTop.twoFingerSwipeCoordinates(
-                            metTop.widthPixels / 2f, metTop.heightPixels * 0.35f,
-                            metTop.widthPixels / 2f, metTop.heightPixels * 0.75f, 350
-                        ) else svcTop.swipeCoordinates(
-                            metTop.widthPixels / 2f, metTop.heightPixels * 0.35f,
-                            metTop.widthPixels / 2f, metTop.heightPixels * 0.75f, 350
-                        )
-                    }
-                    delay(if (remoteActive()) 1000 else 600)
-                }
-                capTraceFun2Mark()
-            }
+            val c = scrollToTopUntilStuck()
+            if (c > 0) capTraceFun2Mark()
         }
         var ocrBitmap: Bitmap? = null
 
