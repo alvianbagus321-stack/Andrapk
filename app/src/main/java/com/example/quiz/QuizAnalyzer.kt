@@ -745,6 +745,17 @@ object QuizAnalyzer {
      * page=false = 1 gesture gulir (roda StarDesk otomatis saat remote).
      * @return Pair(sukses terkirim, pesan utk AI)
      */
+    /** Apakah roda StarDesk terkonfirmasi (manual/deteksi)? Untuk RemoteController. */
+    fun rodaConfirmed(): Boolean = _wheelSide.value != 0 || wheelDetected != null
+
+    /** Untuk StarDeskRemoteController: 1x gesture roda (deteksi & anti-kursor aktif). */
+    suspend fun rodaScrollOnce(up: Boolean): Boolean {
+        val svc = com.example.service.JarvisAccessibilityService.instance ?: return false
+        val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
+        doScrollGesture(svc, met, resolveJari(true), atas = up, jarakFraksi = 0.35f)
+        return true
+    }
+
     fun toolScrollPage(direction: String, page: Boolean): Pair<Boolean, String> {
         return if (page) {
             scrollKey(if (direction.equals("up", ignoreCase = true)) "pageup" else "pagedown")
@@ -919,6 +930,7 @@ object QuizAnalyzer {
         // keputusan berbasis bukti, bukan rutinitas tiap Analyze.
         var preCheckB64: String? = null
         var kontenSiap = false
+        var capResult: QuestionCaptureManager.CaptureResult? = null
         if (preCapturedBase64 == null && manualText == null &&
             _scrollToTopOnAnalyze.value && _proMode.value
         ) {
@@ -942,8 +954,10 @@ object QuizAnalyzer {
                     }
                 }
                 preCheckB64 = null
-                val c = scrollToTopUntilStuck()
-                if (c > 0) capTraceFun2Mark()
+                // QUESTION CAPTURE MANAGER (spec E): capture -> gate kelengkapan ->
+                // scroll dinamis (node/gesture utk app biasa; roda/PageDown utk
+                // StarDesk) -> merge anti-duplikat -> tempmemory.md (1 soal).
+                capResult = QuestionCaptureManager.captureQuestion(remoteActive())
             }
         }
         var ocrBitmap: Bitmap? = null
@@ -965,6 +979,7 @@ object QuizAnalyzer {
             }
             var b64 = preCapturedBase64 ?: manualFrames?.firstOrNull()
                 ?: (if (kontenSiap) preCheckB64 else null)
+                ?: capResult?.frames?.firstOrNull()
                 ?: ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
             if (b64 == null) {
                 DiagnosticLogger.update(capture = QuizStepStatus.FAILED, error = "Izin Screen Capture belum diberikan / screenshot gagal")
@@ -979,6 +994,9 @@ object QuizAnalyzer {
             frames.add(b64)
             if (manualFrames != null) {
                 for (f in manualFrames) if (f != b64 && frames.size < 6) frames.add(f)
+            }
+            if (capResult != null) {
+                for (f in capResult!!.frames) if (f != b64 && frames.size < 6) frames.add(f)
             }
 
             // 2. DECODE + OCR
@@ -1075,9 +1093,35 @@ object QuizAnalyzer {
                 ocrTextFinal = manualText
                 DiagnosticLogger.update(captureDetail = "Kirim manual: gabungan tangkapan user dianalisis")
             }
+            if (capResult != null && capResult!!.combinedText.isNotBlank()) {
+                // teks gabungan halaman dari QuestionCaptureManager (sudah dedup);
+                // dedup ulang thd OCR frame pertama agar tak ada baris dobel
+                val seenL = LinkedHashSet<String>()
+                val merged = ArrayList<String>()
+                for (l in (ocrTextFinal + "\n" + capResult!!.combinedText).lines()) {
+                    val n = normalizeLine(l)
+                    if (n.length < 2) { merged.add(l); continue }
+                    if (seenL.add(n)) merged.add(l)
+                }
+                ocrTextFinal = merged.joinToString("\n")
+                DiagnosticLogger.update(
+                    captureDetail = "tempmemory: " + capResult!!.state.pageCount + " halaman digabung (anti-duplikat), " +
+                        "opsi terdeteksi=" + capResult!!.state.detectedOptions
+                )
+            }
 
             val parsed = QuestionParser.parse(ocrTextFinal)
             DiagnosticLogger.update(questionDetected = parsed != null, optionCount = parsed?.options?.size ?: 0)
+
+            // COMPLETION GATE (spec G): AI TIDAK menganalisis soal yang terbukti
+            // belum lengkap (terpotong & tak bisa digulir / batas halaman tercapai).
+            if (capResult != null && !capResult!!.state.complete) {
+                QuestionCaptureManager.clearMemory()
+                Log.w(QuestionCaptureManager.TAG, "[QUESTION] GATE: lengkapi dulu - " + capResult!!.state.toJsonLike())
+                fail("Soal BELUM LENGKAP dan tidak bisa digulir lebih lanjut (Question is incomplete. Unable to scroll further.). " +
+                    "Posisikan soal+opsi terlihat di layar lalu Analyze lagi.")
+                return@withContext
+            }
 
             // 3+4. AI + parse — multi-capture dua mode:
             //   OTOMATIS: AI minta lanjutan via needsMore sampai soal lengkap (maks 4).
@@ -1086,7 +1130,8 @@ object QuizAnalyzer {
             // bagian soal yang terlewat di antara dua tangkapan berurutan.
             _phase.value = QuizPhase.AI
             val autoDriven = _captureModeAuto.value
-            val maxExtras = if (autoDriven) 8 else _manualExtraCount.value
+            // bila QuestionCaptureManager yg menggulir: tidak ada scroll lanjutan lagi
+            val maxExtras = if (capResult != null) 0 else if (autoDriven) 8 else _manualExtraCount.value
             var extraScrolls = 0
             var addedTotal = 0
             var result: QuizAnswerResult? = null
@@ -1309,6 +1354,8 @@ object QuizAnalyzer {
             fail("Error: ${e.message ?: e.javaClass.simpleName}")
         } finally {
             runCatching { if (wakeLock.isHeld) wakeLock.release() }
+            // tempmemory.md hidup hanya 1 soal (spec F): dihapus setelah analisis
+            if (capResult != null) QuestionCaptureManager.clearMemory()
             ocrBitmap?.recycle()
             // HUD muncul lagi otomatis menampilkan hasil (kecuali Auto Jawab loop
             // sedang berjalan - iterasi berikutnya akan minimize lagi)
