@@ -91,6 +91,9 @@ object QuizOverlayManager {
     /** Restore otomatis saat app jalan bila terakhir aktif (dipanggil dari MainActivity bila perlu). */
     fun restoreIfEnabled() {
         ensurePrefs()
+        // Asuransi: pastikan SEMUA setelan quiz (overlap, jari gulir, mode advance, dll)
+        // termuat dari penyimpanan sebelum overlay tampil — anti "setelan tidak ngefek".
+        runCatching { com.example.quiz.QuizAnalyzer.loadPersisted() }
         if (_isEnabled.value && canDrawOverlay(JarvisApp.instance)) {
             setEnabled(true, save = false)
         }
