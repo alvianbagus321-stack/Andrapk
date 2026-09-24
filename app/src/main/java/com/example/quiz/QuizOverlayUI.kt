@@ -64,6 +64,7 @@ fun QuizOverlayUI() {
     val answerLimitN by QuizAnalyzer.answerLimitN.collectAsState()
     val scrollFromTop by QuizAnalyzer.scrollToTopOnAnalyze.collectAsState()
     val autoSweepOn by QuizAnalyzer.autoSweep.collectAsState()
+    val proMode by QuizAnalyzer.proMode.collectAsState()
     val sweeping by QuizAnalyzer.sweeping.collectAsState()
     // Status Mode Advance PERSISTEN: dibuka kemarin? hari ini tetap terbuka.
     val showAdvanced by QuizAnalyzer.advancedShown.collectAsState()
@@ -169,6 +170,38 @@ fun QuizOverlayUI() {
 
             Spacer(Modifier.height(8.dp))
 
+            // Mode analyzer: PRO (lengkap) / DEFAULT (bersih)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "PRO",
+                    color = if (proMode) Color.Black else JarvisTextPrimary,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Black,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (proMode) JarvisCyan else Color(0x22FFFFFF))
+                        .clickable { QuizAnalyzer.setProMode(true) }
+                        .padding(vertical = 7.dp)
+                )
+                Text(
+                    "DEFAULT",
+                    color = if (!proMode) Color.Black else JarvisTextPrimary,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Black,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (!proMode) JarvisEmerald else Color(0x22FFFFFF))
+                        .clickable { QuizAnalyzer.setProMode(false) }
+                        .padding(vertical = 7.dp)
+                )
+            }
+
+            Spacer(Modifier.height(8.dp))
+
             // Auto Analyze
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text("Auto Analyze", color = JarvisTextPrimary, fontSize = 11.5.sp, modifier = Modifier.weight(1f))
@@ -214,102 +247,131 @@ fun QuizOverlayUI() {
                 )
             }
 
-            // MODE ADVANCE: setelan lanjutan disembunyikan agar HUD tetap ringkas
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { QuizAnalyzer.setAdvancedShown(!showAdvanced) }
-                    .padding(vertical = 2.dp)
-            ) {
-                Icon(
-                    Icons.Filled.Settings,
-                    contentDescription = null,
-                    tint = JarvisTextSecondary,
-                    modifier = Modifier.size(13.dp)
-                )
-                Spacer(Modifier.width(4.dp))
-                Text("Mode advance", color = JarvisTextSecondary, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
-                Text(if (showAdvanced) " ▲" else " ▼", color = JarvisTextSecondary, fontSize = 10.sp)
-            }
-            if (showAdvanced) {
-            // Delay auto analyze: chip preset — TAP SAJA. Field ketik mustahil dipakai di
-            // jendela overlay (window FLAG_NOT_FOCUSABLE -> keyboard tidak bisa muncul).
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text("Delay auto analyze", color = JarvisTextPrimary, fontSize = 11.5.sp)
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(500L, 1000L, 2000L, 5000L).forEach { ms ->
-                        val selected = delayMs == ms
+            if (proMode) {
+                // MODE ADVANCE: setelan lanjutan disembunyikan agar HUD tetap ringkas
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { QuizAnalyzer.setAdvancedShown(!showAdvanced) }
+                        .padding(vertical = 2.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = null,
+                        tint = JarvisTextSecondary,
+                        modifier = Modifier.size(13.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("Mode advance", color = JarvisTextSecondary, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (showAdvanced) " ▲" else " ▼", color = JarvisTextSecondary, fontSize = 10.sp)
+                }
+                if (showAdvanced) {
+                // Delay auto analyze: chip preset — TAP SAJA. Field ketik mustahil dipakai di
+                // jendela overlay (window FLAG_NOT_FOCUSABLE -> keyboard tidak bisa muncul).
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("Delay auto analyze", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(500L, 1000L, 2000L, 5000L).forEach { ms ->
+                            val selected = delayMs == ms
+                            Text(
+                                text = if (ms >= 1000L) (ms / 1000).toString() + "s" else ms.toString() + "ms",
+                                color = if (selected) Color.Black else JarvisTextPrimary,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                    .clickable { QuizAnalyzer.setDelayMs(ms) }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    // Atur bebas: -/+ 100ms. Batas aman ditegakkan di setDelayMs (300ms-10s):
+                    // di bawah 300ms loop cuma bikin panas/boros baterai tanpa manfaat.
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
-                            text = if (ms >= 1000L) (ms / 1000).toString() + "s" else ms.toString() + "ms",
-                            color = if (selected) Color.Black else JarvisTextPrimary,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            "-",
+                            color = Color.Black,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
-                                .clickable { QuizAnalyzer.setDelayMs(ms) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                .clip(CircleShape)
+                                .background(JarvisCyan)
+                                .clickable { QuizAnalyzer.setDelayMs(delayMs - 100L) }
+                                .padding(horizontal = 12.dp, vertical = 2.dp)
                         )
+                        Text(delayMs.toString() + " ms", color = JarvisCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "+",
+                            color = Color.Black,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(JarvisCyan)
+                                .clickable { QuizAnalyzer.setDelayMs(delayMs + 100L) }
+                                .padding(horizontal = 10.dp, vertical = 2.dp)
+                        )
+                        Text("(bebas 300ms-10s)", color = JarvisTextSecondary, fontSize = 9.sp)
                     }
                 }
-                Spacer(Modifier.height(5.dp))
-                // Atur bebas: -/+ 100ms. Batas aman ditegakkan di setDelayMs (300ms-10s):
-                // di bawah 300ms loop cuma bikin panas/boros baterai tanpa manfaat.
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "-",
-                        color = Color.Black,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(JarvisCyan)
-                            .clickable { QuizAnalyzer.setDelayMs(delayMs - 100L) }
-                            .padding(horizontal = 12.dp, vertical = 2.dp)
-                    )
-                    Text(delayMs.toString() + " ms", color = JarvisCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        "+",
-                        color = Color.Black,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(JarvisCyan)
-                            .clickable { QuizAnalyzer.setDelayMs(delayMs + 100L) }
-                            .padding(horizontal = 10.dp, vertical = 2.dp)
-                    )
-                    Text("(bebas 300ms-10s)", color = JarvisTextSecondary, fontSize = 9.sp)
-                }
-            }
 
-            // Multi-capture soal panjang: OTOMATIS (AI atur) atau PILIHAN (user tentukan)
-            Spacer(Modifier.height(6.dp))
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text("Multi-capture soal panjang", color = JarvisTextPrimary, fontSize = 11.5.sp)
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(
-                        true to "Otomatis (AI)",
-                        false to "Pilihan"
-                    ).forEach { (v, label) ->
-                        val selected = captureModeAuto == v
-                        Text(
-                            text = label,
-                            color = if (selected) Color.Black else JarvisTextPrimary,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
-                                .clickable { QuizAnalyzer.setCaptureModeAuto(v) }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        )
+                // Multi-capture soal panjang: OTOMATIS (AI atur) atau PILIHAN (user tentukan)
+                Spacer(Modifier.height(6.dp))
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("Multi-capture soal panjang", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            true to "Otomatis (AI)",
+                            false to "Pilihan"
+                        ).forEach { (v, label) ->
+                            val selected = captureModeAuto == v
+                            Text(
+                                text = label,
+                                color = if (selected) Color.Black else JarvisTextPrimary,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                    .clickable { QuizAnalyzer.setCaptureModeAuto(v) }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
                     }
-                }
-                if (!captureModeAuto) {
+                    if (!captureModeAuto) {
+                        Spacer(Modifier.height(5.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                "-",
+                                color = Color.Black,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(JarvisCyan)
+                                    .clickable { QuizAnalyzer.setManualExtraCount(manualExtraCount - 1) }
+                                    .padding(horizontal = 12.dp, vertical = 2.dp)
+                            )
+                            Text("x" + manualExtraCount + " capture tambahan", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "+",
+                                color = Color.Black,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(JarvisCyan)
+                                    .clickable { QuizAnalyzer.setManualExtraCount(manualExtraCount + 1) }
+                                    .padding(horizontal = 10.dp, vertical = 2.dp)
+                            )
+                            Text("(1-100)", color = JarvisTextSecondary, fontSize = 9.sp)
+                        }
+                    }
                     Spacer(Modifier.height(5.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
@@ -320,10 +382,10 @@ fun QuizOverlayUI() {
                             modifier = Modifier
                                 .clip(CircleShape)
                                 .background(JarvisCyan)
-                                .clickable { QuizAnalyzer.setManualExtraCount(manualExtraCount - 1) }
+                                .clickable { QuizAnalyzer.setScrollOverlap(scrollOverlap - 5) }
                                 .padding(horizontal = 12.dp, vertical = 2.dp)
                         )
-                        Text("x" + manualExtraCount + " capture tambahan", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text("Overlap " + scrollOverlap + "%", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         Text(
                             "+",
                             color = Color.Black,
@@ -332,171 +394,174 @@ fun QuizOverlayUI() {
                             modifier = Modifier
                                 .clip(CircleShape)
                                 .background(JarvisCyan)
-                                .clickable { QuizAnalyzer.setManualExtraCount(manualExtraCount + 1) }
+                                .clickable { QuizAnalyzer.setScrollOverlap(scrollOverlap + 5) }
                                 .padding(horizontal = 10.dp, vertical = 2.dp)
                         )
-                        Text("(1-100)", color = JarvisTextSecondary, fontSize = 9.sp)
+                        Text("geser " + (100 - scrollOverlap) + "% layar/langkah (40-90%)", color = JarvisTextSecondary, fontSize = 9.sp)
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    Text("Gulir saat multi-capture", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            0 to "Otomatis",
+                            1 to "1 jari",
+                            2 to "2 jari",
+                            3 to "Roda StarDesk"
+                        ).forEach { (v, label) ->
+                            val selected = scrollFingers == v
+                            Text(
+                                text = label,
+                                color = if (selected) Color.Black else JarvisTextPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                    .clickable { QuizAnalyzer.setScrollFingers(v) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    Text(
+                        "Roda StarDesk = drag pelan di widget roda (tepi kanan) - PALING andal utk StarDesk. Otomatis = Roda StarDesk saat remote terdeteksi",
+                        color = JarvisTextSecondary,
+                        fontSize = 9.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    // SOP langkah 1: mulai dari atas saat Analyze
+                    Spacer(Modifier.height(6.dp))
+                    Text("Scroll otomatis saat Analyze", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            true to "Mulai dari atas (lambat, aman)",
+                            false to "Tanpa scroll (cepat)"
+                        ).forEach { (v, label) ->
+                            val selected = scrollFromTop == v
+                            Text(
+                                text = label,
+                                color = if (selected) Color.Black else JarvisTextPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                    .clickable { QuizAnalyzer.setScrollToTopOnAnalyze(v) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(5.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            true to "Auto Scan Penuh bila tak yakin (lambat)",
+                            false to "Tanpa auto Scan Penuh (cepat)"
+                        ).forEach { (v, label) ->
+                            val selected = autoSweepOn == v
+                            Text(
+                                text = label,
+                                color = if (selected) Color.Black else JarvisTextPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                    .clickable { QuizAnalyzer.setAutoSweep(v) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    // Batas soal utk Auto Jawab
+                    Spacer(Modifier.height(6.dp))
+                    Text("Batas soal (Auto Jawab)", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf(
+                            true to "Otomatis (sampai selesai)",
+                            false to "Isi sendiri"
+                        ).forEach { (v, label) ->
+                            val selected = answerLimitAuto == v
+                            Text(
+                                text = label,
+                                color = if (selected) Color.Black else JarvisTextPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                    .clickable { QuizAnalyzer.setAnswerLimitAuto(v) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                    if (!answerLimitAuto) {
+                        Spacer(Modifier.height(5.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                "-",
+                                color = Color.Black,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(JarvisCyan)
+                                    .clickable { QuizAnalyzer.setAnswerLimitN(answerLimitN - 1) }
+                                    .padding(horizontal = 12.dp, vertical = 2.dp)
+                            )
+                            Text(answerLimitN.toString() + " soal", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "+",
+                                color = Color.Black,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(JarvisCyan)
+                                    .clickable { QuizAnalyzer.setAnswerLimitN(answerLimitN + 1) }
+                                    .padding(horizontal = 10.dp, vertical = 2.dp)
+                            )
+                            Text("(1-100)", color = JarvisTextSecondary, fontSize = 9.sp)
+                        }
                     }
                 }
-                Spacer(Modifier.height(5.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "-",
-                        color = Color.Black,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(JarvisCyan)
-                            .clickable { QuizAnalyzer.setScrollOverlap(scrollOverlap - 5) }
-                            .padding(horizontal = 12.dp, vertical = 2.dp)
-                    )
-                    Text("Overlap " + scrollOverlap + "%", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        "+",
-                        color = Color.Black,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .background(JarvisCyan)
-                            .clickable { QuizAnalyzer.setScrollOverlap(scrollOverlap + 5) }
-                            .padding(horizontal = 10.dp, vertical = 2.dp)
-                    )
-                    Text("geser " + (100 - scrollOverlap) + "% layar/langkah (40-90%)", color = JarvisTextSecondary, fontSize = 9.sp)
-                }
-                Spacer(Modifier.height(5.dp))
-                Text("Gulir saat multi-capture", color = JarvisTextPrimary, fontSize = 11.5.sp)
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(
-                        0 to "Otomatis",
-                        1 to "1 jari",
-                        2 to "2 jari",
-                        3 to "Roda StarDesk"
-                    ).forEach { (v, label) ->
-                        val selected = scrollFingers == v
-                        Text(
-                            text = label,
-                            color = if (selected) Color.Black else JarvisTextPrimary,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
-                                .clickable { QuizAnalyzer.setScrollFingers(v) }
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
-                        )
+                } // akhir mode advance
+
+                Spacer(Modifier.height(6.dp))
+
+            } // akhir seksi PRO
+
+            if (!proMode) {
+                // MODE DEFAULT: panel bersih — hanya Auto Jawab (Auto Submit & auto-
+                // minimize tetap berlaku dari setelannya); satu capture per Analyze.
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Auto Jawab semua soal", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                        if (autoAnswerOn) {
+                            Text(
+                                "\ud83e\udd16 berjalan - " + autoAnswerProgress + " soal dikerjakan",
+                                color = JarvisAmber,
+                                fontSize = 9.5.sp
+                            )
+                        }
                     }
+                    Switch(
+                        checked = autoAnswerOn,
+                        onCheckedChange = { QuizAnalyzer.setAutoAnswerLoop(it) },
+                        modifier = Modifier.height(24.dp),
+                        colors = SwitchDefaults.colors(checkedTrackColor = JarvisCyan)
+                    )
                 }
                 Text(
-                    "Roda StarDesk = drag pelan di widget roda (tepi kanan) - PALING andal utk StarDesk. Otomatis = Roda StarDesk saat remote terdeteksi",
+                    "Mode default: satu scan + Auto Submit jawaban (bila Auto Submit ON). " +
+                        "Untuk multi-capture, Scan Penuh, gulir & setelan lanjut: pilih mode PRO.",
                     color = JarvisTextSecondary,
-                    fontSize = 9.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    fontSize = 9.5.sp
                 )
-
-                // SOP langkah 1: mulai dari atas saat Analyze
-                Spacer(Modifier.height(6.dp))
-                Text("Scroll otomatis saat Analyze", color = JarvisTextPrimary, fontSize = 11.5.sp)
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(
-                        true to "Mulai dari atas (lambat, aman)",
-                        false to "Tanpa scroll (cepat)"
-                    ).forEach { (v, label) ->
-                        val selected = scrollFromTop == v
-                        Text(
-                            text = label,
-                            color = if (selected) Color.Black else JarvisTextPrimary,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
-                                .clickable { QuizAnalyzer.setScrollToTopOnAnalyze(v) }
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-                Spacer(Modifier.height(5.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(
-                        true to "Auto Scan Penuh bila tak yakin (lambat)",
-                        false to "Tanpa auto Scan Penuh (cepat)"
-                    ).forEach { (v, label) ->
-                        val selected = autoSweepOn == v
-                        Text(
-                            text = label,
-                            color = if (selected) Color.Black else JarvisTextPrimary,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
-                                .clickable { QuizAnalyzer.setAutoSweep(v) }
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-
-                // Batas soal utk Auto Jawab
-                Spacer(Modifier.height(6.dp))
-                Text("Batas soal (Auto Jawab)", color = JarvisTextPrimary, fontSize = 11.5.sp)
-                Spacer(Modifier.height(4.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(
-                        true to "Otomatis (sampai selesai)",
-                        false to "Isi sendiri"
-                    ).forEach { (v, label) ->
-                        val selected = answerLimitAuto == v
-                        Text(
-                            text = label,
-                            color = if (selected) Color.Black else JarvisTextPrimary,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
-                                .clickable { QuizAnalyzer.setAnswerLimitAuto(v) }
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
-                        )
-                    }
-                }
-                if (!answerLimitAuto) {
-                    Spacer(Modifier.height(5.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            "-",
-                            color = Color.Black,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(JarvisCyan)
-                                .clickable { QuizAnalyzer.setAnswerLimitN(answerLimitN - 1) }
-                                .padding(horizontal = 12.dp, vertical = 2.dp)
-                        )
-                        Text(answerLimitN.toString() + " soal", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            "+",
-                            color = Color.Black,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Black,
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(JarvisCyan)
-                                .clickable { QuizAnalyzer.setAnswerLimitN(answerLimitN + 1) }
-                                .padding(horizontal = 10.dp, vertical = 2.dp)
-                        )
-                        Text("(1-100)", color = JarvisTextSecondary, fontSize = 9.sp)
-                    }
-                }
             }
-            } // akhir mode advance
-
-            Spacer(Modifier.height(6.dp))
 
             // Tombol Analyze / STOP (saat proses berjalan - tidak ada lagi kondisi stuck)
             Button(

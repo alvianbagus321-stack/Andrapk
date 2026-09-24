@@ -103,6 +103,11 @@ object QuizAnalyzer {
     private val _autoSweep = MutableStateFlow(false)
     val autoSweep: StateFlow<Boolean> = _autoSweep.asStateFlow()
 
+    // MODE ANALYZER: true=PRO (lengkap: multi-capture, sweep, gulir, diagnostic, dll)
+    // false=DEFAULT (bersih: Analyze + Auto Jawab + Auto Submit + auto-minimize)
+    private val _proMode = MutableStateFlow(true)
+    val proMode: StateFlow<Boolean> = _proMode.asStateFlow()
+
     // FALLBACK sweep: scroll terus dari atas ke bawah sambil menangkap frame
     private val _sweeping = MutableStateFlow(false)
     val sweeping: StateFlow<Boolean> = _sweeping.asStateFlow()
@@ -169,6 +174,7 @@ object QuizAnalyzer {
         _answerLimitN.value = submitPrefs.getInt("quiz_answer_limit_n", 5).coerceIn(1, 100)
         _scrollToTopOnAnalyze.value = submitPrefs.getBoolean("quiz_scroll_to_top", true)
         _autoSweep.value = submitPrefs.getBoolean("quiz_auto_sweep", false)
+        _proMode.value = submitPrefs.getBoolean("quiz_pro_mode", true)
         // autoAnswerLoop SENGAJA tidak dimuat: loop ketuk otomatis tak boleh hidup sendiri saat app restart
     }
 
@@ -205,6 +211,11 @@ object QuizAnalyzer {
     fun setAutoSweep(v: Boolean) {
         _autoSweep.value = v
         submitPrefs.edit().putBoolean("quiz_auto_sweep", v).apply()
+    }
+
+    fun setProMode(pro: Boolean) {
+        _proMode.value = pro
+        submitPrefs.edit().putBoolean("quiz_pro_mode", pro).apply()
     }
 
     fun setScrollFingers(n: Int) {
