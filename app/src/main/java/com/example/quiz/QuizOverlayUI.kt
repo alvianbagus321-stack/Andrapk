@@ -57,6 +57,10 @@ fun QuizOverlayUI() {
     val manualCaptures by QuizAnalyzer.manualCaptures.collectAsState()
     val scrollOverlap by QuizAnalyzer.scrollOverlapPercent.collectAsState()
     val scrollFingers by QuizAnalyzer.scrollFingers.collectAsState()
+    val autoAnswerOn by QuizAnalyzer.autoAnswerLoop.collectAsState()
+    val autoAnswerProgress by QuizAnalyzer.autoAnswerProgress.collectAsState()
+    val answerLimitAuto by QuizAnalyzer.answerLimitAuto.collectAsState()
+    val answerLimitN by QuizAnalyzer.answerLimitN.collectAsState()
     // Status Mode Advance PERSISTEN: dibuka kemarin? hari ini tetap terbuka.
     val showAdvanced by QuizAnalyzer.advancedShown.collectAsState()
 
@@ -183,6 +187,26 @@ fun QuizOverlayUI() {
                     onCheckedChange = { QuizAnalyzer.setAutoSubmit(it) },
                     modifier = Modifier.height(24.dp),
                     colors = SwitchDefaults.colors(checkedTrackColor = JarvisAmber)
+                )
+            }
+
+            // Auto Jawab: loop analisis+jawab+submit sampai selesai / batas soal (atur di Mode advance)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Auto Jawab (sampai selesai)", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                    if (autoAnswerOn) {
+                        Text(
+                            "\ud83e\udd16 berjalan - " + autoAnswerProgress + " soal dikerjakan",
+                            color = JarvisAmber,
+                            fontSize = 9.5.sp
+                        )
+                    }
+                }
+                Switch(
+                    checked = autoAnswerOn,
+                    onCheckedChange = { QuizAnalyzer.setAutoAnswerLoop(it) },
+                    modifier = Modifier.height(24.dp),
+                    colors = SwitchDefaults.colors(checkedTrackColor = JarvisCyan)
                 )
             }
 
@@ -367,6 +391,59 @@ fun QuizOverlayUI() {
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+
+                // Batas soal utk Auto Jawab
+                Spacer(Modifier.height(6.dp))
+                Text("Batas soal (Auto Jawab)", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        true to "Otomatis (sampai selesai)",
+                        false to "Isi sendiri"
+                    ).forEach { (v, label) ->
+                        val selected = answerLimitAuto == v
+                        Text(
+                            text = label,
+                            color = if (selected) Color.Black else JarvisTextPrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                .clickable { QuizAnalyzer.setAnswerLimitAuto(v) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                if (!answerLimitAuto) {
+                    Spacer(Modifier.height(5.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "-",
+                            color = Color.Black,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(JarvisCyan)
+                                .clickable { QuizAnalyzer.setAnswerLimitN(answerLimitN - 1) }
+                                .padding(horizontal = 12.dp, vertical = 2.dp)
+                        )
+                        Text(answerLimitN.toString() + " soal", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "+",
+                            color = Color.Black,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(JarvisCyan)
+                                .clickable { QuizAnalyzer.setAnswerLimitN(answerLimitN + 1) }
+                                .padding(horizontal = 10.dp, vertical = 2.dp)
+                        )
+                        Text("(1-20)", color = JarvisTextSecondary, fontSize = 9.sp)
+                    }
+                }
             }
             } // akhir mode advance
 
@@ -409,6 +486,18 @@ fun QuizOverlayUI() {
                 ) {
                     Text("Kirim ke AI", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
                 }
+                // Hapus buffer tangkapan manual (sebelumnya tidak ada tombolnya)
+                Text(
+                    "\u2715",
+                    color = if (manualCaptures > 0) JarvisRed else JarvisTextSecondary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Black,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(if (manualCaptures > 0) Color(0x33FF5555) else Color(0x11FFFFFF))
+                        .clickable(enabled = manualCaptures > 0) { QuizAnalyzer.clearManualCaptures() }
+                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                )
             }
             Text(
                 "\ud83d\udcf7 = simpan layar sekarang (scroll dulu bila perlu); Kirim = analisis gabungan",

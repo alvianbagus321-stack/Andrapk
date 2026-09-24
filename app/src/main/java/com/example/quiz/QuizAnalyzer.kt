@@ -98,6 +98,19 @@ object QuizAnalyzer {
     private val _scrollFingers = MutableStateFlow(0)
     val scrollFingers: StateFlow<Int> = _scrollFingers.asStateFlow()
 
+    // AUTO JAWAB: loop analisis+jawab+submit soal berikutnya sampai selesai/batas
+    private val _autoAnswerLoop = MutableStateFlow(false)
+    val autoAnswerLoop: StateFlow<Boolean> = _autoAnswerLoop.asStateFlow()
+    private val _autoAnswerProgress = MutableStateFlow(0)
+    val autoAnswerProgress: StateFlow<Int> = _autoAnswerProgress.asStateFlow()
+    private var autoAnswerJob: kotlinx.coroutines.Job? = null
+
+    // Batas soal dikerjakan: true=Otomatis (sampai soal habis/tak terdeteksi), false=Isi sendiri (N soal)
+    private val _answerLimitAuto = MutableStateFlow(true)
+    val answerLimitAuto: StateFlow<Boolean> = _answerLimitAuto.asStateFlow()
+    private val _answerLimitN = MutableStateFlow(5)
+    val answerLimitN: StateFlow<Int> = _answerLimitN.asStateFlow()
+
     // Tangkapan manual utk AI: user tap 📷 sebanyak apa pun lalu Kirim
     private val _manualCaptures = MutableStateFlow(0)
     val manualCaptures: StateFlow<Int> = _manualCaptures.asStateFlow()
@@ -138,6 +151,9 @@ object QuizAnalyzer {
         _scrollOverlapPercent.value = submitPrefs.getInt("quiz_scroll_overlap", 70).coerceIn(40, 90)
         _advancedShown.value = submitPrefs.getBoolean("quiz_advance_shown", false)
         _scrollFingers.value = submitPrefs.getInt("quiz_scroll_fingers", 0).coerceIn(0, 2)
+        _answerLimitAuto.value = submitPrefs.getBoolean("quiz_answer_limit_auto", true)
+        _answerLimitN.value = submitPrefs.getInt("quiz_answer_limit_n", 5).coerceIn(1, 20)
+        // autoAnswerLoop SENGAJA tidak dimuat: loop ketuk otomatis tak boleh hidup sendiri saat app restart
     }
 
     fun setDelayMs(ms: Long) {
@@ -170,6 +186,84 @@ object QuizAnalyzer {
         submitPrefs.edit().putInt("quiz_scroll_fingers", _scrollFingers.value).apply()
     }
 
+    fun setAnswerLimitAuto(auto: Boolean) {
+        _answerLimitAuto.value = auto
+        submitPrefs.edit().putBoolean("quiz_answer_limit_auto", auto).apply()
+    }
+
+    fun setAnswerLimitN(n: Int) {
+        _answerLimitN.value = n.coerceIn(1, 20)
+        submitPrefs.edit().putInt("quiz_answer_limit_n", _answerLimitN.value).apply()
+    }
+
+    /** Toggle Auto Jawab: ON = mulai loop kerja soal, OFF = berhenti kapan pun. */
+    fun setAutoAnswerLoop(enabled: Boolean) {
+        _autoAnswerLoop.value = enabled
+        submitPrefs.edit().putBoolean("quiz_auto_answer", enabled).apply()
+        if (enabled) startAutoAnswerLoop() else autoAnswerJob?.cancel()
+    }
+
+    private fun remoteActive(): Boolean =
+        com.example.service.JarvisAccessibilityService.instance?.foregroundPackageName()
+            ?.let { pkg -> REMOTE_PKG_KEYWORDS.any { pkg.contains(it) } } ?: false
+
+    private fun startAutoAnswerLoop() {
+        autoAnswerJob?.cancel()
+        autoAnswerJob = scope.launch {
+            var done = 0
+            _autoAnswerProgress.value = 0
+            DiagnosticLogger.update(captureDetail = "\ud83e\udd16 Auto jawab MULAI (batas: " +
+                (if (_answerLimitAuto.value) "sampai selesai" else _answerLimitN.value.toString() + " soal") + ")")
+            while (isActive && _autoAnswerLoop.value) {
+                // cek batas SEBELUM mengerjakan soal berikutnya
+                if (!_answerLimitAuto.value && done >= _answerLimitN.value) {
+                    DiagnosticLogger.update(captureDetail = "\ud83e\udd16 Auto jawab SELESAI: batas " + _answerLimitN.value + " soal tercapai")
+                    break
+                }
+                if (_answerLimitAuto.value && done >= 30) { // pengaman loop tak terbatas
+                    DiagnosticLogger.update(captureDetail = "\ud83e\udd16 Auto jawab berhenti: pengaman 30 soal")
+                    break
+                }
+                // reset hasil lama supaya tidak salah submit ke soal baru
+                _answer.value = null
+                _lastError.value = null
+                DiagnosticLogger.reset()
+                runAnalysis(skipAutoSubmit = true) // submit dikendalikan loop (anti dobel ketukan)
+                if (!_autoAnswerLoop.value) break
+                val r = _answer.value
+                if (r == null || r.isUncertain || r.confidence < 0.5f) {
+                    DiagnosticLogger.update(captureDetail = "\ud83e\udd16 Auto jawab BERHENTI: soal tidak terdeteksi / AI tidak yakin (total " + done + " soal)")
+                    break
+                }
+                // kerjakan: ketuk jawaban + tombol submit/berikutnya
+                kotlinx.coroutines.delay(400)
+                val msg = try {
+                    if (r.isFillIn) AutoSubmitter.fillAnswer(r, lastAnalysisBase64)
+                    else AutoSubmitter.submit(r, lastAnalysisBase64)
+                } catch (e: Exception) {
+                    "Error: ${e.message}"
+                }
+                val ok = msg.startsWith("Ketuk") || msg.startsWith("Isi")
+                DiagnosticLogger.update(
+                    autoSubmit = if (ok) QuizStepStatus.OK else QuizStepStatus.FAILED,
+                    autoSubmitDetail = msg
+                )
+                _submitInfo.value = msg
+                if (!ok) {
+                    // aksi ketuk gagal -> lebih aman berhenti daripada menabrak layar buta
+                    DiagnosticLogger.update(captureDetail = "\ud83e\udd16 Auto jawab berhenti: aksi ketuk gagal (" + done + " soal selesai)")
+                    break
+                }
+                done++
+                _autoAnswerProgress.value = done
+                // beri waktu soal berikutnya termuat (remote PC = latency lebih besar)
+                delay(if (remoteActive()) 3000 else 2200)
+            }
+            _autoAnswerLoop.value = false
+            submitPrefs.edit().putBoolean("quiz_auto_answer", false).apply()
+        }
+    }
+
     /**
      * Mode tangkapan MANUAL: user tap 📷 = simpan OCR layar SEKARANG ke buffer
      * (scroll manual sendiri di antara tap). Dedup otomatis: baris yang sama
@@ -178,12 +272,30 @@ object QuizAnalyzer {
     fun addManualCapture() {
         if (_isAnalyzing.value) return
         scope.launch {
-            val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first ?: return@launch
-            val bmp = decodeSampled(b64, 1280) ?: return@launch
-            if (captureIsUniform(bmp).first) { bmp.recycle(); return@launch }
+            val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
+            if (b64 == null) {
+                DiagnosticLogger.update(captureDetail = "\ud83d\udcf7 gagal: izin Screen Capture tidak tersedia")
+                return@launch
+            }
+            val bmp = decodeSampled(b64, 1280)
+            if (bmp == null) {
+                DiagnosticLogger.update(captureDetail = "\ud83d\udcf7 gagal: tangkapan tidak bisa diproses")
+                return@launch
+            }
+            // FIX: halaman quiz PUTIH POLOS itu KONTEN SAH — hanya frame GELAP seragam
+            // yang dianggap kosong (bug lama: halaman putih dibuang diam-diam).
+            val (uni, lum) = captureIsUniform(bmp)
+            if (uni && lum < 45) {
+                bmp.recycle()
+                DiagnosticLogger.update(captureDetail = "\ud83d\udcf7 gagal: tangkapan kosong/hitam - coba lagi")
+                return@launch
+            }
             val boxes = OcrEngine.recognizeWithBoxes(bmp).getOrNull()
             bmp.recycle()
-            if (boxes == null) return@launch
+            if (boxes == null) {
+                DiagnosticLogger.update(captureDetail = "\ud83d\udcf7 gagal: OCR tidak bisa membaca tangkapan")
+                return@launch
+            }
             var added = 0
             synchronized(manualLock) {
                 if (_manualCaptures.value == 0) { manualSeen.clear(); manualBufferText = "" }
@@ -245,7 +357,8 @@ object QuizAnalyzer {
     private suspend fun runAnalysis(
         preCapturedBase64: String? = null,
         manualText: String? = null,
-        manualB64: String? = null
+        manualB64: String? = null,
+        skipAutoSubmit: Boolean = false
     ): Unit = withContext(Dispatchers.IO) {
         _isAnalyzing.value = true
         _lastError.value = null
@@ -500,7 +613,8 @@ object QuizAnalyzer {
             _phase.value = QuizPhase.DONE
 
             // 5. AUTO SUBMIT (opsional — default OFF, hanya bila AI yakin)
-            if (_autoSubmit.value && !result.isUncertain && result.confidence >= 0.5f) {
+            // skipAutoSubmit=true dipakai loop Auto Jawab (submit dikendalikan loop itu sendiri)
+            if (!skipAutoSubmit && _autoSubmit.value && !result.isUncertain && result.confidence >= 0.5f) {
                 kotlinx.coroutines.delay(400) // beri waktu UI menampilkan hasil dulu
                 try {
                     val msg = if (result.isFillIn) AutoSubmitter.fillAnswer(result, lastAnalysisBase64)
