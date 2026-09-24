@@ -292,6 +292,13 @@ object QuizAnalyzer {
     fun addManualCapture() {
         if (_isAnalyzing.value) return
         scope.launch {
+            // Auto-minimize: HUD tidak ikut tertangkap di tangkapan manual
+            val hudWasMin = !com.example.ui.QuizOverlayManager.isMinimized.value
+            if (hudWasMin) {
+                com.example.ui.QuizOverlayManager.minimize()
+                delay(600)
+            }
+            try {
             val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first
             if (b64 == null) {
                 DiagnosticLogger.update(captureDetail = "\ud83d\udcf7 gagal: izin Screen Capture tidak tersedia")
@@ -334,6 +341,10 @@ object QuizAnalyzer {
             DiagnosticLogger.update(
                 captureDetail = "\ud83d\udcf7 tangkapan ke-" + _manualCaptures.value + " tersimpan (+" + added + " baris baru) - tap Kirim bila sudah"
             )
+            } finally {
+                // HUD kembali tampil supaya bisa tap Tambah/Kirim berikutnya
+                if (hudWasMin) com.example.ui.QuizOverlayManager.expand()
+            }
         }
     }
 
@@ -437,6 +448,14 @@ object QuizAnalyzer {
         _lastError.value = null
         DiagnosticLogger.reset()
         val startedAt = System.currentTimeMillis()
+
+        // AUTO-MINIMIZE HUD: kartu HUD ikut tertangkap di screenshot & menutupi soal.
+        // Minimize (BUKAN tutup) -> tunggu frame stabil -> baru tangkap.
+        val hudKamiMinimize = !com.example.ui.QuizOverlayManager.isMinimized.value
+        if (hudKamiMinimize) {
+            com.example.ui.QuizOverlayManager.minimize()
+            delay(700) // beri waktu animasi minimize & frame layar stabil
+        }
         var ocrBitmap: Bitmap? = null
 
         // Konteks otomatis: app remote desktop (StarDesk/AnyDesk/dll) sedang tampil?
@@ -723,6 +742,11 @@ object QuizAnalyzer {
             fail("Error: ${e.message ?: e.javaClass.simpleName}")
         } finally {
             ocrBitmap?.recycle()
+            // HUD muncul lagi otomatis menampilkan hasil (kecuali Auto Jawab loop
+            // sedang berjalan - iterasi berikutnya akan minimize lagi)
+            if (hudKamiMinimize && !_autoAnswerLoop.value) {
+                com.example.ui.QuizOverlayManager.expand()
+            }
             _isAnalyzing.value = false
         }
     }
