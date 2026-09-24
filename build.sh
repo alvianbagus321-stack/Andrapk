@@ -314,25 +314,32 @@ EOF
 
 # ------------------------------------------------------------- build ---------
 run_gradle() { # run_gradle <task...>
-  # Memori ADAPTIF: "Gradle daemon disappeared" = hampir selalu OOM di mesin
-  # RAM kecil. GRADLE_OPTS dari pemicu (sudah diset) DIHORMATI; bila kosong,
-  # atur otomatis sesuai RAM total: heap Gradle + heap Kotlin daemon + workers.
+  # Memori ADAPTIF v2: keputusan berdasar memori AVAILABLE (bukan total) —
+  # mesin CI sering total besar tapi tersisa sedikit. "Gradle daemon
+  # disappeared" = hampir selalu OOM. GRADLE_OPTS pemicu DIHORMATI.
   if [[ -z "${GRADLE_OPTS:-}" ]]; then
-    local total_mb; total_mb="$(free -m 2>/dev/null | awk '/^Mem:/{print $2}' | head -1)"
-    total_mb="${total_mb:-8000}"
-    local xmx kx workers wtxt
-    if [[ "$total_mb" -lt 5500 ]] 2>/dev/null; then
-      xmx=1536m; kx=1024m; workers=1; wtxt="1"
-    elif [[ "$total_mb" -lt 8000 ]] 2>/dev/null; then
-      xmx=3g; kx=1500m; workers=2; wtxt="2"
-    else
+    local avail_mb; avail_mb="$(free -m 2>/dev/null | awk '/^Mem:/{print $7}' | head -1)"
+    avail_mb="${avail_mb:-0}"
+    local xmx kx workers wtxt extra=""
+    if [[ "$avail_mb" -ge 6000 ]] 2>/dev/null; then
       xmx=4g; kx=2g; workers=0; wtxt="otomatis"
+    elif [[ "$avail_mb" -ge 3500 ]] 2>/dev/null; then
+      xmx=2560m; kx=1024m; workers=2; wtxt="2"
+    else
+      # Mesin sempit: SATU JVM saja (Kotlin in-process, tanpa daemon terpisah)
+      xmx=1536m; kx=""; workers=1; wtxt="1"
+      extra="-Dorg.gradle.parallel=false -Dkotlin.compiler.execution.strategy=in-process"
     fi
     unset JAVA_TOOL_OPTIONS || true
-    export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx$xmx -Dfile.encoding=UTF-8 -Djava.awt.headless=true -Dkotlin.daemon.jvmargs=-Xmx$kx"
+    export GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx$xmx -Dfile.encoding=UTF-8 -Djava.awt.headless=true"
+    if [[ -n "$kx" ]]; then export GRADLE_OPTS="$GRADLE_OPTS -Dkotlin.daemon.jvmargs=-Xmx$kx"; fi
     if [[ "$workers" != 0 ]]; then export GRADLE_OPTS="$GRADLE_OPTS -Dorg.gradle.workers.max=$workers"; fi
-    ok "RAM ${total_mb}MB → heap Gradle $xmx, Kotlin daemon $kx, workers $wtxt"
+    if [[ -n "$extra" ]]; then export GRADLE_OPTS="$GRADLE_OPTS $extra"; fi
+    ok "Memori tersedia ${avail_mb}MB → heap Gradle $xmx${kx:+, Kotlin daemon $kx}${kx:-, Kotlin in-process}, workers $wtxt"
   fi
+  # Hentikan daemon BAWAAN lama: daemon hidup mempertahankan heap settings
+  # lama dan dipakai ulang tanpa memedulikan GRADLE_OPTS baru (jebakan OOM).
+  "$GRADLE_CMD" --stop >/dev/null 2>&1 || true
   log "Menjalankan: $GRADLE_CMD $*"
   if ! "$GRADLE_CMD" "$@"; then
     err "Build GAGAL. Hal yang lazim dicek:"
