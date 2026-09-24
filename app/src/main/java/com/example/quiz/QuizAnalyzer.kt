@@ -281,7 +281,8 @@ object QuizAnalyzer {
             fun walk(n: android.view.accessibility.AccessibilityNodeInfo?) {
                 if (n == null) return
                 val r = android.graphics.Rect()
-                if (n.isVisibleToUser && n.getBoundsInScreen(r)) {
+                n.getBoundsInScreen(r) // void: isi rect utk efek samping (API lama)
+                if (n.isVisibleToUser) {
                     val w = r.width().toFloat()
                     val h = r.height().toFloat()
                     val cx = r.centerX().toFloat()
@@ -596,9 +597,9 @@ object QuizAnalyzer {
         if (_isAnalyzing.value) return
         scope.launch {
             // Auto-minimize: HUD tidak ikut tertangkap di tangkapan manual
-            val hudWasMin = !com.example.ui.QuizOverlayManager.isMinimized.value
+            val hudWasMin = !com.example.quiz.QuizOverlayManager.isMinimized.value
             if (hudWasMin) {
-                com.example.ui.QuizOverlayManager.minimize()
+                com.example.quiz.QuizOverlayManager.minimize()
                 delay(600)
             }
             try {
@@ -649,7 +650,7 @@ object QuizAnalyzer {
             )
             } finally {
                 // HUD kembali tampil supaya bisa tap Tambah/Kirim berikutnya
-                if (hudWasMin) com.example.ui.QuizOverlayManager.expand()
+                if (hudWasMin) com.example.quiz.QuizOverlayManager.expand()
             }
         }
     }
@@ -864,9 +865,9 @@ object QuizAnalyzer {
 
         // AUTO-MINIMIZE HUD: kartu HUD ikut tertangkap di screenshot & menutupi soal.
         // Minimize (BUKAN tutup) -> tunggu frame stabil -> baru tangkap.
-        val hudKamiMinimize = !com.example.ui.QuizOverlayManager.isMinimized.value
+        val hudKamiMinimize = !com.example.quiz.QuizOverlayManager.isMinimized.value
         if (hudKamiMinimize) {
-            com.example.ui.QuizOverlayManager.minimize()
+            com.example.quiz.QuizOverlayManager.minimize()
             delay(700) // beri waktu animasi minimize & frame layar stabil
         }
 
@@ -1240,7 +1241,7 @@ object QuizAnalyzer {
             // HUD muncul lagi otomatis menampilkan hasil (kecuali Auto Jawab loop
             // sedang berjalan - iterasi berikutnya akan minimize lagi)
             if (hudKamiMinimize && !_autoAnswerLoop.value) {
-                com.example.ui.QuizOverlayManager.expand()
+                com.example.quiz.QuizOverlayManager.expand()
             }
             _isAnalyzing.value = false
         }
