@@ -48,13 +48,20 @@ object AiResponseParser {
             is Number -> c.toFloat().coerceIn(0f, 1f)
             else -> (json.optString("confidence").toDoubleOrNull() ?: 0f).toFloat().coerceIn(0f, 1f)
         }
+        val needsMore = when (val nm = json.opt("needsMore")) {
+            is Boolean -> nm
+            is String -> nm.equals("true", ignoreCase = true)
+            else -> false
+        }
         return QuizAnswerResult(
             question = json.optString("question", "").trim(),
             options = options,
             answer = json.optString("answer", "").trim().uppercase().take(4),
             answerText = json.optString("answerText", "").trim(),
             explanation = json.optString("explanation", "").trim(),
-            confidence = confidence
+            confidence = confidence,
+            needsMore = needsMore,
+            missing = json.optString("missing", "").trim()
         )
     }
 }

@@ -13,7 +13,10 @@ data class QuizAnswerResult(
     val answer: String,
     val answerText: String,
     val explanation: String,
-    val confidence: Float
+    val confidence: Float,
+    /** AI minta lanjutan layar: soal/opsi masih terpotong (multi-capture adaptif). */
+    val needsMore: Boolean = false,
+    val missing: String = ""
 ) {
     /** Soal ISIAN/short-answer: AI tidak menemukan opsi tapi memberi jawaban teks. */
     val isFillIn: Boolean get() = options.isEmpty() && answerText.isNotBlank()

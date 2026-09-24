@@ -47,6 +47,11 @@ object QuizAnalyzer {
         6. Jika soal ISIAN/bukan pilihan ganda (tidak ada opsi): isi "answer" dengan "?",
            dan "answerText" HANYA jawaban akhir sesingkat mungkin (angka + satuan / kata /
            frasa kunci) TANPA kalimat penjelas — jawaban ini akan diketik ke kolom isian.
+        7. SOAL PANJANG/TERPOTONG: bila soal atau opsi terpotong di tepi layar sehingga kamu
+           BELUM BISA menjawab dengan yakin, isi "needsMore": true dan "missing" berisi
+           bagian yang belum terlihat (mis. "opsi C-D" / "akhir pertanyaan"). Sistem akan
+           men-scroll layar dan mengirimkan lanjutan teksnya. Jika sudah terbaca utuh:
+           "needsMore": false dan jawab normal.
     """.trimIndent()
 
     // ---- State untuk overlay ----
@@ -228,107 +233,106 @@ object QuizAnalyzer {
                 }
             }
 
-            // ===== MULTI-CAPTURE: soal/opsi terpotong di bawah layar? =====
-            // Hanya di Analyze MANUAL (auto loop tidak scroll agar layar tidak liar).
-            // Bila baris teks terakhir mepet tepi bawah -> scroll + capture lagi (maks 2x),
-            // gabungkan teks tanpa duplikat, lalu posisi scroll DIKEMBALIKAN ke semula.
-            var extraScrolls = 0
-            var addedTotal = 0
-            val svc = com.example.service.JarvisAccessibilityService.instance
-            if (preCapturedBase64 == null && svc != null && ocrTextFinal.length > 40) {
-                val seen = ocrTextFinal.lines().map { normalizeLine(it) }.filter { it.length >= 2 }.toMutableSet()
-                var combined = ocrTextFinal
-                var boxesNow = ocrBoxes
-                val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
-                while (stitched < 2) {
-                    val maxBottom = boxesNow.maxOfOrNull { it.bottom } ?: 0
-                    if (maxBottom <= (ocrBitmap.height * 0.90).toInt()) break // tidak mepet bawah = sudah utuh
-                    runCatching {
-                        svc.swipeCoordinates(
-                            met.widthPixels / 2f, met.heightPixels * 0.75f,
-                            met.widthPixels / 2f, met.heightPixels * 0.25f, 400
-                        )
-                    }
-                    delay(if (remoteMode) 1200 else 800)
-                    val b64x = ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
-                        ?: break
-                    val bx = decodeSampled(b64x, 1280) ?: break
-                    if (captureIsUniform(bx).first) { bx.recycle(); break }
-                    val boxesX = OcrEngine.recognizeWithBoxes(bx).getOrNull()
-                    if (boxesX == null) { bx.recycle(); break }
-                    var added = 0
-                    for (line in boxesX.map { it.text }) {
-                        val n = normalizeLine(line)
-                        if (n.length < 2) continue
-                        if (!seen.add(n)) continue
-                        if (combined.contains(n, ignoreCase = true)) continue
-                        combined += "\n" + n
-                        added++
-                    }
-                    addedTotal += added
-                    stitched++
-                    boxesNow = boxesX
-                    if (added < 2) break // capture tambahan tak membawa info baru -> berhenti
-                }
-                if (stitched > 0) {
-                    ocrTextFinal = combined
-                    // kembalikan posisi scroll ke atas seperti semula
-                    repeat(stitched) {
-                        runCatching {
-                            svc.swipeCoordinates(
-                                met.widthPixels / 2f, met.heightPixels * 0.25f,
-                                met.widthPixels / 2f, met.heightPixels * 0.75f, 400
-                            )
-                        }
-                        delay(350)
-                    }
-                    DiagnosticLogger.update(
-                        captureDetail = "Multi-scroll: $stitched capture tambahan (+$addedTotal baris baru), posisi dikembalikan"
-                    )
-                }
-            }
-
             val parsed = QuestionParser.parse(ocrTextFinal)
             DiagnosticLogger.update(questionDetected = parsed != null, optionCount = parsed?.options?.size ?: 0)
 
-            // 3. AI (API existing — text + gambar)
+            // 3+4. AI + parse — ADAPTIF: AI sendiri yang mengatur lanjutan layar utk soal
+            // panjang. Bila needsMore=true (soal/opsi terpotong), app scroll + capture +
+            // kirim tambahan teksnya, sampai AI menyatakan lengkap (maks 4 lanjutan).
             _phase.value = QuizPhase.AI
-            val userPrompt = buildString {
-                appendLine("Analisa soal pada screenshot berikut.")
-                if (remoteMode) {
-                    appendLine("Konteks: layar adalah remote desktop PC ($fgPkg). Konten PC tampil di layar HP - baca teks kecil dengan teliti, abaikan UI remote desktop-nya.")
+            var extraScrolls = 0
+            var addedTotal = 0
+            var result: QuizAnswerResult? = null
+            var failReason: String? = null
+            val seen = ocrTextFinal.lines().map { normalizeLine(it) }.filter { it.length >= 2 }.toMutableSet()
+            val svc = com.example.service.JarvisAccessibilityService.instance
+            val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
+            var aiPass = 0
+            while (true) {
+                aiPass++
+                val userPrompt = buildString {
+                    appendLine("Analisa soal pada screenshot berikut.")
+                    if (remoteMode) {
+                        appendLine("Konteks: layar adalah remote desktop PC ($fgPkg). Konten PC tampil di layar HP - baca teks kecil dengan teliti, abaikan UI remote desktop-nya.")
+                    }
+                    if (extraScrolls > 0) {
+                        appendLine("Catatan: OCR diambil dari " + (extraScrolls + 1) + " tangkapan berurutan (layar di-scroll) - duplikat dihapus, urutan baris = urutan baca.")
+                        appendLine("Bila soal & SEMUA opsinya sudah terbaca utuh: jawab normal (needsMore=false). Bila masih terpotong: needsMore=true.")
+                    }
+                    if (parsed != null) {
+                        appendLine("Hasil OCR layar:")
+                        appendLine(ocrTextFinal.take(if (extraScrolls > 0) 4200 else 2800))
+                    } else {
+                        appendLine("OCR mentah (soal mungkin dalam gambar/WebView, parser tidak menemukan opsi):")
+                        appendLine(ocrTextFinal.take(if (extraScrolls > 0) 4200 else 1500))
+                    }
+                    appendLine("Balas HANYA JSON sesuai instruksi sistem.")
                 }
-                if (extraScrolls > 0) {
-                    appendLine("Catatan: OCR diambil dari " + (extraScrolls + 1) + " tangkapan berurutan (layar di-scroll) - duplikat sudah dihapus, urutan baris = urutan baca. Soal bisa lebih panjang dari satu layar; pastikan opsi terakhir terbaca sebelum menjawab.")
+                val (aiText, aiError) = com.example.service.AiChatService.rawCompletion(
+                    systemInstruction = AI_SYSTEM_INSTRUCTION,
+                    prompt = userPrompt,
+                    imageBase64 = b64
+                )
+                if (aiText.isNullOrBlank()) {
+                    DiagnosticLogger.update(aiApi = QuizStepStatus.FAILED, error = aiError ?: "respons kosong")
+                    failReason = aiError ?: "AI tidak mengembalikan jawaban."
+                    break
                 }
-                if (parsed != null) {
-                    appendLine("Hasil OCR layar:")
-                    appendLine(ocrTextFinal.take(if (extraScrolls > 0) 3600 else 2500))
-                } else {
-                    appendLine("OCR mentah (soal mungkin dalam gambar/WebView, parser tidak menemukan opsi):")
-                    appendLine(ocrTextFinal.take(1500))
+                val r = AiResponseParser.toAnswerResult(AiResponseParser.extractJsonBlock(aiText))
+                if (r == null) {
+                    failReason = "Respons AI tidak bisa diparse. Coba Analyze lagi."
+                    break
                 }
-                appendLine("Balas HANYA JSON sesuai instruksi sistem.")
+                result = r
+                // AI minta lanjutan? (hanya Analyze manual; maks 4 tangkapan tambahan)
+                if (!r.needsMore || preCapturedBase64 != null || svc == null || extraScrolls >= 4) break
+                runCatching {
+                    svc.swipeCoordinates(
+                        met.widthPixels / 2f, met.heightPixels * 0.75f,
+                        met.widthPixels / 2f, met.heightPixels * 0.25f, 400
+                    )
+                }
+                delay(if (remoteMode) 1200 else 800)
+                val b64x = ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first ?: break
+                val bx = decodeSampled(b64x, 1280) ?: break
+                if (captureIsUniform(bx).first) { bx.recycle(); break }
+                val boxesX = OcrEngine.recognizeWithBoxes(bx).getOrNull()
+                if (boxesX == null) { bx.recycle(); break }
+                var added = 0
+                for (line in boxesX.map { it.text }) {
+                    val n = normalizeLine(line)
+                    if (n.length < 2) continue
+                    if (!seen.add(n)) continue
+                    ocrTextFinal += "\n" + line.trim()
+                    added++
+                }
+                bx.recycle()
+                extraScrolls++
+                addedTotal += added
+                DiagnosticLogger.update(captureDetail = "AI minta lanjutan (pass " + (aiPass + 1) + "): +" + added + " baris baru")
+                if (added < 2) break // tangkapan baru tak membawa info baru
             }
-            val (aiText, aiError) = com.example.service.AiChatService.rawCompletion(
-                systemInstruction = AI_SYSTEM_INSTRUCTION,
-                prompt = userPrompt,
-                imageBase64 = b64
-            )
-            if (aiText.isNullOrBlank()) {
-                DiagnosticLogger.update(aiApi = QuizStepStatus.FAILED, error = aiError ?: "respons kosong")
-                fail(aiError ?: "AI tidak mengembalikan jawaban.")
+            // kembalikan posisi scroll seperti semula
+            if (extraScrolls > 0) {
+                repeat(extraScrolls) {
+                    runCatching {
+                        svc?.swipeCoordinates(
+                            met.widthPixels / 2f, met.heightPixels * 0.25f,
+                            met.widthPixels / 2f, met.heightPixels * 0.75f, 400
+                        )
+                    }
+                    delay(350)
+                }
+                DiagnosticLogger.update(
+                    captureDetail = "Multi-scroll adaptif: " + extraScrolls + " capture tambahan (+" + addedTotal + " baris), posisi dikembalikan"
+                )
+            }
+            if (result == null) {
+                DiagnosticLogger.update(response = QuizStepStatus.FAILED, error = failReason)
+                fail(failReason ?: "AI tidak mengembalikan jawaban.")
                 return@withContext
             }
             DiagnosticLogger.update(aiApi = QuizStepStatus.OK)
-
-            // 4. PARSE RESPONS
-            val result = AiResponseParser.toAnswerResult(AiResponseParser.extractJsonBlock(aiText))
-            if (result == null) {
-                DiagnosticLogger.update(response = QuizStepStatus.FAILED, error = "Format respons AI tidak valid")
-                fail("Respons AI tidak bisa diparse. Coba Analyze lagi.")
-                return@withContext
-            }
             DiagnosticLogger.update(
                 response = QuizStepStatus.OK,
                 latencyMs = System.currentTimeMillis() - startedAt
