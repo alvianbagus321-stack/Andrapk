@@ -98,6 +98,10 @@ object QuizAnalyzer {
     private val _scrollToTopOnAnalyze = MutableStateFlow(true)
     val scrollToTopOnAnalyze: StateFlow<Boolean> = _scrollToTopOnAnalyze.asStateFlow()
 
+    // FALLBACK sweep: scroll terus dari atas ke bawah sambil menangkap frame
+    private val _sweeping = MutableStateFlow(false)
+    val sweeping: StateFlow<Boolean> = _sweeping.asStateFlow()
+
     // Jumlah jari utk scroll multi-capture: 0=otomatis (2 jari bila remote PC terdeteksi),
     // 1=swipe biasa, 2=dua jari (= roda mouse di app remote PC)
     private val _scrollFingers = MutableStateFlow(0)
@@ -426,6 +430,91 @@ object QuizAnalyzer {
             )
         }
     }
+
+    /**
+     * FALLBACK terakhir: scroll TERUS dari atas ke bawah sambil menangkap frame di
+     * tiap langkah. Berhenti otomatis saat MENTOK (2 langkah berturut tanpa baris baru),
+     * saat batas 12 langkah, atau saat stopSweep() dipanggil (dari user / keputusan AI).
+     * @return Pair(teks gabungan tanpa duplikat, daftar frame base64 utk AI) atau null.
+     */
+    private suspend fun performSweep(): Pair<String, List<String>>? = withContext(Dispatchers.IO) {
+        _sweeping.value = true
+        try {
+            val svc = com.example.service.JarvisAccessibilityService.instance
+                ?: return@withContext null
+            val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
+            val remoteNow = remoteActive()
+            val jari = if (_scrollFingers.value == 0) (if (remoteNow) 2 else 1) else _scrollFingers.value
+            suspend fun swipeTo(y1: Float, y2: Float, d: Long) {
+                runCatching {
+                    if (jari == 2) svc.twoFingerSwipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, d)
+                    else svc.swipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, d)
+                }
+            }
+            // mulai dari PUNCAK halaman
+            repeat(3) {
+                swipeTo(met.heightPixels * 0.35f, met.heightPixels * 0.75f, 350)
+                delay(if (remoteNow) 900 else 500)
+            }
+            val seen = HashSet<String>()
+            val combined = StringBuilder()
+            val frames = ArrayList<String>()
+            val geser = (100 - _scrollOverlapPercent.value.coerceIn(40, 90)) / 100f
+            val yAtas = met.heightPixels * 0.75f
+            val yBawah = yAtas - met.heightPixels * geser
+            var noNew = 0
+            var step = 0
+            while (_sweeping.value && step < 12 && noNew < 2) {
+                val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first ?: break
+                var bmp = decodeSampled(b64, if (remoteNow) 1568 else 1280) ?: break
+                val (uni, lum) = captureIsUniform(bmp)
+                if (uni && lum < 45) { bmp.recycle(); break }
+                bmp = prepRemoteOcr(bmp)
+                val boxes = OcrEngine.recognizeWithBoxes(bmp).getOrNull()
+                bmp.recycle()
+                if (boxes == null) break
+                var added = 0
+                for (line in boxes.map { it.text }) {
+                    val n = normalizeLine(line)
+                    if (n.length < 2) continue
+                    if (seen.add(n)) { combined.append("\n").append(line.trim()); added++ }
+                }
+                if (frames.size < 6) frames.add(b64) // semua frame ikut ke AI (multi-gambar)
+                if (added == 0) noNew++ else noNew = 0
+                step++
+                DiagnosticLogger.update(
+                    captureDetail = "Sweep: " + step + " frame, +" + added + " baris" + (if (noNew >= 1) " (mendekati bawah)" else "")
+                )
+                if (noNew >= 2) break // MENTOK bawah
+                swipeTo(yAtas, yBawah, 400)
+                delay(if (remoteNow) 1500 else 800)
+            }
+            // rapikan: kembali ke puncak
+            repeat(2) {
+                swipeTo(met.heightPixels * 0.35f, met.heightPixels * 0.75f, 350)
+                delay(300)
+            }
+            if (combined.isBlank()) null else Pair(combined.toString(), frames)
+        } finally {
+            _sweeping.value = false
+        }
+    }
+
+    /** Mulai sweep penuh lalu analisis gabungannya (tombol HUD). */
+    fun startSweepAnalyze() {
+        if (_isAnalyzing.value || _sweeping.value) return
+        scope.launch {
+            val swept = performSweep()
+            if (swept == null) {
+                fail("Sweep tidak mendapatkan teks apa pun. Pastikan Accessibility aktif dan layar berisi soal.")
+                return@launch
+            }
+            runAnalysis(manualText = swept.first, manualFrames = swept.second)
+        }
+    }
+
+    /** Hentikan sweep yang sedang berjalan (dari user atau keputusan AI). */
+    fun stopSweep() { _sweeping.value = false }
 
     /** Buang buffer tangkapan manual tanpa mengirim. */
     fun clearManualCaptures() {
@@ -764,6 +853,20 @@ object QuizAnalyzer {
                     captureDetail = "Multi-scroll (" + (if (autoDriven) "otomatis" else "pilihan") + ", overlap " + _scrollOverlapPercent.value + "%): " + extraScrolls + " capture tambahan (+" + addedTotal + " baris), posisi dikembalikan"
                 )
             }
+            // FALLBACK OTOMATIS: hasil tak terdeteksi / AI tidak yakin -> SWEEP penuh
+            // sekali (scroll terus sampai mentok) lalu analisis ulang dgn semua frame.
+            val resCheck = result
+            if ((resCheck == null || resCheck.isUncertain) &&
+                preCapturedBase64 == null && manualText == null && !_sweeping.value && !skipAutoSubmit
+            ) {
+                DiagnosticLogger.update(captureDetail = "Kurang yakin -> fallback SWEEP penuh (scroll sampai mentok)")
+                val swept = performSweep()
+                if (swept != null) {
+                    runAnalysis(manualText = swept.first, manualFrames = swept.second, skipAutoSubmit = skipAutoSubmit)
+                    return@withContext
+                }
+            }
+
             if (result == null) {
                 DiagnosticLogger.update(response = QuizStepStatus.FAILED, error = failReason)
                 fail(failReason ?: "AI tidak mengembalikan jawaban.")

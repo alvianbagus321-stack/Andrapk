@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,6 +63,7 @@ fun QuizOverlayUI() {
     val answerLimitAuto by QuizAnalyzer.answerLimitAuto.collectAsState()
     val answerLimitN by QuizAnalyzer.answerLimitN.collectAsState()
     val scrollFromTop by QuizAnalyzer.scrollToTopOnAnalyze.collectAsState()
+    val sweeping by QuizAnalyzer.sweeping.collectAsState()
     // Status Mode Advance PERSISTEN: dibuka kemarin? hari ini tetap terbuka.
     val showAdvanced by QuizAnalyzer.advancedShown.collectAsState()
 
@@ -488,6 +490,37 @@ fun QuizOverlayUI() {
                 } else {
                     Text("Analyze", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                 }
+            }
+
+            // Fallback sweep: scroll terus dari atas ke bawah sampai mentok; semua frame dianalisis
+            if (sweeping) {
+                Text(
+                    "\u23f9 Stop sweep (sedang memindai...)",
+                    color = Color.Black,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(JarvisRed)
+                        .clickable { QuizAnalyzer.stopSweep() }
+                        .padding(vertical = 7.dp)
+                )
+            } else {
+                Text(
+                    "\u2913 Scan Penuh (scroll sampai mentok)",
+                    color = JarvisTextPrimary,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0x22FFFFFF))
+                        .clickable { QuizAnalyzer.startSweepAnalyze() }
+                        .padding(vertical = 7.dp)
+                )
             }
 
             Spacer(Modifier.height(8.dp))
