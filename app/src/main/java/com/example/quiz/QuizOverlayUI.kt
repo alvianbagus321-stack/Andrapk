@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,6 +52,10 @@ fun QuizOverlayUI() {
     val submitInfo by QuizAnalyzer.submitInfo.collectAsState()
     val diagState by DiagnosticLogger.diagnostic.collectAsState()
     val capturePreview by QuizAnalyzer.capturePreview.collectAsState()
+    val captureModeAuto by QuizAnalyzer.captureModeAuto.collectAsState()
+    val manualExtraCount by QuizAnalyzer.manualExtraCount.collectAsState()
+    val manualCaptures by QuizAnalyzer.manualCaptures.collectAsState()
+    var showAdvanced by remember { mutableStateOf(false) }
 
     if (minimized) {
         // ---- Mode minimize: bulatan kecil ----
@@ -178,6 +183,25 @@ fun QuizOverlayUI() {
                 )
             }
 
+            // MODE ADVANCE: setelan lanjutan disembunyikan agar HUD tetap ringkas
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { showAdvanced = !showAdvanced }
+                    .padding(vertical = 2.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Settings,
+                    contentDescription = null,
+                    tint = JarvisTextSecondary,
+                    modifier = Modifier.size(13.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text("Mode advance", color = JarvisTextSecondary, fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (showAdvanced) " ▲" else " ▼", color = JarvisTextSecondary, fontSize = 10.sp)
+            }
+            if (showAdvanced) {
             // Delay auto analyze: chip preset — TAP SAJA. Field ketik mustahil dipakai di
             // jendela overlay (window FLAG_NOT_FOCUSABLE -> keyboard tidak bisa muncul).
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -230,6 +254,62 @@ fun QuizOverlayUI() {
                 }
             }
 
+            // Multi-capture soal panjang: OTOMATIS (AI atur) atau PILIHAN (user tentukan)
+            Spacer(Modifier.height(6.dp))
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text("Multi-capture soal panjang", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        true to "Otomatis (AI)",
+                        false to "Pilihan"
+                    ).forEach { (v, label) ->
+                        val selected = captureModeAuto == v
+                        Text(
+                            text = label,
+                            color = if (selected) Color.Black else JarvisTextPrimary,
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                .clickable { QuizAnalyzer.setCaptureModeAuto(v) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                if (!captureModeAuto) {
+                    Spacer(Modifier.height(5.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            "-",
+                            color = Color.Black,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(JarvisCyan)
+                                .clickable { QuizAnalyzer.setManualExtraCount(manualExtraCount - 1) }
+                                .padding(horizontal = 12.dp, vertical = 2.dp)
+                        )
+                        Text("x" + manualExtraCount + " capture tambahan", color = JarvisCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "+",
+                            color = Color.Black,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Black,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(JarvisCyan)
+                                .clickable { QuizAnalyzer.setManualExtraCount(manualExtraCount + 1) }
+                                .padding(horizontal = 10.dp, vertical = 2.dp)
+                        )
+                        Text("(1-4, scroll overlap 70%)", color = JarvisTextSecondary, fontSize = 9.sp)
+                    }
+                }
+            }
+            } // akhir mode advance
+
             Spacer(Modifier.height(6.dp))
 
             // Tombol Analyze
@@ -249,6 +329,36 @@ fun QuizOverlayUI() {
             }
 
             Spacer(Modifier.height(8.dp))
+
+            // Tangkapan manual utk AI: tap 📷 sebanyak apa pun (scroll manual di antaranya),
+            // lalu Kirim = analisis gabungan semua tangkapan
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { QuizAnalyzer.addManualCapture() },
+                    enabled = !isAnalyzing,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A3348), contentColor = JarvisTextPrimary),
+                    modifier = Modifier.weight(1f).height(30.dp)
+                ) {
+                    Text("\ud83d\udcf7 Tambah (" + manualCaptures + ")", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                }
+                Button(
+                    onClick = { QuizAnalyzer.sendManualCaptures() },
+                    enabled = manualCaptures > 0 && !isAnalyzing,
+                    colors = ButtonDefaults.buttonColors(containerColor = JarvisEmerald, contentColor = Color.Black),
+                    modifier = Modifier.weight(1f).height(30.dp)
+                ) {
+                    Text("Kirim ke AI", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Text(
+                "\ud83d\udcf7 = simpan layar sekarang (scroll dulu bila perlu); Kirim = analisis gabungan",
+                color = JarvisTextSecondary,
+                fontSize = 9.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(Modifier.height(6.dp))
 
             // Hasil jawaban
             val result = answer

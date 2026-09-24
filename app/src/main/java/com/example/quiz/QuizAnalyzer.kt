@@ -76,6 +76,22 @@ object QuizAnalyzer {
     private val _submitInfo = MutableStateFlow<String?>(null)
     val submitInfo: StateFlow<String?> = _submitInfo.asStateFlow()
 
+    // Mode multi-capture soal panjang: true=OTOMATIS (AI atur), false=PILIHAN (user atur)
+    private val _captureModeAuto = MutableStateFlow(true)
+    val captureModeAuto: StateFlow<Boolean> = _captureModeAuto.asStateFlow()
+
+    // Mode PILIHAN: jumlah scroll+capture tambahan (1-4) sebelum dikirim ke AI
+    private val _manualExtraCount = MutableStateFlow(2)
+    val manualExtraCount: StateFlow<Int> = _manualExtraCount.asStateFlow()
+
+    // Tangkapan manual utk AI: user tap 📷 sebanyak apa pun lalu Kirim
+    private val _manualCaptures = MutableStateFlow(0)
+    val manualCaptures: StateFlow<Int> = _manualCaptures.asStateFlow()
+    private val manualLock = Any()
+    private val manualSeen = LinkedHashSet<String>()
+    private var manualBufferText = ""
+    private var manualB64Last: String? = null
+
     private val _lastError = MutableStateFlow<String?>(null)
     val lastError: StateFlow<String?> = _lastError.asStateFlow()
 
@@ -103,10 +119,80 @@ object QuizAnalyzer {
 
     fun loadPersisted() {
         _autoSubmit.value = submitPrefs.getBoolean("quiz_auto_submit", false)
+        _captureModeAuto.value = submitPrefs.getBoolean("quiz_capture_auto", true)
+        _manualExtraCount.value = submitPrefs.getInt("quiz_manual_extra", 2).coerceIn(1, 4)
     }
 
     fun setDelayMs(ms: Long) {
         _delayMs.value = ms.coerceIn(300L, 10_000L)
+    }
+
+    fun setCaptureModeAuto(auto: Boolean) {
+        _captureModeAuto.value = auto
+        submitPrefs.edit().putBoolean("quiz_capture_auto", auto).apply()
+    }
+
+    fun setManualExtraCount(n: Int) {
+        _manualExtraCount.value = n.coerceIn(1, 4)
+        submitPrefs.edit().putInt("quiz_manual_extra", _manualExtraCount.value).apply()
+    }
+
+    /**
+     * Mode tangkapan MANUAL: user tap 📷 = simpan OCR layar SEKARANG ke buffer
+     * (scroll manual sendiri di antara tap). Dedup otomatis: baris yang sama
+     * tidak ditambah dua kali. Lalu "Kirim" menggabungkan semuanya utk AI.
+     */
+    fun addManualCapture() {
+        if (_isAnalyzing.value) return
+        scope.launch {
+            val b64 = ScreenshotManager.captureBase64(JarvisApp.instance).first ?: return@launch
+            val bmp = decodeSampled(b64, 1280) ?: return@launch
+            if (captureIsUniform(bmp).first) { bmp.recycle(); return@launch }
+            val boxes = OcrEngine.recognizeWithBoxes(bmp).getOrNull()
+            bmp.recycle()
+            if (boxes == null) return@launch
+            var added = 0
+            synchronized(manualLock) {
+                if (_manualCaptures.value == 0) { manualSeen.clear(); manualBufferText = "" }
+                for (line in boxes.map { it.text }) {
+                    val n = normalizeLine(line)
+                    if (n.length < 2) continue
+                    if (!manualSeen.add(n)) continue
+                    manualBufferText += "\n" + line.trim()
+                    added++
+                }
+                manualB64Last = b64
+                _manualCaptures.value = _manualCaptures.value + 1
+            }
+            DiagnosticLogger.update(
+                captureDetail = "\ud83d\udcf7 tangkapan ke-" + _manualCaptures.value + " tersimpan (+" + added + " baris baru) - tap Kirim bila sudah"
+            )
+        }
+    }
+
+    /** Kirim semua tangkapan manual (gabungan OCR) ke AI untuk dianalisis. */
+    fun sendManualCaptures() {
+        if (_isAnalyzing.value) return
+        val pair = synchronized(manualLock) {
+            val t = Pair(manualBufferText, manualB64Last)
+            manualBufferText = ""
+            manualB64Last = null
+            manualSeen.clear()
+            _manualCaptures.value = 0
+            t
+        }
+        if (pair.first.isBlank()) return
+        scope.launch { runAnalysis(manualText = pair.first, manualB64 = pair.second) }
+    }
+
+    /** Buang buffer tangkapan manual tanpa mengirim. */
+    fun clearManualCaptures() {
+        synchronized(manualLock) {
+            manualBufferText = ""
+            manualB64Last = null
+            manualSeen.clear()
+            _manualCaptures.value = 0
+        }
     }
 
     fun setAuto(enabled: Boolean) {
@@ -123,7 +209,11 @@ object QuizAnalyzer {
         scope.launch { runAnalysis(preCapturedBase64) }
     }
 
-    private suspend fun runAnalysis(preCapturedBase64: String?): Unit = withContext(Dispatchers.IO) {
+    private suspend fun runAnalysis(
+        preCapturedBase64: String? = null,
+        manualText: String? = null,
+        manualB64: String? = null
+    ): Unit = withContext(Dispatchers.IO) {
         _isAnalyzing.value = true
         _lastError.value = null
         DiagnosticLogger.reset()
@@ -145,7 +235,7 @@ object QuizAnalyzer {
                 if (capTrace.isNotEmpty()) capTrace.append("; ")
                 capTrace.append(s)
             }
-            var b64 = preCapturedBase64 ?: ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
+            var b64 = preCapturedBase64 ?: manualB64 ?: ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
             if (b64 == null) {
                 DiagnosticLogger.update(capture = QuizStepStatus.FAILED, error = "Izin Screen Capture belum diberikan / screenshot gagal")
                 fail("Izin Screen Capture belum aktif. Buka app JARVIS dan izinkan 'Screen Capture' (yang dipakai untuk screenshot), lalu Analyze lagi.")
@@ -233,13 +323,22 @@ object QuizAnalyzer {
                 }
             }
 
+            if (manualText != null) {
+                ocrTextFinal = manualText
+                DiagnosticLogger.update(captureDetail = "Kirim manual: gabungan tangkapan user dianalisis")
+            }
+
             val parsed = QuestionParser.parse(ocrTextFinal)
             DiagnosticLogger.update(questionDetected = parsed != null, optionCount = parsed?.options?.size ?: 0)
 
-            // 3+4. AI + parse — ADAPTIF: AI sendiri yang mengatur lanjutan layar utk soal
-            // panjang. Bila needsMore=true (soal/opsi terpotong), app scroll + capture +
-            // kirim tambahan teksnya, sampai AI menyatakan lengkap (maks 4 lanjutan).
+            // 3+4. AI + parse — multi-capture dua mode:
+            //   OTOMATIS: AI minta lanjutan via needsMore sampai soal lengkap (maks 4).
+            //   PILIHAN : jumlah scroll+capture tambahan ditentukan user (1-4) di HUD.
+            // Scroll overlap ~70% (geser 30% tinggi layar per langkah) agar tidak ada
+            // bagian soal yang terlewat di antara dua tangkapan berurutan.
             _phase.value = QuizPhase.AI
+            val autoDriven = _captureModeAuto.value
+            val maxExtras = if (autoDriven) 4 else _manualExtraCount.value
             var extraScrolls = 0
             var addedTotal = 0
             var result: QuizAnswerResult? = null
@@ -247,6 +346,43 @@ object QuizAnalyzer {
             val seen = ocrTextFinal.lines().map { normalizeLine(it) }.filter { it.length >= 2 }.toMutableSet()
             val svc = com.example.service.JarvisAccessibilityService.instance
             val met = ScreenshotManager.getScreenMetrics(JarvisApp.instance)
+
+            suspend fun scrollCaptureMerge(): Int {
+                if (svc == null) return -1
+                runCatching {
+                    svc.swipeCoordinates(
+                        met.widthPixels / 2f, met.heightPixels * 0.75f,
+                        met.widthPixels / 2f, met.heightPixels * 0.45f, 400
+                    )
+                }
+                delay(if (remoteMode) 1200 else 800)
+                val b64x = ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first ?: return -1
+                val bx = decodeSampled(b64x, 1280) ?: return -1
+                if (captureIsUniform(bx).first) { bx.recycle(); return -1 }
+                val boxesX = OcrEngine.recognizeWithBoxes(bx).getOrNull()
+                if (boxesX == null) { bx.recycle(); return -1 }
+                var added = 0
+                for (line in boxesX.map { it.text }) {
+                    val n = normalizeLine(line)
+                    if (n.length < 2) continue
+                    if (!seen.add(n)) continue
+                    ocrTextFinal += "\n" + line.trim()
+                    added++
+                }
+                bx.recycle()
+                return added
+            }
+
+            // Mode PILIHAN: lakukan semua scroll+capture dulu (tanpa AI), lalu 1x panggil AI.
+            if (!autoDriven && preCapturedBase64 == null && manualText == null) {
+                repeat(_manualExtraCount.value) {
+                    val added = scrollCaptureMerge()
+                    if (added < 0) return@repeat
+                    extraScrolls++
+                    addedTotal += added
+                }
+            }
+
             var aiPass = 0
             while (true) {
                 aiPass++
@@ -256,8 +392,13 @@ object QuizAnalyzer {
                         appendLine("Konteks: layar adalah remote desktop PC ($fgPkg). Konten PC tampil di layar HP - baca teks kecil dengan teliti, abaikan UI remote desktop-nya.")
                     }
                     if (extraScrolls > 0) {
-                        appendLine("Catatan: OCR diambil dari " + (extraScrolls + 1) + " tangkapan berurutan (layar di-scroll) - duplikat dihapus, urutan baris = urutan baca.")
-                        appendLine("Bila soal & SEMUA opsinya sudah terbaca utuh: jawab normal (needsMore=false). Bila masih terpotong: needsMore=true.")
+                        appendLine("Catatan: OCR diambil dari " + (extraScrolls + 1) + " tangkapan berurutan (layar di-scroll, saling tumpang-tindih) - duplikat dihapus, urutan baris = urutan baca.")
+                        if (autoDriven) {
+                            appendLine("Bila soal & SEMUA opsinya sudah terbaca utuh: jawab normal (needsMore=false). Bila masih terpotong: needsMore=true.")
+                        }
+                    }
+                    if (manualText != null) {
+                        appendLine("Catatan: teks OCR ini gabungan beberapa tangkapan yang dipilih pengguna - analisis sebagai satu soal utuh.")
                     }
                     if (parsed != null) {
                         appendLine("Hasil OCR layar:")
@@ -284,47 +425,29 @@ object QuizAnalyzer {
                     break
                 }
                 result = r
-                // AI minta lanjutan? (hanya Analyze manual; maks 4 tangkapan tambahan)
-                if (!r.needsMore || preCapturedBase64 != null || svc == null || extraScrolls >= 4) break
-                runCatching {
-                    svc.swipeCoordinates(
-                        met.widthPixels / 2f, met.heightPixels * 0.75f,
-                        met.widthPixels / 2f, met.heightPixels * 0.25f, 400
-                    )
-                }
-                delay(if (remoteMode) 1200 else 800)
-                val b64x = ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first ?: break
-                val bx = decodeSampled(b64x, 1280) ?: break
-                if (captureIsUniform(bx).first) { bx.recycle(); break }
-                val boxesX = OcrEngine.recognizeWithBoxes(bx).getOrNull()
-                if (boxesX == null) { bx.recycle(); break }
-                var added = 0
-                for (line in boxesX.map { it.text }) {
-                    val n = normalizeLine(line)
-                    if (n.length < 2) continue
-                    if (!seen.add(n)) continue
-                    ocrTextFinal += "\n" + line.trim()
-                    added++
-                }
-                bx.recycle()
+                // Lanjutan otomatis hanya di mode OTOMATIS & Analyze manual biasa;
+                // di mode PILIHAN jumlahnya sudah ditentukan user di atas.
+                if (!r.needsMore || !autoDriven || preCapturedBase64 != null || manualText != null || extraScrolls >= maxExtras) break
+                val added = scrollCaptureMerge()
+                if (added < 0) break
                 extraScrolls++
                 addedTotal += added
                 DiagnosticLogger.update(captureDetail = "AI minta lanjutan (pass " + (aiPass + 1) + "): +" + added + " baris baru")
                 if (added < 2) break // tangkapan baru tak membawa info baru
             }
-            // kembalikan posisi scroll seperti semula
-            if (extraScrolls > 0) {
+            // kembalikan posisi scroll (kebalikan arah, jarak sama dgn yang digeser)
+            if (extraScrolls > 0 && svc != null) {
                 repeat(extraScrolls) {
                     runCatching {
-                        svc?.swipeCoordinates(
-                            met.widthPixels / 2f, met.heightPixels * 0.25f,
+                        svc.swipeCoordinates(
+                            met.widthPixels / 2f, met.heightPixels * 0.45f,
                             met.widthPixels / 2f, met.heightPixels * 0.75f, 400
                         )
                     }
                     delay(350)
                 }
                 DiagnosticLogger.update(
-                    captureDetail = "Multi-scroll adaptif: " + extraScrolls + " capture tambahan (+" + addedTotal + " baris), posisi dikembalikan"
+                    captureDetail = "Multi-scroll (" + (if (autoDriven) "otomatis" else "pilihan") + "): " + extraScrolls + " capture tambahan (+" + addedTotal + " baris), posisi dikembalikan"
                 )
             }
             if (result == null) {
