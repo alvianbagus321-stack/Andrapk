@@ -913,11 +913,38 @@ object QuizAnalyzer {
         // SOP langkah 1: balik ke puncak dulu SAMPAI BENAR-BENAR MENTOK (swipe+cek
         // siklus) agar soal mulai dari baris pertamanya — mencegah menjawab dari
         // soal yang setengah tampil.
+        // PRE-LOAD CERDAS: tangkap 1 frame dulu utk DINILAI. Bila soal+opsi sudah
+        // utuh di layar -> analisis LANGSUNG memakai frame itu (nol scroll, nol
+        // delay). Scroll-ke-atas hanya jalan bila konten tampak terpotong/kosong —
+        // keputusan berbasis bukti, bukan rutinitas tiap Analyze.
+        var preCheckB64: String? = null
+        var kontenSiap = false
         if (preCapturedBase64 == null && manualText == null &&
             _scrollToTopOnAnalyze.value && _proMode.value
         ) {
-            val c = scrollToTopUntilStuck()
-            if (c > 0) capTraceFun2Mark()
+            runCatching {
+                val b0 = ScreenshotManager.captureBase64(JarvisApp.instance).first
+                if (b0 != null) {
+                    val bmp = decodeSampled(b0, 1280)
+                    if (bmp != null) {
+                        val t = com.example.quiz.OcrEngine.recognize(bmp).getOrNull() ?: ""
+                        bmp.recycle()
+                        val opsi = Regex("(?m)^\\s*[A-E][\\).:]\\s*\\S").findAll(t).count()
+                        val baris = t.split("\n").count { it.trim().length >= 3 }
+                        if (opsi >= 3 && baris >= 6) {
+                            preCheckB64 = b0
+                            kontenSiap = true
+                            DiagnosticLogger.update(
+                                captureDetail = "\u26a1 Konten sudah utuh di layar - analisis LANGSUNG (nol scroll, hemat beberapa detik)"
+                            )
+                            return@runCatching
+                        }
+                    }
+                }
+                preCheckB64 = null
+                val c = scrollToTopUntilStuck()
+                if (c > 0) capTraceFun2Mark()
+            }
         }
         var ocrBitmap: Bitmap? = null
 
@@ -936,7 +963,9 @@ object QuizAnalyzer {
                 if (capTrace.isNotEmpty()) capTrace.append("; ")
                 capTrace.append(s)
             }
-            var b64 = preCapturedBase64 ?: manualFrames?.firstOrNull() ?: ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
+            var b64 = preCapturedBase64 ?: manualFrames?.firstOrNull()
+                ?: (if (kontenSiap) preCheckB64 else null)
+                ?: ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first
             if (b64 == null) {
                 DiagnosticLogger.update(capture = QuizStepStatus.FAILED, error = "Izin Screen Capture belum diberikan / screenshot gagal")
                 fail("Izin Screen Capture belum aktif. Buka app JARVIS dan izinkan 'Screen Capture' (yang dipakai untuk screenshot), lalu Analyze lagi.")
@@ -1429,11 +1458,11 @@ object QuizAnalyzer {
      * Payload screenshot penuh sangat berat (jutaan byte base64) -> upload lambat
      * di jaringan HP -> AI terlihat "tidak merespons". Kualitas soal tetap terbaca.
      */
-    private fun compressForAi(base64: String, maxDim: Int = 1024): String {
+    private fun compressForAi(base64: String, maxDim: Int = 1280): String {
         return runCatching {
             val bmp = decodeSampled(base64, maxDim) ?: return base64
             val out = java.io.ByteArrayOutputStream()
-            bmp.compress(Bitmap.CompressFormat.JPEG, 72, out)
+            bmp.compress(Bitmap.CompressFormat.JPEG, 80, out)
             Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
         }.getOrDefault(base64)
     }
