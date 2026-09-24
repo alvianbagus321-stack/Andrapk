@@ -99,6 +99,10 @@ object QuizAnalyzer {
     private val _scrollToTopOnAnalyze = MutableStateFlow(true)
     val scrollToTopOnAnalyze: StateFlow<Boolean> = _scrollToTopOnAnalyze.asStateFlow()
 
+    // Auto-sweep bila hasil kurang yakin (fallback otomatis) — toggleable
+    private val _autoSweep = MutableStateFlow(false)
+    val autoSweep: StateFlow<Boolean> = _autoSweep.asStateFlow()
+
     // FALLBACK sweep: scroll terus dari atas ke bawah sambil menangkap frame
     private val _sweeping = MutableStateFlow(false)
     val sweeping: StateFlow<Boolean> = _sweeping.asStateFlow()
@@ -164,6 +168,7 @@ object QuizAnalyzer {
         _answerLimitAuto.value = submitPrefs.getBoolean("quiz_answer_limit_auto", true)
         _answerLimitN.value = submitPrefs.getInt("quiz_answer_limit_n", 5).coerceIn(1, 100)
         _scrollToTopOnAnalyze.value = submitPrefs.getBoolean("quiz_scroll_to_top", true)
+        _autoSweep.value = submitPrefs.getBoolean("quiz_auto_sweep", false)
         // autoAnswerLoop SENGAJA tidak dimuat: loop ketuk otomatis tak boleh hidup sendiri saat app restart
     }
 
@@ -195,6 +200,11 @@ object QuizAnalyzer {
     fun setScrollToTopOnAnalyze(v: Boolean) {
         _scrollToTopOnAnalyze.value = v
         submitPrefs.edit().putBoolean("quiz_scroll_to_top", v).apply()
+    }
+
+    fun setAutoSweep(v: Boolean) {
+        _autoSweep.value = v
+        submitPrefs.edit().putBoolean("quiz_auto_sweep", v).apply()
     }
 
     fun setScrollFingers(n: Int) {
@@ -939,7 +949,7 @@ object QuizAnalyzer {
             // FALLBACK OTOMATIS: hasil tak terdeteksi / AI tidak yakin -> SWEEP penuh
             // sekali (scroll terus sampai mentok) lalu analisis ulang dgn semua frame.
             val resCheck = result
-            if ((resCheck == null || resCheck.isUncertain) &&
+            if ((resCheck == null || resCheck.isUncertain) && _autoSweep.value &&
                 preCapturedBase64 == null && manualText == null && !_sweeping.value && !skipAutoSubmit
             ) {
                 DiagnosticLogger.update(captureDetail = "Kurang yakin -> fallback SWEEP penuh (scroll sampai mentok)")

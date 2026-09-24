@@ -63,6 +63,7 @@ fun QuizOverlayUI() {
     val answerLimitAuto by QuizAnalyzer.answerLimitAuto.collectAsState()
     val answerLimitN by QuizAnalyzer.answerLimitN.collectAsState()
     val scrollFromTop by QuizAnalyzer.scrollToTopOnAnalyze.collectAsState()
+    val autoSweepOn by QuizAnalyzer.autoSweep.collectAsState()
     val sweeping by QuizAnalyzer.sweeping.collectAsState()
     // Status Mode Advance PERSISTEN: dibuka kemarin? hari ini tetap terbuka.
     val showAdvanced by QuizAnalyzer.advancedShown.collectAsState()
@@ -397,12 +398,12 @@ fun QuizOverlayUI() {
 
                 // SOP langkah 1: mulai dari atas saat Analyze
                 Spacer(Modifier.height(6.dp))
-                Text("Mulai dari atas saat Analyze", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                Text("Scroll otomatis saat Analyze", color = JarvisTextPrimary, fontSize = 11.5.sp)
                 Spacer(Modifier.height(4.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(
-                        true to "Ya (aman)",
-                        false to "Tidak"
+                        true to "Mulai dari atas (lambat, aman)",
+                        false to "Tanpa scroll (cepat)"
                     ).forEach { (v, label) ->
                         val selected = scrollFromTop == v
                         Text(
@@ -414,6 +415,26 @@ fun QuizOverlayUI() {
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
                                 .clickable { QuizAnalyzer.setScrollToTopOnAnalyze(v) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(5.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        true to "Auto Scan Penuh bila tak yakin (lambat)",
+                        false to "Tanpa auto Scan Penuh (cepat)"
+                    ).forEach { (v, label) ->
+                        val selected = autoSweepOn == v
+                        Text(
+                            text = label,
+                            color = if (selected) Color.Black else JarvisTextPrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                .clickable { QuizAnalyzer.setAutoSweep(v) }
                                 .padding(horizontal = 8.dp, vertical = 6.dp)
                         )
                     }
