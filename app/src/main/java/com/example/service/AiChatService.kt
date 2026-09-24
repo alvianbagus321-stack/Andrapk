@@ -143,6 +143,7 @@ object AiChatService {
             3. VERIFIKASI setelah setiap aksi penting: wait_for_element (teks yang diharapkan muncul), get_current_app / dumpsys_window (app target di depan), atau diff_screen (bandingkan before/after: panggil sebelum aksi utk baseline lalu setelah aksi).
             4. Jika aksi tampak gagal (diff_screen bilang tidak berubah, tap meleset), RETRY MAKSIMAL 2x dengan pendekatan BERBEDA (koordinat → tap_by_text → accessibility_click), lalu laporkan ke user bila tetap gagal.
             5. Untuk list panjang pakai scroll_to_text (bukan swipe buta berulang); tunggu layar selesai loading dengan wait_stable sebelum screenshot/read_screen; baca layar padat dengan read_screen + {"filter_clickable": true} agar hanya tombol yang tampil.
+            6. EFISIENSI BERPIKIR (WAJIB): Alasanmu SINGKAT dan TEGAS. Hitung/verifikasi MAKSIMAL dua kali lalu PUTUSKAN. Jika hasil tidak persis cocok dengan opsi yang tersedia, pilih yang TERDEKAT dan sebutkan ketidakpastiannya — DILARANG mengulang perhitungan yang sama berulang-ulang (membuang waktu, membesarkan payload, dan memicu timeout).
 
             ARSITEKTUR TOOL (3-LAYER MODULAR REGISTRY):
             1. Android & Accessibility Layer:
@@ -270,7 +271,7 @@ object AiChatService {
             val stepLabel = if (isUnlimited) "Langkah $currentStep (Mode Otomatis)" else "Langkah $currentStep/$maxSteps"
             onStatusUpdate("$stepLabel: Menganalisa & merencanakan aksi...")
 
-            val (rawResponse, nativeThought) = if (isGemini) {
+            suspend fun callModelOnce(): Pair<String, String?> = if (isGemini) {
                 callGeminiRest(
                     cleanBaseUrl, cleanModel, cleanKey, systemInstruction, loopHistory, currentPrompt,
                     imageBase64 = activeStepImageBase64,
@@ -278,6 +279,18 @@ object AiChatService {
                 )
             } else {
                 Pair(callOpenAiRest(cleanBaseUrl, cleanModel, cleanKey, systemInstruction, loopHistory, currentPrompt), null)
+            }
+            var (rawResponse, nativeThought) = callModelOnce()
+            // RETRY KONEKSI OTOMATIS: payload berat (gambar+riwayat) kadang timeout
+            // SEKALI jalan walau API sehat — coba ulang sekali sebelum menyerah.
+            if (rawResponse.startsWith("Koneksi gagal") || rawResponse.startsWith("Gagal menghubungi")) {
+                onStatusUpdate("$stepLabel: Koneksi gagal sekali - mencoba ulang otomatis...")
+                kotlinx.coroutines.delay(1500L)
+                val retryPair = callModelOnce()
+                if (!(retryPair.first.startsWith("Koneksi gagal") || retryPair.first.startsWith("Gagal menghubungi"))) {
+                    rawResponse = retryPair.first
+                    nativeThought = retryPair.second
+                }
             }
 
             // Clear image after single-use step unless updated by screenshot tool result
@@ -300,7 +313,10 @@ object AiChatService {
             val parsedActions = extractActionJsonList(textWithoutThought)
 
             if (parsedActions.isNotEmpty()) {
-                loopHistory.add("assistant" to textWithoutThought)
+                loopHistory.add("assistant" to textWithoutThought.take(2500))
+                // Riwayat ramping: simpan maks 6 giliran terakhir — payload yang
+                // membengkak membuat koneksi mudah gagal/timeout di jaringan HP
+                while (loopHistory.size > 6) loopHistory.removeAt(0)
 
                 val turnResultBlocks = mutableListOf<String>()
                 val turnExecutedCount = mutableListOf<Pair<String, ToolResult>>()
@@ -384,7 +400,8 @@ object AiChatService {
                     val briefResult = if (resultOutputStr.length > 300) resultOutputStr.take(300) + "..." else resultOutputStr
                     stepSummary.add("$stepLabel: $toolName → ${executionResult.status.uppercase()}: $briefResult")
 
-                    turnResultBlocks.add("Aksi ${actionIdx + 1} — Tool: $toolName\nStatus: ${executionResult.status}\nOutput:\n$resultOutputStr")
+                    val outCapped = if (resultOutputStr.length > 2500) resultOutputStr.take(2500) + "\n...(dipotong)" else resultOutputStr
+                    turnResultBlocks.add("Aksi ${actionIdx + 1} — Tool: $toolName\nStatus: ${executionResult.status}\nOutput:\n$outCapped")
                     screenAnalysisText?.let { turnResultBlocks.add(it) }
 
                     // Natural delay for UI transitions (e.g. app launching or layout animations)
