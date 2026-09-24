@@ -282,6 +282,80 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
             }
         }
 
+        // HELP: Termux-ADB (Pengganti Shizuku) — panduan pemasangan lengkap
+        item {
+            var expanded by remember { mutableStateOf(false) }
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisEmerald.copy(alpha = 0.5f)))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.HelpOutline, contentDescription = null, tint = JarvisEmerald, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("HELP: PASANG TERMUX-ADB", color = JarvisEmerald, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                            Text("Pengganti Shizuku — shell level ADB tanpa root (keyevent, screencap, uiautomator)", color = JarvisTextSecondary, fontSize = 10.sp)
+                        }
+                        Text(if (expanded) "▲" else "▼", color = JarvisTextSecondary, fontSize = 12.sp)
+                    }
+                    if (expanded) {
+                        Text(
+                            "Kenapa? Bila Shizuku tidak jalan, Termux+ADB memberi kemampuan yang sama: " +
+                                "gulir PC via StarDesk (keyevent), screenshot tahan FLAG_SECURE, uiautomator dump, pm grant.",
+                            color = JarvisTextSecondary, fontSize = 10.5.sp
+                        )
+                        StepItem(
+                            "1",
+                            "Install Termux dari F-Droid (bukan Play Store)",
+                            "https://f-droid.org/packages/com.termux/",
+                            onCopy = { copyToClipboard(context, "fdroid", "https://f-droid.org/packages/com.termux/") }
+                        )
+                        StepItem(
+                            "2",
+                            "Buka Termux sekali, lalu jalankan setup otomatis (tempel 1 baris):",
+                            "curl -fsSL https://raw.githubusercontent.com/alvianbagus321-stack/Andrapk/arena/01a0bc3e-andrapk/termux/setup_adb.sh -o setup_adb.sh && bash setup_adb.sh",
+                            onCopy = {
+                                copyToClipboard(
+                                    context,
+                                    "setup_adb",
+                                    "curl -fsSL https://raw.githubusercontent.com/alvianbagus321-stack/Andrapk/arena/01a0bc3e-andrapk/termux/setup_adb.sh -o setup_adb.sh && bash setup_adb.sh"
+                                )
+                            }
+                        )
+                        StepItem(
+                            "3",
+                            "Setelan HP: Opsi developer > Wireless debugging > ON",
+                            "Lalu di menu script: pilih [1] Pairing (isi port + kode 6 digit) atau [2] Connect (port utama)",
+                            onCopy = { }
+                        )
+                        StepItem(
+                            "4",
+                            "Kalau nanti port berubah (reboot/toggle) atau koneksi putus:",
+                            "jad reconnect     (lihat port baru di layar Wireless debugging)",
+                            onCopy = { copyToClipboard(context, "reconnect", "jad reconnect") }
+                        )
+                        StepItem(
+                            "5",
+                            "Tes: harus muncul device (bukan offline):",
+                            "jad status     |     tes gulir: jad key 93     (PageDown)",
+                            onCopy = { copyToClipboard(context, "status", "jad status") }
+                        )
+                        Text(
+                            "PENTING: jaga Termux tetap hidup (jangan di-swipe dari recents) — koneksi ADB ikut mati kalau Termux mati. " +
+                                "Script sudah mengaktifkan wake-lock + allow-external-apps otomatis. " +
+                                "Selesai: buka app lagi > Quiz > tombol gulir hijau (PageUp/Dn) atau minta AI pakai tool adb_shell.",
+                            color = JarvisAmber, fontSize = 10.5.sp
+                        )
+                    }
+                }
+            }
+        }
+
         // MCP Bridge Setup Card
         item {
             Card(
