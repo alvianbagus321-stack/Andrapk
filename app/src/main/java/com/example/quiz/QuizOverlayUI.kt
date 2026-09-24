@@ -56,6 +56,7 @@ fun QuizOverlayUI() {
     val manualExtraCount by QuizAnalyzer.manualExtraCount.collectAsState()
     val manualCaptures by QuizAnalyzer.manualCaptures.collectAsState()
     val scrollOverlap by QuizAnalyzer.scrollOverlapPercent.collectAsState()
+    val scrollFingers by QuizAnalyzer.scrollFingers.collectAsState()
     // Status Mode Advance PERSISTEN: dibuka kemarin? hari ini tetap terbuka.
     val showAdvanced by QuizAnalyzer.advancedShown.collectAsState()
 
@@ -336,6 +337,36 @@ fun QuizOverlayUI() {
                     )
                     Text("geser " + (100 - scrollOverlap) + "% layar/langkah (40-90%)", color = JarvisTextSecondary, fontSize = 9.sp)
                 }
+                Spacer(Modifier.height(5.dp))
+                Text("Gulir saat multi-capture", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(
+                        0 to "Otomatis",
+                        1 to "1 jari",
+                        2 to "2 jari (roda mouse)"
+                    ).forEach { (v, label) ->
+                        val selected = scrollFingers == v
+                        Text(
+                            text = label,
+                            color = if (selected) Color.Black else JarvisTextPrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                .clickable { QuizAnalyzer.setScrollFingers(v) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+                Text(
+                    "2 jari = roda mouse di remote PC (StarDesk dll). Otomatis = 2 jari saat remote terdeteksi",
+                    color = JarvisTextSecondary,
+                    fontSize = 9.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
             } // akhir mode advance
 

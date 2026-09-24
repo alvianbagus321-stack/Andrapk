@@ -93,6 +93,11 @@ object QuizAnalyzer {
     private val _advancedShown = MutableStateFlow(false)
     val advancedShown: StateFlow<Boolean> = _advancedShown.asStateFlow()
 
+    // Jumlah jari utk scroll multi-capture: 0=otomatis (2 jari bila remote PC terdeteksi),
+    // 1=swipe biasa, 2=dua jari (= roda mouse di app remote PC)
+    private val _scrollFingers = MutableStateFlow(0)
+    val scrollFingers: StateFlow<Int> = _scrollFingers.asStateFlow()
+
     // Tangkapan manual utk AI: user tap 📷 sebanyak apa pun lalu Kirim
     private val _manualCaptures = MutableStateFlow(0)
     val manualCaptures: StateFlow<Int> = _manualCaptures.asStateFlow()
@@ -132,6 +137,7 @@ object QuizAnalyzer {
         _manualExtraCount.value = submitPrefs.getInt("quiz_manual_extra", 2).coerceIn(1, 4)
         _scrollOverlapPercent.value = submitPrefs.getInt("quiz_scroll_overlap", 70).coerceIn(40, 90)
         _advancedShown.value = submitPrefs.getBoolean("quiz_advance_shown", false)
+        _scrollFingers.value = submitPrefs.getInt("quiz_scroll_fingers", 0).coerceIn(0, 2)
     }
 
     fun setDelayMs(ms: Long) {
@@ -157,6 +163,11 @@ object QuizAnalyzer {
     fun setAdvancedShown(shown: Boolean) {
         _advancedShown.value = shown
         submitPrefs.edit().putBoolean("quiz_advance_shown", shown).apply()
+    }
+
+    fun setScrollFingers(n: Int) {
+        _scrollFingers.value = n.coerceIn(0, 2)
+        submitPrefs.edit().putInt("quiz_scroll_fingers", _scrollFingers.value).apply()
     }
 
     /**
@@ -246,7 +257,7 @@ object QuizAnalyzer {
         val fgPkg = com.example.service.JarvisAccessibilityService.instance?.foregroundPackageName()
         val remoteMode = fgPkg != null && REMOTE_PKG_KEYWORDS.any { fgPkg.contains(it) }
         if (remoteMode) {
-            DiagnosticLogger.update(captureDetail = "Mode remote PC terdeteksi ($fgPkg) - interaksi touch tetap dipakai")
+            DiagnosticLogger.update(captureDetail = "Mode remote PC terdeteksi ($fgPkg) - scroll pakai 2 jari (= roda mouse)")
         }
 
         try {
@@ -372,14 +383,19 @@ object QuizAnalyzer {
             val geser = (100 - _scrollOverlapPercent.value.coerceIn(40, 90)) / 100f
             val yAtas = met.heightPixels * 0.75f
             val yBawah = yAtas - met.heightPixels * geser
+            val jari = if (_scrollFingers.value == 0) (if (remoteMode) 2 else 1) else _scrollFingers.value
+            suspend fun geserLayar(atas: Boolean) {
+                if (svc == null) return
+                val y1 = if (atas) yAtas else yBawah
+                val y2 = if (atas) yBawah else yAtas
+                runCatching {
+                    if (jari == 2) svc.twoFingerSwipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, 400)
+                    else svc.swipeCoordinates(met.widthPixels / 2f, y1, met.widthPixels / 2f, y2, 400)
+                }
+            }
             suspend fun scrollCaptureMerge(): Int {
                 if (svc == null) return -1
-                runCatching {
-                    svc.swipeCoordinates(
-                        met.widthPixels / 2f, yAtas,
-                        met.widthPixels / 2f, yBawah, 400
-                    )
-                }
+                geserLayar(atas = true)
                 delay(if (remoteMode) 1200 else 800)
                 val b64x = ScreenshotManager.captureBase64(JarvisApp.instance, capTraceFn).first ?: return -1
                 val bx = decodeSampled(b64x, 1280) ?: return -1
@@ -463,12 +479,7 @@ object QuizAnalyzer {
             // kembalikan posisi scroll (kebalikan arah, jarak sama dgn yang digeser)
             if (extraScrolls > 0 && svc != null) {
                 repeat(extraScrolls) {
-                    runCatching {
-                        svc.swipeCoordinates(
-                            met.widthPixels / 2f, yBawah,
-                            met.widthPixels / 2f, yAtas, 400
-                        )
-                    }
+                    geserLayar(atas = false)
                     delay(350)
                 }
                 DiagnosticLogger.update(

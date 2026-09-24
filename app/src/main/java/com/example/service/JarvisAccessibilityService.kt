@@ -70,6 +70,55 @@ class JarvisAccessibilityService : AccessibilityService() {
         Log.i(TAG, "JarvisAccessibilityService destroyed")
     }
 
+    /**
+     * Swipe DUA JARI serentak: di app remote desktop (StarDesk/AnyDesk/dll) gerakan dua
+     * jari diteruskan sebagai RODA MOUSE di PC — halaman PC ikut ter-gulung. Berbeda
+     * dengan swipe 1 jari yang menjadi mouse-drag (menyeleksi teks, TIDAK menggulung).
+     * Di app Android biasa tetap berfungsi sebagai scroll biasa.
+     */
+    suspend fun twoFingerSwipeCoordinates(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long): ToolResult =
+        suspendCoroutine { cont ->
+            val safeDuration = durationMs.coerceIn(50L, 2500L)
+            val off = 48f
+            val p1 = Path().apply { moveTo(x1 - off, y1); lineTo(x2 - off, y2) }
+            val p2 = Path().apply { moveTo(x1 + off, y1); lineTo(x2 + off, y2) }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(p1, 0, safeDuration))
+                .addStroke(GestureDescription.StrokeDescription(p2, 0, safeDuration))
+                .build()
+            val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    cont.resume(
+                        ToolResult(
+                            status = "ok",
+                            result = "Two-finger swipe (${x1.toInt()}, ${y1.toInt()})->(${x2.toInt()}, ${y2.toInt()}) in ${safeDuration}ms"
+                        )
+                    )
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    cont.resume(
+                        ToolResult(
+                            status = "error",
+                            errorCode = ErrorCodes.GESTURE_FAILED,
+                            message = "Two-finger swipe dibatalkan sistem",
+                            retryable = true
+                        )
+                    )
+                }
+            }, null)
+            if (!dispatched) {
+                cont.resume(
+                    ToolResult(
+                        status = "error",
+                        errorCode = ErrorCodes.GESTURE_FAILED,
+                        message = "Gagal dispatch two-finger gesture",
+                        retryable = true
+                    )
+                )
+            }
+        }
+
     /** Package name app yang sedang tampil di depan (untuk deteksi konteks, mis. remote desktop). */
     fun foregroundPackageName(): String? = try {
         rootInActiveWindow?.packageName?.toString()
