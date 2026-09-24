@@ -1148,17 +1148,27 @@ object QuizAnalyzer {
                     failReason = "Analisis melebihi 240 detik - dihentikan (kurangi capture tambahan / periksa koneksi AI)."
                     break
                 }
-                val aiResult = withTimeoutOrNull(90_000L) {
+                // PANGGILAN AI: gambar dibatasi maks 4 (isi soal tetap utuh via OCR
+                // teks di prompt) + terkompresi — semakin banyak gambar, semakin
+                // lama upload+proses (penyebab "sangat lama sampai timeout").
+                val imgUtama = frames.firstOrNull()?.let { compressForAi(it) }
+                val imgTambahan = frames.drop(1).take(3).map { compressForAi(it) }
+                val totalKb = (listOfNotNull(imgUtama) + imgTambahan).sumOf { it.length } * 3 / 4 / 1024
+                DiagnosticLogger.update(
+                    captureDetail = "\ud83d\udce4 Mengirim " + (listOfNotNull(imgUtama).size + imgTambahan.size) +
+                        " gambar (~" + totalKb + " KB) ke AI - menunggu respons..."
+                )
+                val aiResult = withTimeoutOrNull(120_000L) {
                     com.example.service.AiChatService.rawCompletion(
                         systemInstruction = AI_SYSTEM_INSTRUCTION,
                         prompt = userPrompt,
-                        imageBase64 = frames.firstOrNull()?.let { compressForAi(it) },
-                        extraImagesBase64 = frames.drop(1).map { compressForAi(it) }
+                        imageBase64 = imgUtama,
+                        extraImagesBase64 = imgTambahan
                     )
                 }
                 if (aiResult == null) {
-                    DiagnosticLogger.update(aiApi = QuizStepStatus.FAILED, error = "AI timeout 90 detik")
-                    failReason = "AI tidak merespons dalam 90 detik (koneksi lambat / provider sibuk). Coba lagi."
+                    DiagnosticLogger.update(aiApi = QuizStepStatus.FAILED, error = "AI timeout 120 detik")
+                    failReason = "AI tidak merespons dalam 120 detik (koneksi lambat / payload besar / provider sibuk). Coba lagi."
                     break
                 }
                 val (aiText, aiError) = aiResult
@@ -1396,11 +1406,11 @@ object QuizAnalyzer {
      * Payload screenshot penuh sangat berat (jutaan byte base64) -> upload lambat
      * di jaringan HP -> AI terlihat "tidak merespons". Kualitas soal tetap terbaca.
      */
-    private fun compressForAi(base64: String, maxDim: Int = 1280): String {
+    private fun compressForAi(base64: String, maxDim: Int = 1024): String {
         return runCatching {
             val bmp = decodeSampled(base64, maxDim) ?: return base64
             val out = java.io.ByteArrayOutputStream()
-            bmp.compress(Bitmap.CompressFormat.JPEG, 80, out)
+            bmp.compress(Bitmap.CompressFormat.JPEG, 72, out)
             Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
         }.getOrDefault(base64)
     }
