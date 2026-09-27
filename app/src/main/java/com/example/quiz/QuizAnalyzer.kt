@@ -140,6 +140,14 @@ object QuizAnalyzer {
     // Tangkapan manual utk AI: user tap 📷 sebanyak apa pun lalu Kirim
     private val _manualCaptures = MutableStateFlow(0)
     val manualCaptures: StateFlow<Int> = _manualCaptures.asStateFlow()
+
+    /** Snapshot salinan b64 tangkapan manual utk pratinjau di HUD (index = urutan). */
+    private val _manualThumbs = MutableStateFlow<List<String>>(emptyList())
+    val manualThumbs: StateFlow<List<String>> = _manualThumbs.asStateFlow()
+
+    private fun refreshManualThumbs() {
+        synchronized(manualLock) { _manualThumbs.value = ArrayList(manualB64List) }
+    }
     private val manualLock = Any()
     private val manualSeen = LinkedHashSet<String>()
     private var manualBufferText = ""
@@ -702,6 +710,7 @@ object QuizAnalyzer {
                 }
                 if (manualB64List.size < 6) manualB64List.add(b64)
                 _manualCaptures.value = _manualCaptures.value + 1
+                _manualThumbs.value = ArrayList(manualB64List)
             }
             DiagnosticLogger.update(
                 captureDetail = "\ud83d\udcf7 tangkapan ke-" + _manualCaptures.value + " tersimpan (+" + added + " baris baru) - tap Kirim bila sudah"
@@ -720,6 +729,7 @@ object QuizAnalyzer {
             if (index in 0 until manualB64List.size) {
                 manualB64List.removeAt(index)
                 _manualCaptures.value = manualB64List.size
+                _manualThumbs.value = ArrayList(manualB64List)
                 if (manualB64List.isEmpty()) { manualSeen.clear(); manualBufferText = "" }
                 DiagnosticLogger.update(captureDetail = "\ud83d\uddd1 tangkapan dihapus (sisa " + manualB64List.size + ")")
             }
@@ -734,6 +744,7 @@ object QuizAnalyzer {
             manualB64List.clear()
             manualSeen.clear()
             _manualCaptures.value = 0
+            _manualThumbs.value = emptyList()
             t
         }
         if (pair.first.isBlank()) return
@@ -924,6 +935,7 @@ object QuizAnalyzer {
             manualB64List.clear()
             manualSeen.clear()
             _manualCaptures.value = 0
+            _manualThumbs.value = emptyList()
         }
     }
 

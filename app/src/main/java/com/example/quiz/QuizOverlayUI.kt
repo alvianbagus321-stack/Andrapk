@@ -69,6 +69,8 @@ fun QuizOverlayUI() {
     val manualMode by QuizAnalyzer.manualMode.collectAsState()
     val scrollAmount by QuizAnalyzer.scrollAmount.collectAsState()
     val captureMethod by QuizAnalyzer.captureMethod.collectAsState()
+    val manualThumbs by QuizAnalyzer.manualThumbs.collectAsState()
+    var viewAttachment by remember { mutableStateOf<Int?>(null) }
     val captureActive by com.example.service.ScreenshotManager.isMediaProjectionActive.collectAsState()
     val captureDiedAt by com.example.service.ScreenshotManager.projectionDiedAt.collectAsState()
     val sweeping by QuizAnalyzer.sweeping.collectAsState()
@@ -92,6 +94,85 @@ fun QuizOverlayUI() {
             }
         }
         return
+    }
+
+    // VIEWER lampiran manual: gambar penuh + tombol tutup
+    viewAttachment?.let { vIdx ->
+        val b64v = manualThumbs.getOrNull(vIdx)
+        if (b64v == null) {
+            viewAttachment = null
+        } else {
+            val fullImg = androidx.compose.runtime.remember(vIdx, b64v) {
+                runCatching {
+                    val bytes = android.util.Base64.decode(b64v, android.util.Base64.DEFAULT)
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }.getOrNull()?.asImageBitmap()
+            }
+            androidx.compose.ui.window.Dialog(onDismissRequest = { viewAttachment = null }) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xF209101F),
+                    border = BorderStroke(1.2.dp, JarvisCyan)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            "Tangkapan " + (vIdx + 1) + "/" + manualThumbs.size,
+                            color = JarvisTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        if (fullImg != null) {
+                            Image(
+                                bitmap = fullImg,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 420.dp)
+                            )
+                        } else {
+                            Text("(gambar tidak bisa dibuka)", color = JarvisTextSecondary, fontSize = 10.sp)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text(
+                                "\u2190 Sebelumnya",
+                                color = if (vIdx > 0) JarvisCyan else JarvisTextSecondary,
+                                fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0x22FFFFFF))
+                                    .clickable(enabled = vIdx > 0) { viewAttachment = vIdx - 1 }
+                                    .padding(vertical = 7.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Text(
+                                "Tutup",
+                                color = Color.Black, fontSize = 10.5.sp, fontWeight = FontWeight.Bold,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(JarvisCyan)
+                                    .clickable { viewAttachment = null }
+                                    .padding(vertical = 7.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Text(
+                                "Berikutnya \u2192",
+                                color = if (vIdx < manualThumbs.lastIndex) JarvisCyan else JarvisTextSecondary,
+                                fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0x22FFFFFF))
+                                    .clickable(enabled = vIdx < manualThumbs.lastIndex) { viewAttachment = vIdx + 1 }
+                                    .padding(vertical = 7.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // ---- Mode penuh (compact card) ----
@@ -770,6 +851,35 @@ fun QuizOverlayUI() {
                             .background(if (manualCaptures > 0) Color(0x33FF5555) else Color(0x11FFFFFF))
                             .clickable(enabled = manualCaptures > 0) { QuizAnalyzer.clearManualCaptures() }
                             .padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                }
+                if (manualThumbs.isNotEmpty()) {
+                    // PRATINJAU lampiran: tap thumbnail utk melihat gambar penuh
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        manualThumbs.forEachIndexed { idx, b64 ->
+                            val img = androidx.compose.runtime.remember(idx, b64) {
+                                runCatching {
+                                    val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+                                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                }.getOrNull()?.asImageBitmap()
+                            }
+                            if (img != null) {
+                                Image(
+                                    bitmap = img,
+                                    contentDescription = "Tangkapan " + (idx + 1),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(56.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (idx == manualThumbs.lastIndex) JarvisCyan else Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+                                        .clickable { viewAttachment = idx }
+                                )
+                            }
+                        }
+                    }
+                    Text(
+                        "Tap gambar utk melihat penuh; gambar terbaru di kanan.",
+                        color = JarvisTextSecondary, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
                 }
                 Text(
