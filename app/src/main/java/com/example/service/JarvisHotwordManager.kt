@@ -36,6 +36,7 @@ object JarvisHotwordManager {
     private const val PREFS_NAME = "jarvis_hotword_prefs"
     private const val KEY_HOTWORD_ENABLED = "pref_hotword_enabled"
     private const val KEY_OVERLAY_ENABLED = "pref_overlay_enabled"
+    private const val HOTWORD_START_DELAY_MS = 3000L
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -73,7 +74,17 @@ object JarvisHotwordManager {
         _isHotwordEnabled.value = savedEnabled
 
         if (savedEnabled) {
-            start(context)
+            // SpeechRecognizer cukup berat (CPU + mikrofon). Jangan dinyalakan
+            // di tengah startup aplikasi — tunda agar frame pertama mulus 60fps.
+            mainHandler.postDelayed({
+                if (_isHotwordEnabled.value) {
+                    try {
+                        start(context)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Delayed hotword start failed: ${e.message}")
+                    }
+                }
+            }, HOTWORD_START_DELAY_MS)
         }
     }
 

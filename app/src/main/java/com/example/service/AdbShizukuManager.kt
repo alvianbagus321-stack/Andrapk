@@ -7,6 +7,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import com.example.JarvisApp
 import com.example.model.ToolResult
 import java.io.BufferedReader
@@ -134,6 +137,266 @@ object AdbShizukuManager {
         }
     }
 
+    // =====================================================================
+    // Shizuku: eksekusi shell level ADB (uid 2000/shell) tanpa root.
+    // Membuka akses pm grant, am force-stop, uiautomator dump, dll yang
+    // diblokir saat shell dijalankan sebagai uid aplikasi biasa.
+    // =====================================================================
+
+    // ---- Shizuku diakses via REFLECTION: build tetap hijau walau library belum ter-resolve;
+    //      saat library ada di classpath (dideklarasikan di build.gradle), semua jalan normal. ----
+
+    private fun shizukuClass(): Class<*>? = try {
+        Class.forName("dev.rikka.shizuku.Shizuku")
+    } catch (_: Throwable) {
+        null
+    }
+
+    fun isShizukuBinderAlive(): Boolean = try {
+        shizukuClass()?.getMethod("pingBinder")?.invoke(null) as? Boolean ?: false
+    } catch (_: Throwable) {
+        false
+    }
+
+    fun shizukuPermissionGranted(): Boolean = try {
+        val v = shizukuClass()?.getMethod("checkSelfPermission")?.invoke(null) as? Int ?: return false
+        v == PackageManager.PERMISSION_GRANTED
+    } catch (_: Throwable) {
+        false
+    }
+
+    /**
+     * Screenshot level-shell via Shizuku (`screencap -p`): selalu mengikuti rotasi
+     * layar dan tetap menangkap konten FLAG_SECURE (game/app yang melarang screenshot
+     * — hal yang tidak bisa dilakukan MediaProjection/accessibility).
+     * Butuh: Shizuku berjalan + izin diberikan. @return bytes PNG, atau null.
+     */
+    fun screencapPng(): ByteArray? {
+        if (!isShizukuBinderAlive()) return null
+        if (!shizukuPermissionGranted()) return null
+        val proc = shizukuNewProcess(arrayOf("screencap", "-p")) ?: return null
+        return try {
+            val bytes = proc.inputStream.readBytes()
+            val code = runCatching { proc.waitFor() }.getOrDefault(-1)
+            if (code == 0 && bytes.size > 8) bytes else null
+        } catch (_: Throwable) {
+            null
+        } finally {
+            runCatching { proc.destroy() }
+        }
+    }
+
+    /**
+     * Picu pengambilan binder Shizuku (via provider/transact) lalu tunggu sampai hidup.
+     * Tanpa ini pingBinder() selalu false karena binder belum pernah di-fetch.
+     */
+    fun waitForBinder(timeoutMs: Long = 800L): Boolean {
+        if (shizukuClass() == null) return false
+        if (isShizukuBinderAlive()) return true
+        try {
+            shizukuClass()?.getMethod("getBinder")?.invoke(null)
+        } catch (_: Throwable) {}
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (isShizukuBinderAlive()) return true
+            try { Thread.sleep(120) } catch (_: InterruptedException) { return false }
+        }
+        return isShizukuBinderAlive()
+    }
+
+    /** Status koneksi Shizuku yang SEBENARNYA (bukan sekadar cek app terpasang). */
+    fun diagnose(): String {
+        if (shizukuClass() == null) return "Library Shizuku tidak termuat di APK (perbarui app)"
+        if (!isShizukuBinderAlive()) {
+            return "Belum terhubung - nyalakan Shizuku (Wireless debugging) lalu tap Sambungkan"
+        }
+        if (!shizukuPermissionGranted()) {
+            return "Izin Shizuku belum diberikan ke app ini - tap Sambungkan"
+        }
+        return "Terhubung - shell level ADB aktif"
+    }
+
+    /** Minta izin Shizuku bila terhubung tapi belum diizinkan. @return true=bisa dipakai sekarang. */
+    fun requestPermissionIfDenied(): Boolean {
+        if (!waitForBinder(800)) return false
+        if (shizukuPermissionGranted()) return true
+        return shizukuRequestPermission()
+    }
+
+    /**
+     * Kirim keyevent Android via Shizuku (`input keyevent`). Di app remote desktop
+     * (StarDesk dll) keyevent dari sistem Android diteruskan ke PC sebagai penekanan
+     * tombol keyboard — dipakai untuk menggulung halaman PC (PAGE_UP/PAGE_DOWN)
+     * saat gesture 2 jari tidak mempan. Butuh Shizuku aktif + izin.
+     */
+    fun inputKeyevent(keycode: Int): Boolean {
+        if (!waitForBinder(600)) return false
+        if (!shizukuPermissionGranted()) return false
+        val proc = shizukuNewProcess(arrayOf("input", "keyevent", keycode.toString())) ?: return false
+        return try {
+            val code = runCatching { proc.waitFor() }.getOrDefault(-1)
+            code == 0
+        } catch (_: Throwable) {
+            false
+        } finally {
+            runCatching { proc.destroy() }
+        }
+    }
+
+    // ================= TERMUX-ADB (PENGGANTI SHIZUKU) =================
+
+    /** Termux-ADB siap? (Termux terpasang + binary adb ada -> setup_adb.sh sudah dijalankan) */
+    fun isTermuxAdbReady(): Boolean =
+        isTermuxInstalled(JarvisApp.instance) &&
+            File("/data/data/com.termux/files/usr/bin/adb").exists()
+
+    private const val ADB_OUT_DIR = "/sdcard/JARVIS"
+
+    /**
+     * Jalankan `adb shell <cmd>` lewat Termux RUN_COMMAND (pengganti Shizuku).
+     * Output diarahkan ke file di /sdcard/JARVIS agar bisa dibaca app ini.
+     * Syarat: setup_adb.sh sudah dijalankan di Termux (adb connect + allow-external-apps).
+     */
+    fun termuxAdbShell(cmd: String, outFile: String? = null): Boolean {
+        val ctx = JarvisApp.instance
+        if (!isTermuxAdbReady()) return false
+        val redirect = if (outFile != null) " > '$outFile' 2>&1" else ""
+        return try {
+            sendTermuxRunCommandIntent(
+                ctx,
+                "/data/data/com.termux/files/usr/bin/bash",
+                arrayOf("-c", "adb shell $cmd$redirect")
+            )
+            true
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** screencap level-ADB via Termux: tembak + tunggu file PNG muncul (maks ~6 dtk). */
+    suspend fun termuxScreencapPng(timeoutMs: Long = 6000L): ByteArray? = withContext(Dispatchers.IO) {
+        val out = File(ADB_OUT_DIR, "adb_screen.png")
+        runCatching { out.delete() }
+        if (!termuxAdbShell("exec-out screencap -p", out.absolutePath)) return@withContext null
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (out.exists() && out.length() > 8) {
+                delay(150)
+                return@withContext runCatching { out.readBytes() }.getOrNull()
+            }
+            delay(200)
+        }
+        null
+    }
+
+    /** adb shell dengan output TEKS (dibaca balik dari /sdcard/JARVIS/adb_out.txt). */
+    suspend fun termuxAdbShellWithOutput(cmd: String, timeoutMs: Long = 6000L): String? = withContext(Dispatchers.IO) {
+        val out = File(ADB_OUT_DIR, "adb_out.txt")
+        runCatching { out.delete() }
+        if (!termuxAdbShell(cmd, out.absolutePath)) return@withContext null
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            if (out.exists() && out.length() > 0) {
+                delay(150)
+                return@withContext runCatching { out.readText() }.getOrNull()
+            }
+            delay(200)
+        }
+        null
+    }
+
+    /** screencap hanya bila binder hidup + izin ada (menunggu binder sebentar). @return bytes PNG/null. */
+    fun screencapIfPermitted(): ByteArray? {
+        if (!waitForBinder(600)) return null
+        if (!shizukuPermissionGranted()) return null
+        return screencapPng()
+    }
+
+    private fun shizukuRequestPermission(): Boolean = try {
+        shizukuClass()?.getMethod("requestPermission", Int::class.javaPrimitiveType)?.invoke(null, 0)
+        true
+    } catch (_: Throwable) {
+        false
+    }
+
+    private fun shizukuNewProcess(cmd: Array<String>): Process? = try {
+        shizukuClass()?.getMethod(
+            "newProcess",
+            Array<String>::class.java,
+            Map::class.java,
+            String::class.java
+        )?.invoke(null, cmd, null, null) as? Process
+    } catch (_: Throwable) {
+        null
+    }
+
+    fun requestShizukuPermission(): ToolResult {
+        if (!isShizukuBinderAlive()) {
+            return ToolResult("error", message =
+                "❌ Shizuku tidak aktif. Buka app Shizuku → Start (via Wireless Debugging) atau jalankan di PC, lalu ulangi.\n" +
+                "Pasang Shizuku: https://shizuku.rikka.app/")
+        }
+        return if (shizukuRequestPermission()) {
+            ToolResult("ok", result = "🔑 Dialog izin Shizuku diminta — setujui di layar, lalu panggil adb_via_shizuku lagi.")
+        } else {
+            ToolResult("error", message = "Gagal meminta izin Shizuku.")
+        }
+    }
+
+    /** Jalankan perintah dengan uid shell (setara adb shell) via Shizuku. */
+    fun executeShizukuShell(command: String): ToolResult {
+        val cleanCmd = command.trim()
+        if (cleanCmd.isEmpty()) {
+            return ToolResult("error", message = "Perintah shell tidak boleh kosong")
+        }
+        if (!isShizukuBinderAlive()) {
+            return ToolResult("error", errorCode = "SHIZUKU_NOT_ACTIVE", message =
+                "❌ Shizuku tidak aktif / tidak terpasang.\n" +
+                "1. Pasang Shizuku dari Play Store atau https://shizuku.rikka.app/\n" +
+                "2. Buka Shizuku → Start (Wireless Debugging di pengaturan developer, atau via PC)\n" +
+                "3. Panggil {\"action\":\"permission\"} lalu ulangi perintah.")
+        }
+        if (!shizukuPermissionGranted()) {
+            return ToolResult("error", errorCode = "SHIZUKU_PERMISSION", message =
+                "❌ Izin Shizuku untuk app ini belum diberikan. Panggil {\"tool\":\"adb_via_shizuku\",\"params\":{\"action\":\"permission\"}} lalu setujui dialognya, kemudian ulangi perintah.")
+        }
+        return try {
+            val process = shizukuNewProcess(arrayOf("sh", "-c", cleanCmd))
+                ?: return ToolResult(
+                    "error",
+                    errorCode = "SHIZUKU_UNAVAILABLE",
+                    message = "❌ Library Shizuku tidak termuat di build ini. Rebuild APK dengan dependensi shizuku tersedia."
+                )
+            val output = StringBuilder()
+            val reader = BufferedReader(InputStreamReader(process.inputStream))
+            val errReader = BufferedReader(InputStreamReader(process.errorStream))
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                output.appendLine(line)
+                if (output.length > 20000) { output.appendLine("... [output dipotong]"); break }
+            }
+            var errLine: String?
+            while (errReader.readLine().also { errLine = it } != null) {
+                output.appendLine(errLine)
+                if (output.length > 20000) break
+            }
+            val finished = process.waitFor(25, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                return ToolResult("error", message = "Perintah timeout setelah 25 detik.")
+            }
+            val exitCode = process.exitValue()
+            val text = output.toString().trim()
+            if (exitCode == 0) {
+                ToolResult(status = "ok", result = if (text.isNotBlank()) text else "(sukses, tanpa output)")
+            } else {
+                ToolResult("error", errorCode = "SHIZUKU_EXIT_$exitCode", message = "Exit $exitCode:\n$text")
+            }
+        } catch (e: Throwable) {
+            ToolResult("error", message = "Gagal menjalankan via Shizuku: ${e.message}")
+        }
+    }
+
     /**
      * Executes shell command on Android with Termux / Linux environment.
      */
@@ -222,10 +485,15 @@ object AdbShizukuManager {
                         (exitCode == 127 && cleanCmd.contains("python"))
 
                 val customErrMsg = if (isPyNotFound) {
+                    val termuxNote = if (isTermuxInstalled(JarvisApp.instance)) {
+                        "Termux terpasang — buka Termux lalu ketik: pkg update && pkg install python"
+                    } else {
+                        "Termux TIDAK terpasang di perangkat ini. Pasang dari F-Droid: https://f-droid.org/packages/com.termux/ lalu di Termux: pkg install python"
+                    }
                     "❌ PERINTAH PYTHON TIDAK DITEMUKAN / DITOLAK SISTEM (Exit Code $exitCode)\n\n" +
                     "Cara Mengatasi:\n" +
-                    "1. Buka aplikasi Termux lalu ketik: pkg update && pkg install python\n" +
-                    "2. Atau gunakan tool 'termux_python' / 'termux_command' bawaan JARVIS.\n\n" +
+                    "1. $termuxNote\n" +
+                    "2. Atau gunakan tool 'termux_python' bawaan JARVIS (ada pre-check + panduan).\n\n" +
                     "Detail Error: $resultText"
                 } else {
                     "Perintah selesai dengan kode $exitCode:\n$resultText"
@@ -258,12 +526,22 @@ object AdbShizukuManager {
 
         return when (act) {
             "status", "check" -> {
-                val statusCmd = "ps aux | grep -E 'python|node|termux|ssh|agent' | grep -v grep || ps | grep -E 'python|agent'"
+                // Toybox Android tidak punya "ps aux" (dulu error: ps: bad aux) — pakai "ps -A".
+                val statusCmd = "ps -A 2>/dev/null | grep -E 'python|node|termux|ssh|agent' | grep -v grep || echo '__NO_AGENT__'"
                 val res = executeShell(statusCmd)
-                if (res.status == "ok" && !res.result.isNullOrBlank() && !res.result.contains("Exit code")) {
-                    ToolResult("ok", result = "🟢 Termux Service Status:\n${res.result}")
-                } else {
+                val out = res.result ?: ""
+                if (!isTermuxInstalled(context)) {
+                    ToolResult(
+                        "ok",
+                        result = "ℹ️ Status Termux Service:\n" +
+                                "Termux TIDAK terpasang di perangkat ini, sehingga tidak ada service Termux yang bisa dikelola.\n" +
+                                "Proses agent JARVIS sendiri berjalan di dalam app (uid ${android.os.Process.myUid()}).\n" +
+                                "Untuk fitur penuh (python/pkg/service): pasang Termux dari F-Droid → https://f-droid.org/packages/com.termux/"
+                    )
+                } else if (out.contains("__NO_AGENT__") || out.isBlank()) {
                     ToolResult("ok", result = "ℹ️ Status Termux Service:\nTidak ada background service python/agent yang sedang aktif saat ini.")
+                } else {
+                    ToolResult("ok", result = "🟢 Termux Service Status:\n$out")
                 }
             }
 
@@ -355,6 +633,19 @@ object AdbShizukuManager {
         val act = action.lowercase().trim()
         val pkg = packageName.trim()
 
+        // Guard: 'pkg' hanya ada di Termux asli. Tanpa ini error mentah "pkg: not found".
+        if (!isTermuxInstalled(JarvisApp.instance)) {
+            return ToolResult(
+                "error",
+                errorCode = "TERMUX_NOT_INSTALLED",
+                message = "❌ Termux TIDAK terpasang di perangkat ini — 'pkg' tidak tersedia.\n\n" +
+                        "Cara mengatasi:\n" +
+                        "1. Pasang Termux dari F-Droid: https://f-droid.org/packages/com.termux/\n" +
+                        "2. Buka Termux, jalankan: pkg update && pkg install <nama-paket>\n" +
+                        "3. Setelah terpasang, panggil tool ini lagi."
+            )
+        }
+
         val cmd = when (act) {
             "install", "add" -> {
                 if (pkg.isBlank()) return ToolResult("error", message = "Nama package tidak boleh kosong untuk install")
@@ -383,6 +674,24 @@ object AdbShizukuManager {
         val cleanCode = code.trim()
         if (cleanCode.isEmpty()) {
             return ToolResult("error", message = "Kode Python tidak boleh kosong")
+        }
+
+        // Pre-check: python3 memang tersedia? (hindari error mentah "python3: not found")
+        val probe = executeShell("command -v python3 || command -v python || echo '__NO_PYTHON__'")
+        if (probe.result.isNullOrBlank() || probe.result.contains("__NO_PYTHON__")) {
+            val termuxHint = if (isTermuxInstalled(JarvisApp.instance)) {
+                "Termux terpasang — buka Termux lalu jalankan: pkg install python"
+            } else {
+                "Termux BELUM terpasang di perangkat ini. Pasang dari F-Droid: https://f-droid.org/packages/com.termux/ lalu di Termux jalankan: pkg install python"
+            }
+            return ToolResult(
+                "error",
+                errorCode = "PYTHON_NOT_FOUND",
+                message = "❌ Interpreter python3 tidak ditemukan di shell.\n\n" +
+                        "Cara mengatasi:\n" +
+                        "1. $termuxHint\n" +
+                        "2. Lalu panggil lagi tool ini atau tool 'termux_command'."
+            )
         }
 
         val context = JarvisApp.instance

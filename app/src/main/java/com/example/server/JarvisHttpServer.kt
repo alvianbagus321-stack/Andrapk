@@ -20,6 +20,7 @@ import androidx.core.app.NotificationCompat
 import com.example.model.ErrorCodes
 import com.example.model.ServerLogItem
 import com.example.model.ToolResult
+import com.example.service.ImageDecodeManager
 import com.example.service.JarvisAccessibilityService
 import com.example.service.ScreenshotManager
 import com.example.termux.TermuxScripts
@@ -53,6 +54,7 @@ class JarvisHttpServer(
     private val context: Context,
     val port: Int = 8765,
     var token: String = "jarvis-token-8765",
+    private val bindAllInterfaces: Boolean = false,
     private val onLog: (ServerLogItem) -> Unit
 ) {
 
@@ -78,8 +80,10 @@ class JarvisHttpServer(
         if (serverSocket != null && !serverSocket!!.isClosed) return true
 
         return try {
-            // Strict security: Bind strictly to 127.0.0.1 (localhost loopback) only!
-            val bindAddr = InetAddress.getByName("127.0.0.1")
+            // Default strict security: bind 127.0.0.1 (localhost loopback) only.
+            // bindAllInterfaces = true HANYA jika pengguna mengaktifkan ekspos jaringan
+            // (untuk tunnel HTTPS / akses LAN oleh AI eksternal via MCP).
+            val bindAddr = InetAddress.getByName(if (bindAllInterfaces) "0.0.0.0" else "127.0.0.1")
             val s = ServerSocket(port, 50, bindAddr)
             serverSocket = s
             _isRunning.value = true
@@ -235,10 +239,21 @@ class JarvisHttpServer(
         val method = req.method
         val clientIp = req.clientIp
 
+        // CORS preflight: balas sebelum auth (preflight tidak membawa token)
+        if (method == "OPTIONS") {
+            sendResponse(output, 204, "", "text/plain", method, path, clientIp, "CORS preflight OK")
+            return
+        }
+
         // Public setup scripts and Termux scripts can be fetched directly from localhost
         if (path == "/setup.sh") {
             val script = TermuxScripts.getSetupScript(token, port)
             sendResponse(output, 200, script, "text/x-shellscript", method, path, clientIp, "Served setup.sh")
+            return
+        }
+        if (path == "/setup-mcp.sh") {
+            val script = TermuxScripts.getMcpSetupScript(token, port)
+            sendResponse(output, 200, script, "text/x-shellscript", method, path, clientIp, "Served setup-mcp.sh")
             return
         }
 
@@ -247,10 +262,57 @@ class JarvisHttpServer(
             return
         }
 
-        // Check authentication token
-        val authHeader = req.headers["x-local-token"]
+        val requestBody = req.body
+
+        // ===== OAuth 2.0 Authorization Server (PUBLIK — dipakai klien MCP: ChatGPT, Claude, dll) =====
+        if (path == "/.well-known/oauth-authorization-server" && method == "GET") {
+            val host = req.headers["host"] ?: "127.0.0.1:$port"
+            val scheme = OAuthManager.detectScheme(req.headers)
+            sendResponse(output, 200, OAuthManager.metadata(host, scheme).toString(), "application/json", method, path, clientIp, "OAuth metadata")
+            return
+        }
+        if ((path == "/.well-known/oauth-protected-resource" || path == "/.well-known/oauth-protected-resource/mcp") && method == "GET") {
+            val host = req.headers["host"] ?: "127.0.0.1:$port"
+            val scheme = OAuthManager.detectScheme(req.headers)
+            sendResponse(output, 200, OAuthManager.protectedResourceMetadata(host, scheme).toString(), "application/json", method, path, clientIp, "OAuth protected resource metadata")
+            return
+        }
+        if (path == "/oauth/register" && method == "POST") {
+            val (status, respBody) = OAuthManager.registerClient(requestBody)
+            sendResponse(output, status, respBody.toString(), "application/json", method, path, clientIp, "OAuth client registration")
+            return
+        }
+        if (path == "/oauth/authorize" && method == "GET") {
+            val (status, content) = OAuthManager.createAuthorizePage(req.query)
+            val body = if (content is String) content else content.toString()
+            sendResponse(output, status, body, "text/html; charset=utf-8", method, path, clientIp, "OAuth approval page")
+            return
+        }
+        if (path == "/oauth/authorize/decision" && method == "GET") {
+            val reqId = extractQueryParam(req.query, "req")
+            val decision = extractQueryParam(req.query, "decision") ?: ""
+            val (status, target, isRedirect) = OAuthManager.decideAuthorization(reqId, decision == "allow")
+            if (isRedirect) {
+                sendRedirect(output, status, target, method, path, clientIp, "OAuth decision: $decision")
+            } else {
+                sendResponse(output, status, target, "text/html; charset=utf-8", method, path, clientIp, "OAuth decision error", true)
+            }
+            return
+        }
+        if (path == "/oauth/token" && method == "POST") {
+            val (status, respBody) = OAuthManager.exchangeToken(requestBody)
+            sendResponse(output, status, respBody.toString(), "application/json", method, path, clientIp, "OAuth token exchange")
+            return
+        }
+
+        // Check authentication token - MCP juga menerima standar Authorization: Bearer <token>
+        val bearer = req.headers["authorization"]?.takeIf {
+            it.startsWith("Bearer ", ignoreCase = true)
+        }?.substring(7)?.trim()
+        val authHeader = req.headers["x-local-token"] ?: bearer
         val queryToken = extractQueryParam(req.query, "token")
-        val isAuthorized = authHeader == token || queryToken == token
+        val isAuthorized = authHeader == token || queryToken == token ||
+            (bearer != null && OAuthManager.isValidAccessToken(bearer))
 
         if (!isAuthorized) {
             val errJson = JSONObject().apply {
@@ -259,11 +321,33 @@ class JarvisHttpServer(
                 put("message", "Unauthorized. Provide correct X-Local-Token header or ?token= query parameter.")
                 put("retryable", false)
             }.toString()
-            sendResponse(output, 401, errJson, "application/json", method, path, clientIp, "401 Unauthorized", true)
+            val extra = if (path == "/mcp") {
+                val host = req.headers["host"] ?: "127.0.0.1:$port"
+                val scheme = OAuthManager.detectScheme(req.headers)
+                mapOf("WWW-Authenticate" to "Bearer resource_metadata=\"$scheme://$host/.well-known/oauth-protected-resource/mcp\"")
+            } else {
+                emptyMap()
+            }
+            sendResponse(output, 401, errJson, "application/json", method, path, clientIp, "401 Unauthorized", true, extra)
             return
         }
 
-        val requestBody = req.body
+        // ===== MCP (Model Context Protocol) endpoint: /mcp =====
+        if (path == "/mcp") {
+            when (method) {
+                "POST" -> {
+                    val (status, body) = McpServer.handleRequest(requestBody)
+                    // Notifikasi JSON-RPC -> 202 Accepted (body kosong); lainnya respons penuh
+                    sendResponse(output, status, body ?: "", "application/json", method, path, clientIp, "MCP request -> $status")
+                }
+                else -> {
+                    // Streamable HTTP: GET (SSE stream) & DELETE (session) tidak ditawarkan server stateless ini
+                    val err = errorJson(ErrorCodes.INVALID_ARGUMENTS, "MCP server ini stateless: hanya POST /mcp yang didukung (metode $method tidak tersedia)", false)
+                    sendResponse(output, 405, err, "application/json", method, path, clientIp, "MCP 405 method not allowed", true)
+                }
+            }
+            return
+        }
 
         try {
             when {
@@ -337,6 +421,34 @@ class JarvisHttpServer(
                     } else {
                         val err = errorJson(ErrorCodes.PERMISSION_DENIED, errorMsg ?: "Failed to capture screenshot", false)
                         sendResponse(output, 500, err, "application/json", method, path, clientIp, "Screenshot error: $errorMsg", true)
+                    }
+                }
+
+                // Image decode endpoint: ubah gambar (base64/file/screenshot terakhir) menjadi deskripsi tekstual + OCR
+                path == "/image/decode" && method == "POST" -> {
+                    val json = safeParseJson(requestBody)
+                    val withOcr = json.optBoolean("with_ocr", true)
+                    val source = json.optString("source", "").trim().lowercase()
+                    val b64 = json.optString("base64", json.optString("image_base64", ""))
+                    val filePath = json.optString("path", "")
+                    val result = when {
+                        b64.isNotBlank() -> ImageDecodeManager.analyzeBase64(b64, withOcr)
+                        source == "last_screenshot" || source == "screenshot" -> ImageDecodeManager.analyzeLastScreenshot(withOcr)
+                        filePath.isNotBlank() -> ImageDecodeManager.analyzePath(filePath, withOcr)
+                        else -> ToolResult("error", errorCode = ErrorCodes.INVALID_ARGUMENTS, message = "Missing image source: provide 'base64', 'source':'last_screenshot', or 'path'")
+                    }
+                    val resp = JSONObject().apply {
+                        put("status", result.status)
+                        if (result.status == "ok") {
+                            put("analysis", result.result ?: "")
+                        } else {
+                            put("error", result.message ?: "decode failed")
+                        }
+                    }.toString()
+                    if (result.status == "ok") {
+                        sendResponse(output, 200, resp, "application/json", method, path, clientIp, "Decoded image to text")
+                    } else {
+                        sendResponse(output, 400, resp, "application/json", method, path, clientIp, "Image decode failed", true)
                     }
                 }
 
@@ -658,15 +770,19 @@ class JarvisHttpServer(
         path: String,
         clientIp: String,
         summary: String,
-        isError: Boolean = false
+        isError: Boolean = false,
+        extraHeaders: Map<String, String> = emptyMap()
     ) {
         try {
             val bytes = body.toByteArray(Charsets.UTF_8)
             val statusText = when (statusCode) {
                 200 -> "OK"
+                202 -> "Accepted"
+                204 -> "No Content"
                 400 -> "Bad Request"
                 401 -> "Unauthorized"
                 404 -> "Not Found"
+                405 -> "Method Not Allowed"
                 500 -> "Internal Server Error"
                 503 -> "Service Unavailable"
                 else -> "Response"
@@ -677,7 +793,12 @@ class JarvisHttpServer(
             headerBuilder.append("Content-Type: ").append(contentType).append("; charset=utf-8\r\n")
             headerBuilder.append("Content-Length: ").append(bytes.size).append("\r\n")
             headerBuilder.append("Access-Control-Allow-Origin: *\r\n")
+            headerBuilder.append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")
+            headerBuilder.append("Access-Control-Allow-Headers: Content-Type, X-Local-Token, Authorization, MCP-Protocol-Version, Mcp-Session-Id\r\n")
             headerBuilder.append("Connection: close\r\n")
+            for ((k, v) in extraHeaders) {
+                headerBuilder.append(k).append(": ").append(v).append("\r\n")
+            }
             headerBuilder.append("\r\n")
 
             output.write(headerBuilder.toString().toByteArray(Charsets.UTF_8))
@@ -697,6 +818,41 @@ class JarvisHttpServer(
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error writing HTTP response", e)
+        }
+    }
+
+    private fun sendRedirect(
+        output: OutputStream,
+        statusCode: Int,
+        location: String,
+        method: String,
+        path: String,
+        clientIp: String,
+        summary: String
+    ) {
+        try {
+            val statusText = if (statusCode == 302) "Found" else "Redirect"
+            val header = StringBuilder()
+                .append("HTTP/1.1 ").append(statusCode).append(" ").append(statusText).append("\r\n")
+                .append("Location: ").append(location).append("\r\n")
+                .append("Content-Length: 0\r\n")
+                .append("Connection: close\r\n")
+                .append("\r\n")
+            output.write(header.toString().toByteArray(Charsets.UTF_8))
+            output.flush()
+            onLog(
+                ServerLogItem(
+                    method = method,
+                    path = path,
+                    statusCode = statusCode,
+                    clientIp = clientIp,
+                    summary = summary,
+                    isError = false,
+                    payloadPreview = location.take(200)
+                )
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error writing redirect response", e)
         }
     }
 

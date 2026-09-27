@@ -21,6 +21,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.JarvisApp
 import com.example.model.*
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -135,6 +136,54 @@ object ToolManager {
             command = "screenshot",
             parametersSchema = """{"format": "base64"}""",
             riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "ocr_screenshot",
+            name = "OCR Screenshot (Baca Teks Layar)",
+            description = "Satu langkah: tangkap layar lalu langsung membaca SEMUA teksnya (OCR on-device). Cara termudah membaca soal/chat/pesan yang tampil di layar — termasuk konten TANPA elemen UI (remote desktop, game, WebView, video). Gunakan ini alih-alih screenshot+decode_image bila yang dibutuhkan hanya teksnya",
+            category = "Inspeksi & Visi",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "ocr_screenshot",
+            parametersSchema = "{}",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "quiz_scroll_page",
+            name = "Gulir Halaman (Sekali, Sesuai Kebutuhan)",
+            description = "Menggulir halaman/PC SEKALI per panggilan: {\"direction\":\"down\"|\"up\",\"page\":false|true}. page=true memakai kunci PageUp/PageDown PC (via Shizuku/Termux-ADB); page=false memakai 1 gesture gulir (roda StarDesk otomatis saat remote desktop). ATURAN: panggil HANYA bila ocr_screenshot menunjukkan konten TERPOTONG — jangan pernah menggulir tanpa alasan; setelah scroll, SELALU ocr_screenshot ulang untuk verifikasi",
+            category = "Inspeksi & Visi",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "quiz_scroll_page",
+            parametersSchema = "{\"direction\": \"down|up\", \"page\": false}",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "quiz_capture",
+            name = "Simpan Frame ke Buffer Analyzer",
+            description = "Menyimpan tangkapan layar saat ini ke buffer analyzer di HUD (seperti tombol \ud83d\udcf7 Tambah). User menekan \"Kirim ke AI\" di HUD untuk menganalisis gabungan semua frame",
+            category = "Inspeksi & Visi",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "quiz_capture",
+            parametersSchema = "{}",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "adb_shell",
+            name = "ADB Shell via Termux (Pengganti Shizuku)",
+            description = "Menjalankan perintah shell LEVEL ADB lewat Termux: input keyevent, screencap -p, uiautomator dump, pm grant, dumpsys, dll. Butuh setup sekali: jalankan termux/setup_adb.sh di Termux",
+            category = "Terminal & Shizuku",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "adb_shell",
+            parametersSchema = """{"command": "input keyevent 93"}""",
+            riskLevel = ToolRiskLevel.LOW,
             isEnabled = true,
             isBuiltIn = true
         ),
@@ -437,6 +486,174 @@ object ToolManager {
             riskLevel = ToolRiskLevel.HIGH,
             isEnabled = true,
             isBuiltIn = true
+        ),
+        CustomTool(
+            id = "decode_image",
+            name = "Dekode Gambar (Base64 ke Teks)",
+            description = "Mendekode gambar base64/file/uri/screenshot terakhir menjadi deskripsi tekstual lengkap (dimensi, warna dominan, kecerahan, tingkat detail, peta bentuk ASCII, dan OCR teks) sehingga AI tanpa kemampuan vision pun dapat membaca isi gambar",
+            category = "Media & Analisis",
+            scriptType = ToolScriptType.ACCESSIBILITY,
+            command = "decode_image",
+            parametersSchema = """{"source": "last_screenshot", "base64": "opsional", "path": "opsional", "with_ocr": true}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "screen_orientation",
+            name = "Cek Orientasi Layar",
+            description = "Membaca rotasi layar saat ini (0/90/180/270 derajat, portrait/landscape) beserta dimensi piksel. Panggil ini SEBELUM tap/screenshot agar koordinat tidak meleset saat layar berputar",
+            category = "Sistem & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "screen_orientation",
+            parametersSchema = """{}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "find_by_text",
+            name = "Cari Elemen berdasarkan Teks",
+            description = "Mencari elemen UI di layar yang cocok dengan teks (label tombol, judul, dst) dan mengembalikan koordinat pusat + ukurannya. Bisa menunggu elemen muncul via timeout_ms",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "find_by_text",
+            parametersSchema = """{"text": "Login", "timeout_ms": 3000}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "tap_by_text",
+            name = "Tap berdasarkan Teks",
+            description = "Mengetuk elemen UI langsung berdasarkan teksnya (mis. tombol 'Izinkan' atau 'OK') tanpa menghitung koordinat manual. Jauh lebih akurat daripada tap koordinat, apalagi di mode landscape",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "tap_by_text",
+            parametersSchema = """{"text": "Izinkan", "timeout_ms": 3000}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "wait_for_element",
+            name = "Tunggu Elemen Muncul",
+            description = "Menunggu hingga elemen dengan teks tertentu muncul di layar (dengan timeout). Dipakai setelah aksi (tap/open_app) untuk memastikan layar sudah termuat sebelum aksi berikutnya",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "wait_for_element",
+            parametersSchema = """{"text": "Berhasil", "timeout_ms": 5000}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "dumpsys_window",
+            name = "Info Window Aktif (dumpsys)",
+            description = "Menampilkan window yang sedang fokus, rotasi display, dan dimensi layar via dumpsys window — untuk diagnosa orientasi dan memastikan app target benar-benar di depan",
+            category = "Sistem & Navigasi",
+            scriptType = ToolScriptType.SHELL,
+            command = "dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp|mRotation|mDisplayWidth|mDisplayHeight' | head -20",
+            parametersSchema = """{}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "scroll_to_text",
+            name = "Scroll sampai Teks Ditemukan",
+            description = "Scroll otomatis layar sampai elemen dengan teks tertentu terlihat (untuk list panjang) lalu kembalikan koordinatnya — lebih baik daripada swipe buta berulang",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "scroll_to_text",
+            parametersSchema = """{"text": "Setelan", "max_swipes": 6}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "wait_stable",
+            name = "Tunggu Layar Stabil",
+            description = "Menunggu hingga layar tidak berubah lagi (animasi/loading selesai) sebelum aksi atau screenshot berikutnya",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "wait_stable",
+            parametersSchema = """{"timeout_ms": 3000}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "diff_screen",
+            name = "Bandingkan Layar Before/After",
+            description = "Membandingkan layar saat ini dengan snapshot pemanggilan sebelumnya. Panggil sebelum aksi (baseline) lalu setelah aksi: 'tidak ada perubahan' berarti aksi kemungkinan gagal",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "diff_screen",
+            parametersSchema = """{}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "accessibility_click",
+            name = "Klik Elemen via Accessibility",
+            description = "Klik node UI langsung lewat AccessibilityNodeInfo berdasarkan teks/view-id — bypass koordinat sama sekali, paling akurat untuk tombol standar",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "accessibility_click",
+            parametersSchema = """{"element_id": "com.whatsapp:id/send", "text": "opsional"}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "ocr_region",
+            name = "OCR Area Tertentu",
+            description = "OCR hanya pada AREA tertentu dari screenshot/gambar (crop dulu) — jauh lebih hemat token & akurat daripada decode_image satu layar penuh. Region bisa piksel (left/top/right/bottom) atau persen (x/y/w/h_percent). Tanpa region = satu layar penuh",
+            category = "Media & Analisis",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "ocr_region",
+            parametersSchema = """{"x_percent": 0, "y_percent": 0, "w_percent": 100, "h_percent": 100, "source": "last_screenshot", "base64": "opsional", "path": "opsional"}""",
+            riskLevel = ToolRiskLevel.SAFE,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "record_screen",
+            name = "Rekam Layar (Video MP4)",
+            description = "Merekam layar perangkat menjadi video MP4 — untuk debugging multi-step atau dokumentasi otomasi. Params {\"action\": \"start\"|\"stop\"|\"status\"}; otomatis berhenti maksimal 3 menit; hasil berupa path file video",
+            category = "Media & Analisis",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "record_screen",
+            parametersSchema = """{"action": "start"}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "adb_via_shizuku",
+            name = "ADB Shell via Shizuku",
+            description = "Menjalankan perintah shell level ADB (uid shell) via Shizuku — membuka akses pm grant, am force-stop, uiautomator dump, dumpsys penuh, dll yang diblokir bagi uid aplikasi biasa. Butuh app Shizuku aktif + izin diberikan",
+            category = "Sistem & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "adb_via_shizuku",
+            parametersSchema = """{"command": "pm list packages -3", "action": "exec"}""",
+            riskLevel = ToolRiskLevel.HIGH,
+            isEnabled = true,
+            isBuiltIn = true
+        ),
+        CustomTool(
+            id = "input_swipe_bezier",
+            name = "Swipe Kurva Bezier (Manusiawi)",
+            description = "Swipe mengikuti kurva Bezier — menyerupai gerakan jari manusia, berguna untuk UI yang mengabaikan swipe garis lurus (carousel, map, drawer). Param bend (-1.0..1.0) mengatur kelengkungan",
+            category = "Gestur & Navigasi",
+            scriptType = ToolScriptType.CUSTOM_LOGIC,
+            command = "input_swipe_bezier",
+            parametersSchema = """{"x1": 500, "y1": 800, "x2": 500, "y2": 300, "duration_ms": 600, "bend": 0.35}""",
+            riskLevel = ToolRiskLevel.LOW,
+            isEnabled = true,
+            isBuiltIn = true
         )
     )
 
@@ -452,8 +669,13 @@ object ToolManager {
 
     fun init(context: Context) {
         sharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        loadCustomTools()
+        // Permission settings: baca prefs kecil, cepat — aman di main thread.
         loadPermissionSettings()
+        // Parsing JSON custom tools bisa besar (tools buatan AI) — jangan blokir
+        // main thread saat startup; hasil di-update lewat StateFlow saat siap.
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            loadCustomTools()
+        }
     }
 
     fun setPermissionMode(mode: AiPermissionMode) {
@@ -602,7 +824,11 @@ object ToolManager {
     }
 
     fun getTool(toolId: String): CustomTool? {
-        return _tools.value.firstOrNull { it.id.equals(toolId, ignoreCase = true) }
+        val q = toolId.trim()
+        // Cocokkan berdasarkan ID dulu, lalu berdasarkan NAMA (AI sering memanggil
+        // tool custom pakai nama yang diberikannya, bukan id yang di-generate sistem).
+        return _tools.value.firstOrNull { it.id.equals(q, ignoreCase = true) }
+            ?: _tools.value.firstOrNull { it.name.equals(q, ignoreCase = true) }
     }
 
     fun isToolEnabled(toolId: String): Boolean {
@@ -663,7 +889,13 @@ object ToolManager {
 
         when (mode) {
             AiPermissionMode.SANDBOXED -> {
-                val isReadOnly = lower in listOf("read_screen", "battery", "get_telemetry", "list_tools", "get_storage", "cek_ram", "clipboard_read")
+                val isReadOnly = lower in listOf(
+                    "read_screen", "battery", "get_telemetry", "list_tools", "get_storage",
+                    "cek_ram", "clipboard_read", "screen_orientation", "find_by_text",
+                    "wait_for_element", "dumpsys_window", "get_device_resolution",
+                    "get_current_app", "list_apps", "recall_memory", "wait_stable", "ocr_region",
+                    "diff_screen", "scroll_to_text"
+                )
                 if (!isReadOnly) {
                     return Pair(false, "Aksi '$toolName' diblokir oleh AI Permission Mode: SANDBOXED (Hanya baca yang diizinkan).")
                 }
@@ -797,9 +1029,43 @@ object ToolManager {
                     if (base64 != null) {
                         ToolResult(
                             status = "ok",
-                            result = "🖼️ Tangkapan layar (screenshot) berhasil diambil dan dikirim langsung ke analisis visi AI Anda.",
+                            result = "🖼️ Tangkapan layar OK - ${ScreenshotManager.lastCaptureInfo()}. Dikirim ke analisis visi AI Anda.",
                             extra = mapOf("screenshot_b64" to base64)
                         )
+                    } else {
+                        ToolResult("error", message = err ?: "Gagal mengambil screenshot.")
+                    }
+                } else if (cmdLower == "adb_shell") {
+                    val cmd = params.optString("command", "")
+                    if (cmd.isBlank()) {
+                        ToolResult("error", message = "Parameter 'command' wajib, mis. {\"command\":\"input keyevent 93\"}")
+                    } else {
+                        val out = AdbShizukuManager.termuxAdbShellWithOutput(cmd)
+                        if (out != null) {
+                            ToolResult("ok", result = "🖥️ adb shell ($cmd):\n" + out.take(3000))
+                        } else {
+                            ToolResult("error", message = "Gagal. Pastikan Termux+ADB siap: buka Termux, jalankan termux/setup_adb.sh lalu 'jad status'")
+                        }
+                    }
+                } else if (cmdLower == "ocr_screenshot") {
+                    val (base64, err) = ScreenshotManager.captureBase64(context)
+                    if (base64 != null) {
+                        val text = runCatching {
+                            val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                            val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            if (bmp == null) null
+                            else {
+                                val r = com.example.quiz.OcrEngine.recognize(bmp)
+                                bmp.recycle()
+                                r.getOrNull()
+                            }
+                        }.getOrNull()
+                        if (text.isNullOrBlank()) {
+                            ToolResult("ok", result = "OCR tidak menemukan teks pada tangkapan. Layar mungkin berisi gambar tanpa teks, atau tangkapan kosong/hitam (coba ulangi, atau gunakan tool screenshot lalu decode_image).")
+                        } else {
+                            val shown = text.take(4000) + if (text.length > 4000) "\n...(+${text.length - 4000} karakter lagi)" else ""
+                            ToolResult("ok", result = "🔤 Teks di layar (OCR satu langkah):\n$shown")
+                        }
                     } else {
                         ToolResult("error", message = err ?: "Gagal mengambil screenshot.")
                     }
@@ -1136,12 +1402,12 @@ object ToolManager {
 
             "send_notification" -> {
                 try {
-                    val title = params.optString("title", "JARVIS-HP")
+                    val title = params.optString("title", "Andra Control")
                     val message = params.optString("message", params.optString("text", "Notifikasi dari JARVIS"))
                     val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     val channelId = "jarvis_tools_channel"
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        val channel = NotificationChannel(channelId, "JARVIS Notifications", NotificationManager.IMPORTANCE_DEFAULT)
+                        val channel = NotificationChannel(channelId, "Notifikasi Aplikasi", NotificationManager.IMPORTANCE_DEFAULT)
                         nm.createNotificationChannel(channel)
                     }
                     val notification = NotificationCompat.Builder(context, channelId)
@@ -1187,6 +1453,167 @@ object ToolManager {
                 val path = params.optString("path", params.optString("file", "."))
                 val content = params.optString("content", params.optString("text", ""))
                 AdbShizukuManager.executeTermuxFile(action, path, content)
+            }
+
+            "screen_orientation", "get_orientation", "rotation" -> {
+                val metrics = ScreenshotManager.getScreenMetrics(context)
+                val rot = ScreenshotManager.currentRotation(context)
+                val rotName = when (rot) {
+                    0 -> "0° — PORTRAIT"
+                    1 -> "90° — LANDSCAPE"
+                    2 -> "180° — PORTRAIT (terbalik)"
+                    3 -> "270° — LANDSCAPE (terbalik)"
+                    else -> "$rot°"
+                }
+                val orient = if (metrics.widthPixels > metrics.heightPixels) "LANDSCAPE" else "PORTRAIT"
+                ToolResult(
+                    status = "ok",
+                    result = "🔄 Rotasi layar saat ini: $rot ($rotName)\n" +
+                            "📐 Dimensi display: ${metrics.widthPixels}x${metrics.heightPixels} px @ ${metrics.densityDpi} dpi\n" +
+                            "🧭 Orientasi: $orient\n" +
+                            "Tip: pakai koordinat dalam ruang ${metrics.widthPixels}x${metrics.heightPixels} ini untuk tap/swipe, atau lebih aman pakai 'tap_by_text'."
+                )
+            }
+
+            "find_by_text", "wait_for_element" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val query = params.optString("text", params.optString("query", params.optString("element_text", "")))
+                if (query.isBlank()) {
+                    return ToolResult("error", message = "Parameter 'text' wajib diisi (teks elemen yang dicari).")
+                }
+                val defaultTimeout = if (command.equals("wait_for_element", true)) 5000L else 0L
+                val timeout = params.optLong("timeout_ms", defaultTimeout).coerceIn(0L, 20000L)
+                val deadline = System.currentTimeMillis() + timeout
+                var matched = service.findElementsByText(query)
+                while (matched.isEmpty() && System.currentTimeMillis() < deadline) {
+                    kotlinx.coroutines.delay(250)
+                    matched = service.findElementsByText(query)
+                }
+                if (matched.isEmpty()) {
+                    ToolResult(
+                        "error",
+                        message = "Tidak ada elemen yang cocok dengan teks '$query'${if (timeout > 0) " setelah menunggu ${timeout}ms" else ""}."
+                    )
+                } else {
+                    val list = matched.joinToString("\n") { el ->
+                        "- '${el.text.ifBlank { el.contentDescription }}' (${el.className}) @ center=(${el.bounds.centerX}, ${el.bounds.centerY}) size=${el.bounds.width}x${el.bounds.height}"
+                    }
+                    ToolResult("ok", result = "🔎 Ditemukan ${matched.size} elemen untuk '$query':\n$list")
+                }
+            }
+
+            "tap_by_text" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val query = params.optString("text", params.optString("query", params.optString("element_text", "")))
+                if (query.isBlank()) {
+                    return ToolResult("error", message = "Parameter 'text' wajib diisi (teks elemen yang akan ditap).")
+                }
+                val timeout = params.optLong("timeout_ms", 3000L).coerceIn(0L, 20000L)
+                service.tapByText(query, timeout)
+            }
+
+            "scroll_to_text" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val query = params.optString("text", params.optString("query", ""))
+                if (query.isBlank()) {
+                    return ToolResult("error", message = "Parameter 'text' wajib diisi (teks yang dicari saat scroll).")
+                }
+                val maxSwipes = params.optInt("max_swipes", 6).coerceIn(1, 15)
+                service.scrollToText(query, maxSwipes)
+            }
+
+            "wait_stable" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                service.waitForStableScreen(params.optLong("timeout_ms", 3000L))
+            }
+
+            "diff_screen" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                service.diffScreen()
+            }
+
+            "accessibility_click" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val ident = params.optString("element_id", params.optString("text", params.optString("id", "")))
+                if (ident.isBlank()) {
+                    return ToolResult("error", message = "Parameter 'element_id' atau 'text' wajib diisi.")
+                }
+                service.tapElement(ident)
+            }
+
+            "record_screen" -> {
+                val action = params.optString("action", params.optString("act", "start")).lowercase().trim()
+                when (action) {
+                    "stop" -> ScreenRecordManager.stop()
+                    "status" -> ScreenRecordManager.status()
+                    "start" -> ScreenRecordManager.start(context)
+                    else -> ToolResult("error", message = "Aksi '$action' tidak dikenali. Pilih: start, stop, status")
+                }
+            }
+
+            "adb_via_shizuku", "shizuku_shell" -> {
+                val action = params.optString("action", params.optString("act", "exec")).lowercase().trim()
+                when (action) {
+                    "status", "check" -> {
+                        val alive = AdbShizukuManager.isShizukuBinderAlive()
+                        val granted = AdbShizukuManager.shizukuPermissionGranted()
+                        ToolResult(
+                            status = "ok",
+                            result = "🩸 Shizuku binder: ${if (alive) "AKTIF" else "TIDAK AKTIF"} | Izin app: ${if (granted) "DIBERIKAN" else "BELUM"}\n" +
+                                    (if (!alive) "Buka app Shizuku → Start (Wireless Debugging), lalu ulangi." else if (!granted) "Panggil {\"action\":\"permission\"} untuk meminta izin." else "Siap dipakai: {\"command\":\"<perintah adb>\"}")
+                        )
+                    }
+                    "permission", "grant" -> AdbShizukuManager.requestShizukuPermission()
+                    "exec", "run", "shell" -> {
+                        val cmd = params.optString("command", params.optString("cmd", ""))
+                        if (cmd.isBlank()) {
+                            ToolResult("error", message = "Parameter 'command' wajib diisi untuk action=exec.")
+                        } else {
+                            AdbShizukuManager.executeShizukuShell(cmd)
+                        }
+                    }
+                    else -> ToolResult("error", message = "Aksi '$action' tidak dikenali. Pilih: exec, status, permission")
+                }
+            }
+
+            "ocr_region" -> {
+                val source = params.optString("source", params.optString("src", "")).trim().lowercase()
+                val b64 = params.optString("base64", params.optString("image_base64", params.optString("image", "")))
+                val filePath = params.optString("path", params.optString("file", ""))
+                val useLast = source == "last_screenshot" || source == "screenshot" || (b64.isBlank() && filePath.isBlank())
+                com.example.service.ImageDecodeManager.analyzeRegion(
+                    base64 = if (useLast && b64.isBlank()) null else b64.ifBlank { null },
+                    path = filePath.ifBlank { null },
+                    left = if (params.has("left")) params.optInt("left") else null,
+                    top = if (params.has("top")) params.optInt("top") else null,
+                    right = if (params.has("right")) params.optInt("right") else null,
+                    bottom = if (params.has("bottom")) params.optInt("bottom") else null,
+                    xPct = if (params.has("x_percent")) params.optDouble("x_percent") else null,
+                    yPct = if (params.has("y_percent")) params.optDouble("y_percent") else null,
+                    wPct = if (params.has("w_percent")) params.optDouble("w_percent") else null,
+                    hPct = if (params.has("h_percent")) params.optDouble("h_percent") else null
+                )
+            }
+
+            "input_swipe_bezier", "swipe_bezier", "bezier_swipe" -> {
+                val service = JarvisAccessibilityService.instance
+                    ?: return ToolResult("error", message = "Accessibility Service belum aktif di Pengaturan Android.")
+                val metrics = ScreenshotManager.getScreenMetrics(context)
+                val screenW = metrics.widthPixels.toFloat()
+                val screenH = metrics.heightPixels.toFloat()
+                val x1 = params.optDouble("x1", (screenW * 0.5).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenW else it }
+                val y1 = params.optDouble("y1", (screenH * 0.8).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenH else it }
+                val x2 = params.optDouble("x2", (screenW * 0.5).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenW else it }
+                val y2 = params.optDouble("y2", (screenH * 0.2).toDouble()).toFloat().let { if (it in 0.001f..1.0f) it * screenH else it }
+                val duration = params.optLong("duration_ms", 600L)
+                val bend = params.optDouble("bend", params.optDouble("curve", 0.35)).toFloat()
+                service.bezierSwipe(x1, y1, x2, y2, duration, bend)
             }
 
             else -> {

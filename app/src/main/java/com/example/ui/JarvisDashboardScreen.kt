@@ -19,6 +19,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -34,10 +36,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.model.ServerLogItem
+import com.example.service.TunnelManager
+import com.example.ui.components.StatusPill
 import com.example.ui.theme.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -57,22 +62,28 @@ fun JarvisDashboardScreen(
     val logs by viewModel.serverLogs.collectAsState()
 
     val isHotwordEnabled by viewModel.isHotwordEnabled.collectAsState()
+    val networkExposed by viewModel.networkExposed.collectAsState()
+    val tunnelUrl by TunnelManager.tunnelUrl.collectAsState()
+    val tunnelStatus by TunnelManager.tunnelStatus.collectAsState()
+    val isTunnelStarting by TunnelManager.isTunnelStarting.collectAsState()
+    val deviceIp by remember { mutableStateOf(TunnelManager.getDeviceIpAddress()) }
     val isHotwordListening by viewModel.isHotwordListeningActive.collectAsState()
     val isOverlayVisible by viewModel.isOverlayVisible.collectAsState()
     val aiConfig by viewModel.aiConfig.collectAsState()
 
     var showAiConfigDialog by remember { mutableStateOf(false) }
+    var showMcpHelpDialog by remember { mutableStateOf(false) }
     var selectedLog by remember { mutableStateOf<ServerLogItem?>(null) }
 
     val micLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        if (granted) {
-            viewModel.setHotwordEnabled(context, true)
-            Toast.makeText(context, "Asisten Suara 'Jarvis' aktif di latar belakang!", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(context, "Izin mikrofon dibutuhkan untuk mendengar suara 'Jarvis'", Toast.LENGTH_LONG).show()
-        }
+                                        if (granted) {
+                                            viewModel.setHotwordEnabled(context, true)
+                                            Toast.makeText(context, "Asisten suara aktif di latar belakang!", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(context, "Izin mikrofon dibutuhkan untuk asisten suara", Toast.LENGTH_LONG).show()
+                                        }
     }
 
     LazyColumn(
@@ -82,19 +93,245 @@ fun JarvisDashboardScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)
     ) {
-        // ALWAYS-ON JARVIS BACKGROUND ASSISTANT CARD
+        // JENDELA MENGAMBANG — toggle terpisah: HUD suara vs chat/task + status penyimpanan tahan-uninstall
+        item {
+            val voiceOverlayOn by viewModel.voiceOverlayEnabled.collectAsState()
+            val taskOverlayOn by viewModel.taskOverlayEnabled.collectAsState()
+            val storageOk = remember { com.example.data.PersistentStore.isExternalActive() }
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("floating_window_card"),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.WebAsset, contentDescription = null, tint = JarvisCyan)
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text("Jendela Mengambang", style = MaterialTheme.typography.titleMedium, color = JarvisTextPrimary)
+                            Text("Atur tampil/sembunyi tiap jendela", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("HUD Suara (Pill)", style = MaterialTheme.typography.bodyMedium, color = JarvisTextPrimary)
+                            Text("Pill kecil + kartu mendengarkan; bisa digeser, posisi diingat", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
+                        }
+                        Switch(
+                            checked = voiceOverlayOn,
+                            onCheckedChange = { viewModel.setVoiceOverlayEnabled(it) }
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Overlay Chat & Task", style = MaterialTheme.typography.bodyMedium, color = JarvisTextPrimary)
+                            Text("Kartu besar memenuhi layar saat AI berpikir/mengeksekusi/menjawab", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
+                        }
+                        Switch(
+                            checked = taskOverlayOn,
+                            onCheckedChange = { viewModel.setTaskOverlayEnabled(it) }
+                        )
+                    }
+                    HorizontalDivider(thickness = 1.dp, color = JarvisBorder.copy(alpha = 0.4f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            if (storageOk) Icons.Filled.CheckCircle else Icons.Filled.Warning,
+                            contentDescription = null,
+                            tint = if (storageOk) JarvisEmerald else JarvisRed
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            if (storageOk)
+                                "Chat & ingatan AI tersimpan di ${com.example.data.PersistentStore.externalPath()} — tidak hilang walau app dihapus"
+                            else
+                                "Chat & ingatan AI akan hilang saat app dihapus. Aktifkan izin 'Akses semua file' agar tersimpan aman di storage.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisTextSecondary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (!storageOk) {
+                            TextButton(onClick = {
+                                com.example.service.AdbShizukuManager.requestAllFilesAccess(context)
+                            }) { Text("Izinkan") }
+                        }
+                    }
+                }
+            }
+        }
+
+        // VERSI APK — biar tahu build yang terpasang saat mau rebuild/update
+        item {
+            val versionInfo = remember {
+                runCatching {
+                    val pi = context.packageManager.getPackageInfo(context.packageName, 0)
+                    val code = if (android.os.Build.VERSION.SDK_INT >= 28) pi.longVersionCode
+                               else @Suppress("DEPRECATION") pi.versionCode.toLong()
+                    "v${pi.versionName} (build $code)"
+                }.getOrDefault("versi tidak terbaca")
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(JarvisSurfaceVariant.copy(alpha = 0.25f))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Andra Control",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = JarvisTextPrimary
+                    )
+                    Text(
+                        "APK terpasang: $versionInfo",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisTextSecondary
+                    )
+                }
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = JarvisCyan.copy(alpha = 0.15f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f))
+                ) {
+                    Text(
+                        versionInfo,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = JarvisCyan,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
+
+        // LAPORAN CRASH — kalau ada fitur membuat app tertutup, salin & kirim ke developer
+        item {
+            var crashSummary by remember { mutableStateOf(com.example.data.CrashReporter.lastCrashSummary()) }
+            if (crashSummary != null) {
+                var copied by remember { mutableStateOf(false) }
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .clickable {
+                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("jarvis_crash", com.example.data.CrashReporter.fullLog()))
+                            copied = true
+                        },
+                    colors = CardDefaults.cardColors(containerColor = JarvisRed.copy(alpha = 0.12f)),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Warning, contentDescription = null, tint = JarvisRed, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "Ada laporan crash — TAP UNTUK SALIN",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = JarvisRed,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                "×",
+                                color = JarvisTextSecondary,
+                                fontSize = 14.sp,
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable {
+                                        com.example.data.CrashReporter.clear()
+                                        crashSummary = null
+                                    }
+                                    .padding(horizontal = 6.dp)
+                            )
+                        }
+                        Text(
+                            crashSummary ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisTextSecondary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (copied) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "✓ Log penuh tersalin — paste ke chat developer",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = JarvisEmerald
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // AI QUIZ ANALYZER — toggle overlay penganalisis soal di layar
+        item {
+            val quizOn by viewModel.quizOverlayEnabled.collectAsState()
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("quiz_analyzer_card"),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.Bolt, contentDescription = null, tint = JarvisCyan)
+                    Spacer(Modifier.width(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("AI Quiz Analyzer", style = MaterialTheme.typography.titleMedium, color = JarvisTextPrimary)
+                        Text(
+                            "Overlay kecil untuk memindai & menjawab soal di layar (screenshot + OCR + AI)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = JarvisTextSecondary
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Switch(
+                        checked = quizOn,
+                        onCheckedChange = {
+                            val ok = viewModel.toggleQuizOverlay(context)
+                            if (!ok) {
+                                Toast.makeText(context, "Izin 'Tampil di atas aplikasi lain' dibutuhkan", Toast.LENGTH_LONG).show()
+                                try {
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            Uri.parse("package:$(context.packageName)")
+                                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                } catch (_: Exception) {
+                                    context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                }
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    if (quizOn) "Quiz Analyzer dimatikan" else "Quiz Analyzer aktif — lihat overlay di layar",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    )
+                }
+            }
+        }
+
+        // ASISTEN SUARA & HUD CARD
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("background_voice_assistant_card"),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = Brush.horizontalGradient(
-                        listOf(JarvisCyan.copy(alpha = 0.7f), JarvisTeal.copy(alpha = 0.4f))
-                    )
-                )
+                border = CardDefaults.outlinedCardBorder().copy(brush = CardBorderCyanViolet)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
@@ -125,7 +362,7 @@ fun JarvisDashboardScreen(
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "ALWAYS-ON 'JARVIS'",
+                                        text = "ASISTEN SUARA",
                                         color = JarvisCyan,
                                         fontWeight = FontWeight.Black,
                                         fontSize = 13.sp,
@@ -165,11 +402,11 @@ fun JarvisDashboardScreen(
                                         micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     } else {
                                         viewModel.setHotwordEnabled(context, true)
-                                        Toast.makeText(context, "Asisten Suara 'Jarvis' aktif di latar belakang!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Asisten suara aktif di latar belakang!", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
                                     viewModel.setHotwordEnabled(context, false)
-                                    Toast.makeText(context, "Asisten Suara 'Jarvis' dinonaktifkan", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Asisten suara dinonaktifkan", Toast.LENGTH_SHORT).show()
                                 }
                             },
                             colors = SwitchDefaults.colors(
@@ -186,9 +423,9 @@ fun JarvisDashboardScreen(
                     // Description
                     Text(
                         text = if (isHotwordEnabled)
-                            "JARVIS mendengarkan kata 'Jarvis [perintah]' di latar belakang tanpa perlu membuka aplikasi. Setiap respon dan tool otomatis ditampilkan melalui HUD melayang."
+                            "Asisten mendengarkan kata aktivasi 'Jarvis [perintah]' di latar belakang tanpa perlu membuka aplikasi. Setiap respon dan tool otomatis ditampilkan melalui HUD melayang."
                         else
-                            "Aktifkan sakelar di atas agar aplikasi mendeteksi kata 'Jarvis [perintah]' saat di latar belakang seperti Google AI Assistant.",
+                            "Aktifkan sakelar di atas agar aplikasi mendeteksi kata aktivasi saat berjalan di latar belakang, seperti asisten bawaan perangkat.",
                         color = JarvisTextPrimary.copy(alpha = 0.85f),
                         fontSize = 11.5.sp,
                         lineHeight = 16.sp
@@ -216,7 +453,7 @@ fun JarvisDashboardScreen(
                                         fontWeight = FontWeight.Bold
                                     )
                                     Text(
-                                        text = "Diperlukan agar HUD futuristik JARVIS dapat muncul saat Anda membuka app lain.",
+                                        text = "Diperlukan agar HUD asisten dapat muncul saat Anda membuka aplikasi lain.",
                                         color = JarvisTextSecondary,
                                         fontSize = 10.sp
                                     )
@@ -260,7 +497,7 @@ fun JarvisDashboardScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "HUD Jendela Melayang (Overlay) Siap & Aktif di Layar",
+                                    text = "HUD melayang (overlay) siap & aktif di layar",
                                     color = JarvisEmerald,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium
@@ -317,19 +554,15 @@ fun JarvisDashboardScreen(
             }
         }
 
-        // AI MODEL & CUSTOM ENDPOINT CONFIGURATION CARD
+        // MODEL & CUSTOM ENDPOINT CONFIGURATION CARD
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("ai_endpoint_config_card"),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = Brush.horizontalGradient(
-                        listOf(JarvisTeal.copy(alpha = 0.6f), JarvisCyan.copy(alpha = 0.4f))
-                    )
-                )
+                border = CardDefaults.outlinedCardBorder().copy(brush = CardBorderTealViolet)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -356,7 +589,7 @@ fun JarvisDashboardScreen(
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "AI MODEL & ENDPOINT",
+                                    text = "MODEL & ENDPOINT",
                                     color = JarvisTeal,
                                     fontWeight = FontWeight.Black,
                                     fontSize = 13.sp,
@@ -395,7 +628,7 @@ fun JarvisDashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = "Active Model:", color = JarvisTextSecondary, fontSize = 10.5.sp)
+                                Text(text = "Model Aktif:", color = JarvisTextSecondary, fontSize = 10.5.sp)
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
                                     color = JarvisCyan.copy(alpha = 0.15f),
@@ -417,7 +650,7 @@ fun JarvisDashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = "Endpoint URL:", color = JarvisTextSecondary, fontSize = 10.5.sp)
+                                Text(text = "Endpoint:", color = JarvisTextSecondary, fontSize = 10.5.sp)
                                 Text(
                                     text = if (aiConfig.baseUrl.length > 28) aiConfig.baseUrl.take(26) + "..." else aiConfig.baseUrl,
                                     color = JarvisTextPrimary,
@@ -447,7 +680,7 @@ fun JarvisDashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "SYSTEM ENGINE STATUS",
+                            text = "STATUS LAYANAN SISTEM",
                             color = JarvisCyan,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
@@ -521,15 +754,26 @@ fun JarvisDashboardScreen(
                         }
                     )
 
-                    // Shizuku & ADB Connector
+                    // Shizuku & ADB Connector — status KONEKSI NYATA (binder + izin)
+                    var shizukuStatus by remember { mutableStateOf(com.example.service.AdbShizukuManager.diagnose()) }
                     val isShizukuInstalled = com.example.service.AdbShizukuManager.isShizukuInstalled(context)
                     ServiceRow(
                         title = "Shizuku ADB Connector",
-                        subtitle = if (isShizukuInstalled) "Shizuku manager detected • Elevated shell ready" else "Shizuku not installed (Tap to open/install)",
-                        isActive = isShizukuInstalled,
-                        actionLabel = if (isShizukuInstalled) "Installed" else "Install",
+                        subtitle = if (isShizukuInstalled) shizukuStatus else "Shizuku belum terpasang (tap untuk buka/instal)",
+                        isActive = shizukuStatus.startsWith("Terhubung"),
+                        actionLabel = when {
+                            !isShizukuInstalled -> "Install"
+                            shizukuStatus.startsWith("Terhubung") -> "Cek ulang"
+                            else -> "Sambungkan"
+                        },
                         onAction = {
-                            com.example.service.AdbShizukuManager.openShizukuManager(context)
+                            if (!isShizukuInstalled) {
+                                com.example.service.AdbShizukuManager.openShizukuManager(context)
+                            } else {
+                                val ok = com.example.service.AdbShizukuManager.requestPermissionIfDenied()
+                                shizukuStatus = if (ok) com.example.service.AdbShizukuManager.diagnose()
+                                    else "Menunggu izin - pilih Izinkan di dialog Shizuku, lalu tap Cek ulang"
+                            }
                         }
                     )
                 }
@@ -553,7 +797,7 @@ fun JarvisDashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "SECURITY CREDENTIALS (X-Local-Token)",
+                            text = "KREDENSIAL LOKAL (X-Local-Token)",
                             color = JarvisTeal,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
@@ -571,7 +815,7 @@ fun JarvisDashboardScreen(
                     }
 
                     Text(
-                        text = "Komunikasi Termux ↔ Android diamankan dengan token ini. API key AI HANYA disimpan di Termux (config.py/env var), tidak pernah di APK.",
+                        text = "Komunikasi Termux ↔ Android diamankan dengan token ini. API key HANYA disimpan di Termux (config.py/env var), tidak pernah di APK.",
                         color = JarvisTextSecondary,
                         fontSize = 12.sp,
                         lineHeight = 16.sp
@@ -638,6 +882,334 @@ fun JarvisDashboardScreen(
             }
         }
 
+        // AI EKSTERNAL (MCP) CARD
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("mcp_card"),
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = CardDefaults.outlinedCardBorder().copy(
+                    brush = Brush.horizontalGradient(
+                        listOf(AuroraViolet.copy(alpha = 0.5f), JarvisCyan.copy(alpha = 0.4f))
+                    )
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                modifier = Modifier.size(36.dp),
+                                shape = CircleShape,
+                                color = AuroraViolet.copy(alpha = 0.15f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AuroraViolet)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Extension,
+                                        contentDescription = "MCP",
+                                        tint = AuroraViolet,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "AI EKSTERNAL (MCP)",
+                                    color = AuroraViolet,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 13.sp,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = "Hubungkan ChatGPT / Claude / Cursor ke tools HP ini",
+                                    color = JarvisTextSecondary,
+                                    fontSize = 10.5.sp
+                                )
+                            }
+                        }
+                        StatusPill(
+                            text = if (isServerRunning) "SIAP" else "SERVER MATI",
+                            active = isServerRunning
+                        )
+                        IconButton(
+                            onClick = { showMcpHelpDialog = true },
+                            modifier = Modifier.size(30.dp).testTag("mcp_help_button")
+                        ) {
+                            Icon(
+                                Icons.Default.HelpOutline,
+                                contentDescription = "Panduan koneksi MCP",
+                                tint = JarvisTextSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    // ================= METODE 1: URL LANGSUNG =================
+                    Text(
+                        text = "METODE 1 — URL LANGSUNG (LOKAL / LAN)",
+                        color = JarvisCyan,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "Untuk AI/agent di HP ini atau perangkat lain di WiFi yang sama.",
+                        color = JarvisTextSecondary,
+                        fontSize = 10.sp
+                    )
+
+                    // Endpoint lokal (di HP ini)
+                    EndpointRow(
+                        label = "Endpoint (HP ini)",
+                        url = "http://127.0.0.1:$port/mcp",
+                        onCopy = {
+                            copyToClipboard(context, "MCP Endpoint", "http://127.0.0.1:$port/mcp")
+                            Toast.makeText(context, "Endpoint MCP dicopy!", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+
+                    // Endpoint LAN (perangkat lain)
+                    if (deviceIp != null) {
+                        EndpointRow(
+                            label = "Endpoint (LAN / WiFi sama)",
+                            url = "http://$deviceIp:$port/mcp",
+                            onCopy = {
+                                copyToClipboard(context, "MCP Endpoint LAN", "http://$deviceIp:$port/mcp")
+                                Toast.makeText(context, "Endpoint LAN dicopy!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+
+                    // Config JSON untuk klien MCP (Claude / Cursor / Cline, dll)
+                    val mcpConfigJson = """
+                        {
+                          "mcpServers": {
+                            "andra-control": {
+                              "url": "http://127.0.0.1:$port/mcp",
+                              "headers": { "X-Local-Token": "$token" }
+                            }
+                          }
+                        }
+                    """.trimIndent()
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                copyToClipboard(context, "MCP Config", mcpConfigJson)
+                                Toast.makeText(context, "Config MCP dicopy — paste ke client AI kamu", Toast.LENGTH_LONG).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = AuroraViolet.copy(alpha = 0.18f), contentColor = AuroraViolet),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, AuroraViolet.copy(alpha = 0.6f)),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Salin Config MCP", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                copyToClipboard(
+                                    context,
+                                    "Panduan MCP",
+                                    "MODE A (Lokal): URL http://127.0.0.1:$port/mcp + header X-Local-Token: $token\n" +
+                                        "MODE B (LAN): aktifkan Akses Jaringan, pakai URL http://$deviceIp:$port/mcp\n" +
+                                        "MODE C (ChatGPT/Claude cloud): jalankan Tunnel (Metode 2) di kartu ini, daftarkan URL tunnel + /mcp sebagai connector di pengaturan AI, lalu tekan IZINKAN di halaman OAuth."
+                                )
+                                Toast.makeText(context, "Panduan koneksi dicopy!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTextSecondary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Panduan", fontSize = 11.sp)
+                        }
+                    }
+
+                    // Toggle ekspos jaringan (dibutuhkan Mode LAN)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Akses dari Jaringan (0.0.0.0)",
+                                color = JarvisTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                if (networkExposed)
+                                    "Server dapat dijangkau LAN / tunnel — MATIKAN bila tidak dipakai (aman = 127.0.0.1 saja)"
+                                else
+                                    "Aman: hanya aplikasi di HP ini (127.0.0.1) yang bisa mengakses",
+                                color = JarvisTextSecondary,
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp
+                            )
+                        }
+                        Switch(
+                            checked = networkExposed,
+                            onCheckedChange = { enable ->
+                                viewModel.setNetworkExposed(enable)
+                                Toast.makeText(
+                                    context,
+                                    if (enable) "Server dibuka ke jaringan (restart otomatis)" else "Server kembali lokal-only (aman)",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = JarvisBackground,
+                                checkedTrackColor = JarvisAmber,
+                                uncheckedThumbColor = JarvisTextSecondary,
+                                uncheckedTrackColor = JarvisSurfaceHighlight
+                            )
+                        )
+                    }
+
+                    HorizontalDivider(color = JarvisBorder.copy(alpha = 0.4f))
+
+                    // ================= METODE 2: TUNNEL HTTPS =================
+                    Text(
+                        text = "METODE 2 — TUNNEL HTTPS (CHATGPT / CLAUDE CLOUD)",
+                        color = AuroraViolet,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                    Text(
+                        text = "Menjalankan tunnel (cloudflared) di Termux langsung dari sini. URL publik HTTPS muncul otomatis — tinggal daftarkan ke AI cloud.",
+                        color = JarvisTextSecondary,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp
+                    )
+
+                    if (tunnelUrl != null) {
+                        EndpointRow(
+                            label = "URL Tunnel (ChatGPT/Claude)",
+                            url = TunnelManager.buildMcpTunnelUrl(tunnelUrl ?: ""),
+                            urlColor = AuroraViolet,
+                            onCopy = {
+                                copyToClipboard(context, "MCP Tunnel URL", TunnelManager.buildMcpTunnelUrl(tunnelUrl ?: ""))
+                                Toast.makeText(context, "URL tunnel dicopy — daftarkan di ChatGPT/Claude!", Toast.LENGTH_LONG).show()
+                            }
+                        )
+                    } else {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = JarvisSurfaceVariant.copy(alpha = 0.6f),
+                            border = androidx.compose.foundation.BorderStroke(0.8.dp, JarvisBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (isTunnelStarting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(14.dp),
+                                        strokeWidth = 2.dp,
+                                        color = AuroraViolet
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                Text(
+                                    tunnelStatus,
+                                    color = JarvisTextSecondary,
+                                    fontSize = 10.5.sp,
+                                    lineHeight = 14.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (tunnelUrl == null) {
+                            Button(
+                                onClick = {
+                                    val res = TunnelManager.startTunnel(context, port)
+                                    Toast.makeText(
+                                        context,
+                                        res.result ?: res.message ?: "Perintah tunnel terkirim",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                },
+                                modifier = Modifier.weight(1f),
+                                enabled = !isTunnelStarting,
+                                colors = ButtonDefaults.buttonColors(containerColor = AuroraViolet, contentColor = Color(0xFF231433)),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    if (isTunnelStarting) "Menjalankan…" else "Jalankan Tunnel",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(tunnelUrl ?: ""))
+                                        context.startActivity(intent)
+                                    } catch (_: Exception) {
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = JarvisEmerald.copy(alpha = 0.2f), contentColor = JarvisEmerald),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisEmerald.copy(alpha = 0.5f)),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Icon(Icons.Default.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Tunnel Aktif", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                TunnelManager.stopTunnel(context)
+                                Toast.makeText(context, "Tunnel dihentikan", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.weight(0.55f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTextSecondary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Stop", fontSize = 11.sp)
+                        }
+                    }
+
+                    Text(
+                        text = "Butuh Termux (install otomatis di dalamnya saat pertama kali) + internet. Setiap start menghasilkan URL baru — daftarkan ulang bila URL berubah.",
+                        color = JarvisTextSecondary.copy(alpha = 0.7f),
+                        fontSize = 9.5.sp,
+                        lineHeight = 13.sp
+                    )
+
+                    Text(
+                        text = "Protokol: MCP Streamable HTTP (JSON-RPC). Autentikasi: OAuth 2.0 / X-Local-Token / Authorization Bearer / ?token=",
+                        color = JarvisTextSecondary.copy(alpha = 0.75f),
+                        fontSize = 9.5.sp,
+                        lineHeight = 13.sp
+                    )
+                }
+            }
+        }
+
         // Telemetry Chips
         item {
             Row(
@@ -677,7 +1249,7 @@ fun JarvisDashboardScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "LIVE AGENT ACTIVITY STREAM",
+                        text = "AKTIVITAS REQUEST LIVE",
                         color = JarvisTextPrimary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
@@ -721,7 +1293,7 @@ fun JarvisDashboardScreen(
                     ) {
                         Icon(Icons.Default.Sensors, contentDescription = null, tint = JarvisCyan.copy(alpha = 0.5f), modifier = Modifier.size(36.dp))
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("Waiting for Termux Agent calls...", color = JarvisTextSecondary, fontSize = 13.sp)
+                        Text("Menunggu panggilan dari Termux Agent...", color = JarvisTextSecondary, fontSize = 13.sp)
                         Text("Requests to http://127.0.0.1:$port will appear here in real time.", color = JarvisTextSecondary.copy(alpha = 0.7f), fontSize = 11.sp)
                     }
                 }
@@ -768,6 +1340,56 @@ fun JarvisDashboardScreen(
             },
             containerColor = JarvisSurface,
             shape = RoundedCornerShape(16.dp)
+        )
+    }
+
+    if (showMcpHelpDialog) {
+        AlertDialog(
+            onDismissRequest = { showMcpHelpDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.HelpOutline, contentDescription = null, tint = AuroraViolet, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Panduan Koneksi MCP", color = JarvisTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Hubungkan AI eksternal (ChatGPT, Claude, Cursor, dll) ke tools di HP ini via protokol MCP. Pilih mode sesuai letak AI-nya:",
+                        color = JarvisTextPrimary.copy(alpha = 0.85f),
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+
+                    HelpStep("1", "Nyalakan Server", "Aktifkan sakelar di pojok kanan atas hingga status ONLINE / SIAP.")
+
+                    HelpStep("2", "Mode A — AI di HP yang sama", "Pakai endpoint: http://127.0.0.1:8765/mcp dengan header X-Local-Token (tombol 'Salin Config MCP' di kartu ini). Cocok untuk agent Termux atau aplikasi di perangkat yang sama.")
+
+                    HelpStep("3", "Mode B — Perangkat lain di WiFi yang sama", "Aktifkan 'Akses dari Jaringan' di kartu ini, lalu daftarkan URL http://<IP-HP>:8765/mcp di AI kamu. Cek IP HP di Pengaturan > Wi-Fi. Catatan: tambahkan http:// URL ini hanya untuk client yang mendukung HTTP lokal (bukan ChatGPT cloud).")
+
+                    HelpStep("4", "Mode C — ChatGPT / Claude (CLOUD)", "Karena AI-nya di internet, HP perlu tunnel HTTPS. Cara termudah: tombol 'JALANKAN TUNNEL' di Metode 2 kartu ini — app menjalankan cloudflared via Termux dan URL publik muncul otomatis.\n\nManual (alternatif): di Termux jalankan 'curl -s http://127.0.0.1:8765/setup-mcp.sh | bash' — menginstall cloudflared + helper ~/mcp/tunnel.sh, lalu 'bash ~/mcp/tunnel.sh'.\n\nLalu di ChatGPT: Pengaturan > Connector > Tambah — tempel URL tunnel + '/mcp'. Saat menghubungkan akan muncul HALAMAN IZIN (OAuth) — tekan IZINKAN. Selesai!")
+
+                    HelpStep("5", "Keamanan", "Token & OAuth adalah kunci masuk ke HP kamu. Matikan 'Akses dari Jaringan' saat tidak dipakai, dan segera regenerate token jika kecurigaan. Izin OAuth berlaku 24 jam lalu harus disetujui ulang.")
+
+                    Text(
+                        "Lisensi protokol: MCP Streamable HTTP + OAuth 2.0 (PKCE S256) + Dynamic Client Registration - kompatibel dengan spesifikasi resmi modelcontextprotocol.io",
+                        color = JarvisTextSecondary.copy(alpha = 0.7f),
+                        fontSize = 9.5.sp,
+                        lineHeight = 13.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMcpHelpDialog = false }) {
+                    Text("Mengerti", color = JarvisCyan, fontWeight = FontWeight.Bold)
+                }
+            },
+            containerColor = JarvisSurface,
+            shape = RoundedCornerShape(18.dp)
         )
     }
 
@@ -834,18 +1456,38 @@ fun TelemetryChip(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisBorder))
+        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisBorder.copy(alpha = 0.85f)))
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(title, color = JarvisTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(JarvisCyan.copy(alpha = 0.13f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(icon, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(14.dp))
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    title,
+                    color = JarvisTextSecondary,
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.6.sp
+                )
             }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(value, color = JarvisTextPrimary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                value,
+                color = JarvisTextPrimary,
+                fontSize = 14.5.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
             Text(detail, color = JarvisTextSecondary, fontSize = 10.sp, maxLines = 1)
         }
     }
@@ -906,6 +1548,79 @@ fun LogItemRow(logItem: ServerLogItem, onClick: () -> Unit) {
                 }
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(timeStr, color = JarvisTextSecondary, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun EndpointRow(
+    label: String,
+    url: String,
+    onCopy: () -> Unit,
+    urlColor: Color = JarvisCyan
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(JarvisSurfaceVariant)
+            .border(1.dp, JarvisBorder, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, color = JarvisTextSecondary, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                url,
+                color = urlColor,
+                fontSize = 12.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+        }
+        Button(
+            onClick = onCopy,
+            colors = ButtonDefaults.buttonColors(containerColor = urlColor.copy(alpha = 0.2f), contentColor = urlColor),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(6.dp)
+        ) {
+            Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(14.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Copy", fontSize = 11.sp)
+        }
+    }
+}
+
+@Composable
+private fun HelpStep(number: String, title: String, detail: String) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = JarvisSurfaceVariant.copy(alpha = 0.45f),
+        border = androidx.compose.foundation.BorderStroke(0.8.dp, JarvisBorder.copy(alpha = 0.6f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(modifier = Modifier.padding(10.dp)) {
+            Surface(
+                shape = CircleShape,
+                color = AuroraViolet.copy(alpha = 0.18f),
+                modifier = Modifier.size(22.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(number, color = AuroraViolet, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+                Text(title, color = JarvisTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    detail,
+                    color = JarvisTextSecondary,
+                    fontSize = 10.5.sp,
+                    lineHeight = 15.sp
+                )
             }
         }
     }

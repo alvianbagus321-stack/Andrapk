@@ -33,7 +33,7 @@ class GreetingScreenshotTest {
     composeTestRule.setContent {
       MyApplicationTheme {
         Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-          Text(text = "JARVIS-HP Companion Active", color = JarvisCyan, fontSize = 20.sp)
+          Text(text = "Andra Control Active", color = JarvisCyan, fontSize = 20.sp)
         }
       }
     }

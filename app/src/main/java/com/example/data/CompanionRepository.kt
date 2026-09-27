@@ -38,6 +38,12 @@ class CompanionRepository(private val context: Context) {
     private val _isServerRunning = MutableStateFlow(false)
     val isServerRunning = _isServerRunning.asStateFlow()
 
+    /** true = server bind 0.0.0.0 (bisa dijangkau LAN/tunnel AI eksternal via MCP). */
+    private val _networkExposed = MutableStateFlow(false)
+    val networkExposed = _networkExposed.asStateFlow()
+
+    private val prefs = context.getSharedPreferences("andra_server_prefs", Context.MODE_PRIVATE)
+
     private val _telemetry = MutableStateFlow(SystemTelemetry())
     val telemetry = _telemetry.asStateFlow()
 
@@ -47,7 +53,21 @@ class CompanionRepository(private val context: Context) {
     private var httpServer: JarvisHttpServer? = null
 
     init {
+        _networkExposed.value = prefs.getBoolean("pref_network_exposed", false)
         startTelemetryLoop()
+    }
+
+    /**
+     * Toggle ekspos jaringan untuk MCP/AI eksternal.
+     * Server di-restart otomatis agar bind address baru langsung berlaku.
+     */
+    fun setNetworkExposed(enabled: Boolean) {
+        _networkExposed.value = enabled
+        prefs.edit().putBoolean("pref_network_exposed", enabled).apply()
+        if (_isServerRunning.value) {
+            stopServer()
+            startServer()
+        }
     }
 
     fun startServer() {
@@ -57,6 +77,7 @@ class CompanionRepository(private val context: Context) {
             context = context,
             port = _port.value,
             token = _token.value,
+            bindAllInterfaces = _networkExposed.value,
             onLog = { logItem ->
                 val current = _serverLogs.value.toMutableList()
                 current.add(0, logItem)
@@ -105,9 +126,11 @@ class CompanionRepository(private val context: Context) {
 
     private fun startTelemetryLoop() {
         scope.launch {
+            // Tunda poll pertama agar tidak bersaing dengan render startup.
+            delay(2000)
             while (isActive) {
                 updateTelemetry()
-                delay(3000)
+                delay(5000)
             }
         }
     }
@@ -134,13 +157,18 @@ class CompanionRepository(private val context: Context) {
 
             val curApp = JarvisAccessibilityService.currentApp.value
 
-            _telemetry.value = SystemTelemetry(
+            val newTelemetry = SystemTelemetry(
                 batteryLevel = pct,
                 isCharging = isCharging,
                 wifiConnected = isWifi,
                 wifiSsid = ssid,
                 currentAppPackage = curApp
             )
+            // Hanya emit bila datanya benar-benar berubah, agar UI tidak
+            // recompose tiap 5 detik tanpa alasan (hemat frame, layar mulus).
+            if (newTelemetry != _telemetry.value) {
+                _telemetry.value = newTelemetry
+            }
         } catch (_: Exception) {}
     }
 }

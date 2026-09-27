@@ -103,7 +103,7 @@ object JarvisVoiceManager : TextToSpeech.OnInitListener {
                     _isSpeaking.value = true
                     if (_isVoiceCallActive.value) {
                         _voiceCallState.value = VoiceState.SPEAKING
-                        _voiceStatus.value = "JARVIS Berbicara..."
+                        _voiceStatus.value = "Asisten berbicara..."
                     }
                 }
 
@@ -357,7 +357,7 @@ object JarvisVoiceManager : TextToSpeech.OnInitListener {
             onResult = { spokenText ->
                 if (_isVoiceCallActive.value) {
                     _voiceCallState.value = VoiceState.THINKING
-                    _voiceStatus.value = "JARVIS sedang memproses..."
+                    _voiceStatus.value = "Asisten sedang memproses..."
                     _lastUserSpeech.value = spokenText
                     onVoiceCallInput?.invoke(spokenText)
                 }
@@ -382,7 +382,7 @@ object JarvisVoiceManager : TextToSpeech.OnInitListener {
     fun onAiReplyReceived(replyText: String) {
         if (_isVoiceCallActive.value) {
             _voiceCallState.value = VoiceState.SPEAKING
-            _voiceStatus.value = "JARVIS Berbicara..."
+            _voiceStatus.value = "Asisten berbicara..."
             speak(replyText)
         } else if (_autoReadEnabled.value) {
             speak(replyText)

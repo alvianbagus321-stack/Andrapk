@@ -17,31 +17,30 @@ import java.io.File
 object JarvisMemoryManager {
 
     private const val TAG = "JarvisMemoryManager"
-    private const val MEMORY_FILE_NAME = "jarvis_memory.md"
-    private const val ARCHIVE_FILE_NAME = "jarvis_memory_archive.md"
+    // Disimpan lewat PersistentStore (/sdcard/JARVIS/memory/...) agar TAHAN UNINSTALL.
+    private const val MEMORY_REL = "memory/jarvis_memory.md"
+    private const val ARCHIVE_REL = "memory/jarvis_memory_archive.md"
+    private const val LEGACY_MEMORY_FILE_NAME = "jarvis_memory.md"
     private const val MAX_MEMORY_CHARS_THRESHOLD = 3500
 
     private val _memoryState = MutableStateFlow("")
     val memoryState: StateFlow<String> = _memoryState.asStateFlow()
 
     init {
+        // Migrasi data lama (file internal pra-PersistentStore) agar tidak hilang.
+        try {
+            com.example.data.PersistentStore.migrateLegacyFile(
+                File(JarvisApp.instance.filesDir, LEGACY_MEMORY_FILE_NAME),
+                MEMORY_REL
+            )
+        } catch (_: Exception) {}
         loadMemoryFromFile()
-    }
-
-    private fun getMemoryFile(): File {
-        val context = JarvisApp.instance
-        return File(context.filesDir, MEMORY_FILE_NAME)
-    }
-
-    private fun getArchiveFile(): File {
-        val context = JarvisApp.instance
-        return File(context.filesDir, ARCHIVE_FILE_NAME)
     }
 
     fun loadMemoryFromFile(): String {
         return try {
-            val file = getMemoryFile()
-            if (!file.exists()) {
+            val existing = PersistentStore.read(MEMORY_REL)
+            if (existing == null) {
                 val initialContent = """
                     # 🧠 JARVIS Permanent Memory Bank (.md)
                     
@@ -54,13 +53,12 @@ object JarvisMemoryManager {
                     ## 📝 Saved Notes & Preferences
                     - Memori tersimpan secara otomatis dalam format Markdown yang hemat token.
                 """.trimIndent()
-                file.writeText(initialContent)
+                PersistentStore.write(MEMORY_REL, initialContent)
                 _memoryState.value = initialContent
                 initialContent
             } else {
-                val content = file.readText()
-                _memoryState.value = content
-                content
+                _memoryState.value = existing
+                existing
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error reading memory file", e)
@@ -75,8 +73,7 @@ object JarvisMemoryManager {
 
     fun saveMemory(category: String, content: String): String {
         return try {
-            val file = getMemoryFile()
-            var currentContent = if (file.exists()) file.readText() else ""
+            var currentContent = PersistentStore.read(MEMORY_REL) ?: ""
             if (currentContent.isBlank()) {
                 currentContent = "# 🧠 JARVIS Permanent Memory Bank (.md)\n"
             }
@@ -93,13 +90,13 @@ object JarvisMemoryManager {
                 val beforeHeader = parts[0]
                 val afterHeader = parts[1]
                 val newContent = "$beforeHeader$headerTitle\n$formattedLine\n$afterHeader"
-                file.writeText(newContent)
+                PersistentStore.write(MEMORY_REL, newContent)
                 _memoryState.value = newContent
             } else {
                 // Add new category section
                 val newSection = "\n\n$headerTitle\n$formattedLine"
                 val newContent = currentContent + newSection
-                file.writeText(newContent)
+                PersistentStore.write(MEMORY_REL, newContent)
                 _memoryState.value = newContent
             }
 
@@ -118,14 +115,13 @@ object JarvisMemoryManager {
      */
     fun checkAndAutoArchiveMemory(): String {
         return try {
-            val file = getMemoryFile()
-            if (!file.exists()) return "File memori belum ada."
-            val content = file.readText()
+            val content = PersistentStore.read(MEMORY_REL)
+                ?: return "File memori belum ada."
 
             if (content.length > MAX_MEMORY_CHARS_THRESHOLD) {
-                val archiveFile = getArchiveFile()
                 val timestamp = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-                archiveFile.appendText("\n\n--- 📦 AUTO ARCHIVE ENTRY ($timestamp) ---\n$content")
+                val existingArchive = PersistentStore.read(ARCHIVE_REL) ?: ""
+                PersistentStore.write(ARCHIVE_REL, "$existingArchive\n\n--- 📦 AUTO ARCHIVE ENTRY ($timestamp) ---\n$content")
 
                 val lines = content.lines()
                 val headerLines = lines.filter { it.startsWith("#") || it.contains("User Preferences") || it.contains("Device Context") }
@@ -146,7 +142,7 @@ object JarvisMemoryManager {
                     }
                 }
 
-                file.writeText(condensedContent)
+                PersistentStore.write(MEMORY_REL, condensedContent)
                 _memoryState.value = condensedContent
                 Log.i(TAG, "Auto-archived $archivedCount memory entries due to storage threshold.")
                 "📦 Memori lama ($archivedCount entri) telah diarsipkan otomatis ke 'jarvis_memory_archive.md' agar AI tetap cepat & efisien token."
@@ -159,27 +155,62 @@ object JarvisMemoryManager {
         }
     }
 
+    /**
+     * Recall memori dengan pencarian per-kata (OR, case-insensitive) + ranking relevansi.
+     * Dulu query utuh 4+ kata ("environment uid termux python") gagal karena dicocokkan
+     * sebagai SATU substring per baris — fakta yang tersimpan di baris berbeda tak pernah match.
+     * Sekarang: tiap kata = keyword tersendiri; baris dinilai dari jumlah keyword yang cocok
+     * (makin banyak makin relevan), keyword di-highlight bold, header seksi tetap ditampilkan.
+     */
     fun recallMemory(query: String?): String {
         val fullMemory = getMemoryMarkdown()
         if (query.isNullOrBlank()) return fullMemory
 
-        val matches = fullMemory.lines().filter { line ->
-            line.contains(query, ignoreCase = true) || line.startsWith("#")
+        // Tokenisasi query per-kata: buang tanda baca, minimal 2 karakter, unik
+        val keywords = query.lowercase()
+            .split(Regex("[^a-z0-9]+"))
+            .filter { it.length >= 2 }
+            .distinct()
+        if (keywords.isEmpty()) return fullMemory
+
+        // Skor tiap baris = jumlah keyword yang muncul di baris itu (case-insensitive)
+        val scored = fullMemory.lines().map { line ->
+            val lower = line.lowercase()
+            val hits = keywords.filter { lower.contains(it) }
+            line to hits
         }
 
-        return if (matches.isNotEmpty()) {
-            matches.joinToString("\n")
-        } else {
-            "Tidak ditemukan memori spesifik untuk kata kunci '$query'. Berikut memori lengkap:\n\n$fullMemory"
+        val matched = scored.filter { it.second.isNotEmpty() }
+        if (matched.isEmpty()) {
+            return "Tidak ditemukan memori yang cocok untuk kata kunci: ${keywords.joinToString(", ")}. Berikut memori lengkap:\n\n$fullMemory"
         }
+
+        // Ranking relevansi: baris dengan keyword terbanyak di atas (stable sort —
+        // baris ber-score sama tetap urut asli). Header seksi (0 hit) tetap ikut sebagai konteks.
+        val ranked = (scored.filter { it.second.isNotEmpty() } + scored.filter { it.second.isEmpty() && it.first.startsWith("#") })
+            .sortedByDescending { it.second.size }
+
+        // Highlight keyword (bold markdown) — huruf asli dipertahankan
+        val highlighted = ranked.map { (line, hits) ->
+            if (hits.isEmpty()) line
+            else {
+                var out = line
+                for (kw in hits) {
+                    out = out.replace(Regex(Regex.escape(kw), setOf(RegexOption.IGNORE_CASE))) { m -> "**${m.value}**" }
+                }
+                out
+            }
+        }
+
+        val totalHits = matched.sumOf { it.second.size }
+        return highlighted.joinToString("\n") +
+                "\n\n🔎 (${matched.size} baris cocok, $totalHits kecocokan keyword dari ${keywords.size} kata; diurutkan berdasarkan relevansi)"
     }
 
     fun clearMemory(): String {
         return try {
-            val file = getMemoryFile()
-            if (file.exists()) {
-                file.delete()
-            }
+            PersistentStore.delete(MEMORY_REL)
+            PersistentStore.delete(ARCHIVE_REL)
             loadMemoryFromFile()
             "Seluruh memori (.md) telah dibersihkan."
         } catch (e: Exception) {
