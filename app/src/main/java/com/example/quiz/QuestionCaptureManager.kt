@@ -291,6 +291,25 @@ object QuestionCaptureManager {
     }
 
     // -------------------------------------------------------------- util --
+    /** Ambil frame TERAKHIR dari mp4 perekaman berjalan sbg base64 JPEG (null bila gagal). */
+    private fun grabVideoFrameB64(): String? = runCatching {
+        val f = QuizAnalyzer.currentRecordingFile() ?: return null
+        val r = android.media.MediaMetadataRetriever()
+        r.setDataSource(f.absolutePath)
+        val durMs = (r.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+            ?: "0").toLongOrNull() ?: 0L
+        val bmp = r.getFrameAtTime(
+            (durMs * 1000).coerceAtLeast(200_000) - 150_000,
+            android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC
+        )
+        r.release()
+        bmp ?: return null
+        val out = java.io.ByteArrayOutputStream()
+        bmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        bmp.recycle()
+        Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    }.getOrNull()
+
     private fun normLine(l: String): String =
         l.lowercase(Locale.getDefault()).replace(Regex("\\s+"), " ").trim()
 
@@ -354,7 +373,7 @@ object QuestionCaptureManager {
     /**
      * Alur utama (spec E). @return null bila capture pertama gagal total.
      */
-    suspend fun captureQuestion(remote: Boolean): CaptureResult? = withContext(Dispatchers.IO) {
+    suspend fun captureQuestion(remote: Boolean, preferVideo: Boolean = false): CaptureResult? = withContext(Dispatchers.IO) {
         val ctx = JarvisApp.instance
         val target = RemoteControllers.forTarget(remote)
         val sessionId = startNewQuestion()
@@ -372,7 +391,14 @@ object QuestionCaptureManager {
         var pageCount = 0
 
         while (pageCount < MAX_PAGES) {
-            val b64 = ScreenshotManager.captureBase64(ctx).first ?: break
+            // MODE VIDEO (Adaptif/ScreenRecorder, Android 10+): frame terakhir mp4
+            // = tangkapan halaman; gagal -> fallback screenshot klasik.
+            var b64: String? = null
+            if (preferVideo && Build.VERSION.SDK_INT >= 30) {
+                b64 = grabVideoFrameB64()
+            }
+            val viaVideo = b64 != null
+            if (b64 == null) b64 = ScreenshotManager.captureBase64(ctx).first ?: break
             val text = ocrOf(b64)
             val h = frameHash(b64)
             state.unchangedCount = if (pageCount > 0 && h == prevHash) state.unchangedCount + 1 else 0
@@ -440,6 +466,8 @@ object QuestionCaptureManager {
                 break
             }
             delay(if (remote) SCROLL_SETTLE_DELAY_REMOTE_MS else SCROLL_SETTLE_DELAY_MS)
+            // perekaman berjalan: segarkan file agar frame berikutnya = halaman BARU
+            if (viaVideo) QuizAnalyzer.refreshRecorder()
         }
 
         if (pageCount == 0) {

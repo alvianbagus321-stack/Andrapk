@@ -47,6 +47,9 @@ object ScreenRecordManager {
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
 
+    /** File mp4 yang sedang direkam (null bila tidak ada) — dipakai frame-grabber quiz. */
+    fun currentFile(): File? = outputFile
+
     private fun recordingsDir(context: Context): File {
         // Prioritas folder publik /sdcard/JARVIS/recordings (tahan uninstall) bila izin ada,
         // fallback ke folder app-specific eksternal (selalu bisa ditulis tanpa izin).

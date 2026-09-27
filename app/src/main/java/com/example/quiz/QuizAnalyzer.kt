@@ -182,6 +182,7 @@ object QuizAnalyzer {
         _proMode.value = submitPrefs.getBoolean("quiz_pro_mode", true)
         _manualMode.value = submitPrefs.getBoolean("quiz_manual_mode", false)
         _scrollAmount.value = submitPrefs.getInt("quiz_scroll_amount", 50).coerceIn(0, 70)
+        _captureMethod.value = submitPrefs.getInt("quiz_capture_method", 0).coerceIn(0, 2)
         _wheelSide.value = submitPrefs.getInt("quiz_wheel_side", 0).coerceIn(0, 2)
         // autoAnswerLoop SENGAJA tidak dimuat: loop ketuk otomatis tak boleh hidup sendiri saat app restart
     }
@@ -235,6 +236,31 @@ object QuizAnalyzer {
     fun setManualMode(on: Boolean) {
         _manualMode.value = on
         submitPrefs.edit().putBoolean("quiz_manual_mode", on).apply()
+    }
+
+    // METODE TANGKAP (PRO): 0=Adaptif (recorder utk halaman 1 + fallback screenshot,
+    // AI yang mengontrol), 1=Screenshot (klasik), 2=ScreenRecorder (video wajib)
+    private val _captureMethod = MutableStateFlow(0)
+    val captureMethod: StateFlow<Int> = _captureMethod.asStateFlow()
+
+    fun setCaptureMethod(v: Int) {
+        _captureMethod.value = v.coerceIn(0, 2)
+        submitPrefs.edit().putInt("quiz_capture_method", _captureMethod.value).apply()
+    }
+
+    /** File mp4 perekaman berjalan (untuk frame-grabber QuestionCaptureManager). */
+    fun currentRecordingFile(): java.io.File? =
+        com.example.service.ScreenRecordManager.currentFile()
+
+    /** Segarkan perekaman: stop+start sehingga frame berikutnya = halaman baru. */
+    suspend fun refreshRecorder() {
+        runCatching {
+            val m = com.example.service.ScreenRecordManager
+            if (m.isRecording.value) {
+                m.stop()
+                m.start(JarvisApp.instance)
+            }
+        }
     }
 
     // Intensitas gulir otomatis: 0 = MATI (app tak pernah scroll sendiri), 30-70%
@@ -940,6 +966,21 @@ object QuizAnalyzer {
         val wakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Andrapk:quizAnalyze")
         runCatching { wakeLock.acquire(300_000L) }
 
+        // MODE RECORDER/ADAPTIF: mulai perekaman layar utk frame per halaman
+        // (gagal aman: QuestionCaptureManager otomatis fallback screenshot).
+        var rekamanKita = false
+        if (preCapturedBase64 == null && manualText == null && _proMode.value &&
+            _scrollAmount.value > 0 && _captureMethod.value != 1 && Build.VERSION.SDK_INT >= 30
+        ) {
+            runCatching {
+                val m = com.example.service.ScreenRecordManager
+                if (!m.isRecording.value) {
+                    val r = m.start(JarvisApp.instance)
+                    rekamanKita = r.status == "ok"
+                }
+            }
+        }
+
         // AUTO-MINIMIZE HUD: kartu HUD ikut tertangkap di screenshot & menutupi soal.
         // Minimize (BUKAN tutup) -> tunggu frame stabil -> baru tangkap.
         val hudKamiMinimize = !com.example.quiz.QuizOverlayManager.isMinimized.value
@@ -993,6 +1034,21 @@ object QuizAnalyzer {
                 // scroll dinamis (node/gesture utk app biasa; roda/PageDown utk
                 // StarDesk) -> merge anti-duplikat -> tempmemory.md (1 soal).
                 capResult = QuestionCaptureManager.captureQuestion(remoteActive())
+            }
+        }
+        // METODE TANGKAP (spec): ScreenRecorder/Adaptif -> QuestionCaptureManager
+        // memakai frame VIDEO per halaman (soal terpotong = WAJIB scroll ke bawah,
+        // lalu AI diberi tahu halamannya berurutan). Screenshot murni = jalur lama.
+        if (rekamanKita || (_captureMethod.value == 2 && Build.VERSION.SDK_INT >= 30)) {
+            if (_captureMethod.value == 2) {
+                DiagnosticLogger.update(captureDetail = "\ud83c\udfa5 Mode ScreenRecorder: halaman 1 via frame video")
+            } else {
+                DiagnosticLogger.update(captureDetail = "\ud83c\udfa5 Mode Adaptif: halaman 1 via video (fallback screenshot bila gagal)")
+            }
+            capResult = QuestionCaptureManager.captureQuestion(remoteActive(), preferVideo = true)
+            if (capResult == null) {
+                DiagnosticLogger.update(captureDetail = "Frame video gagal - fallback screenshot")
+                capResult = QuestionCaptureManager.captureQuestion(remoteActive(), preferVideo = false)
             }
         }
         var ocrBitmap: Bitmap? = null
@@ -1244,6 +1300,9 @@ object QuizAnalyzer {
                     if (extraScrolls > 0) {
                         appendLine("Catatan: OCR diambil dari " + (extraScrolls + 1) + " tangkapan berurutan (layar di-scroll, saling tumpang-tindih) - duplikat dihapus, urutan baris = urutan baca.")
                     }
+                    if (capResult != null && capResult!!.state.pageCount > 1) {
+                        appendLine("Mode adaptif: halaman digulir KE BAWAH karena soal terpotong - frame video per halaman terlampir BERURUTAN (hal 1 paling atas).")
+                    }
                     if (frames.size > 1) {
                         appendLine("Terlampir " + frames.size + " GAMBAR tangkapan berurutan - perhatikan SEMUANYA (bukan hanya gambar pertama); gambar-gambar itu satu konten kontinyu yang di-scroll.")
                         if (autoDriven && manualText == null) {
@@ -1393,6 +1452,7 @@ object QuizAnalyzer {
             runCatching { if (wakeLock.isHeld) wakeLock.release() }
             // tempmemory.md hidup hanya 1 soal (spec F): dihapus setelah analisis
             if (capResult != null) QuestionCaptureManager.clearMemory()
+            if (rekamanKita) runCatching { com.example.service.ScreenRecordManager.stop() }
             ocrBitmap?.recycle()
             // HUD muncul lagi otomatis menampilkan hasil (kecuali Auto Jawab loop
             // sedang berjalan - iterasi berikutnya akan minimize lagi)
