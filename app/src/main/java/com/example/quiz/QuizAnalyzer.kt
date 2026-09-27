@@ -226,9 +226,9 @@ object QuizAnalyzer {
 
     fun setProMode(pro: Boolean) {
         _proMode.value = pro
-        if (pro) _manualMode.value = false
+        _manualMode.value = false // PRO/DEFAULT selalu mematikan MANUAL (eksklusif)
         submitPrefs.edit().putBoolean("quiz_pro_mode", pro).apply()
-        submitPrefs.edit().putBoolean("quiz_manual_mode", _manualMode.value).apply()
+        submitPrefs.edit().putBoolean("quiz_manual_mode", false).apply()
     }
 
     // MODE MANUAL: HUD minimal — hanya Screenshot, lampiran, Analyze & Auto Jawab
@@ -237,7 +237,9 @@ object QuizAnalyzer {
 
     fun setManualMode(on: Boolean) {
         _manualMode.value = on
+        if (on) _proMode.value = true // MANUAL hidup di konteks PRO (panel PRO disembunyikan)
         submitPrefs.edit().putBoolean("quiz_manual_mode", on).apply()
+        submitPrefs.edit().putBoolean("quiz_pro_mode", _proMode.value).apply()
     }
 
     // METODE TANGKAP (PRO): 0=Adaptif (recorder utk halaman 1 + fallback screenshot,

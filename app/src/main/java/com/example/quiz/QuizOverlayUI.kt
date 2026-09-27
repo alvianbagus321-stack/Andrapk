@@ -209,27 +209,27 @@ fun QuizOverlayUI() {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 Text(
                     "PRO",
-                    color = if (proMode) Color.Black else JarvisTextPrimary,
+                    color = if (proMode && !manualMode) Color.Black else JarvisTextPrimary,
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Black,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (proMode) JarvisCyan else Color(0x22FFFFFF))
+                        .background(if (proMode && !manualMode) JarvisCyan else Color(0x22FFFFFF))
                         .clickable { QuizAnalyzer.setProMode(true) }
                         .padding(vertical = 7.dp)
                 )
                 Text(
                     "DEFAULT",
-                    color = if (!proMode) Color.Black else JarvisTextPrimary,
+                    color = if (!proMode && !manualMode) Color.Black else JarvisTextPrimary,
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.Black,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (!proMode) JarvisEmerald else Color(0x22FFFFFF))
+                        .background(if (!proMode && !manualMode) JarvisEmerald else Color(0x22FFFFFF))
                         .clickable { QuizAnalyzer.setProMode(false) }
                         .padding(vertical = 7.dp)
                 )
