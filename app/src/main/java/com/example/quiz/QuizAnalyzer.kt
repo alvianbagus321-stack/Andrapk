@@ -180,6 +180,8 @@ object QuizAnalyzer {
         _scrollToTopOnAnalyze.value = submitPrefs.getBoolean("quiz_scroll_to_top", true)
         _autoSweep.value = submitPrefs.getBoolean("quiz_auto_sweep", false)
         _proMode.value = submitPrefs.getBoolean("quiz_pro_mode", true)
+        _manualMode.value = submitPrefs.getBoolean("quiz_manual_mode", false)
+        _scrollAmount.value = submitPrefs.getInt("quiz_scroll_amount", 50).coerceIn(0, 70)
         _wheelSide.value = submitPrefs.getInt("quiz_wheel_side", 0).coerceIn(0, 2)
         // autoAnswerLoop SENGAJA tidak dimuat: loop ketuk otomatis tak boleh hidup sendiri saat app restart
     }
@@ -221,7 +223,28 @@ object QuizAnalyzer {
 
     fun setProMode(pro: Boolean) {
         _proMode.value = pro
+        if (pro) _manualMode.value = false
         submitPrefs.edit().putBoolean("quiz_pro_mode", pro).apply()
+        submitPrefs.edit().putBoolean("quiz_manual_mode", _manualMode.value).apply()
+    }
+
+    // MODE MANUAL: HUD minimal — hanya Screenshot, lampiran, Analyze & Auto Jawab
+    private val _manualMode = MutableStateFlow(false)
+    val manualMode: StateFlow<Boolean> = _manualMode.asStateFlow()
+
+    fun setManualMode(on: Boolean) {
+        _manualMode.value = on
+        submitPrefs.edit().putBoolean("quiz_manual_mode", on).apply()
+    }
+
+    // Intensitas gulir otomatis: 0 = MATI (app tak pernah scroll sendiri), 30-70%
+    private val _scrollAmount = MutableStateFlow(50)
+    val scrollAmount: StateFlow<Int> = _scrollAmount.asStateFlow()
+    val scrollAmountPref: Int get() = _scrollAmount.value
+
+    fun setScrollAmount(v: Int) {
+        _scrollAmount.value = v.coerceIn(0, 70)
+        submitPrefs.edit().putInt("quiz_scroll_amount", _scrollAmount.value).apply()
     }
 
     fun setScrollFingers(n: Int) {
@@ -661,6 +684,18 @@ object QuizAnalyzer {
     }
 
     /** Kirim semua tangkapan manual (gabungan OCR) ke AI untuk dianalisis. */
+    /** Hapus satu tangkapan manual (index) dari panel MANUAL. */
+    fun removeManualCapture(index: Int) {
+        synchronized(manualLock) {
+            if (index in 0 until manualB64List.size) {
+                manualB64List.removeAt(index)
+                _manualCaptures.value = manualB64List.size
+                if (manualB64List.isEmpty()) { manualSeen.clear(); manualBufferText = "" }
+                DiagnosticLogger.update(captureDetail = "\ud83d\uddd1 tangkapan dihapus (sisa " + manualB64List.size + ")")
+            }
+        }
+    }
+
     fun sendManualCaptures() {
         if (_isAnalyzing.value) return
         val pair = synchronized(manualLock) {
@@ -932,7 +967,7 @@ object QuizAnalyzer {
         var kontenSiap = false
         var capResult: QuestionCaptureManager.CaptureResult? = null
         if (preCapturedBase64 == null && manualText == null &&
-            _scrollToTopOnAnalyze.value && _proMode.value
+            _scrollToTopOnAnalyze.value && _proMode.value && _scrollAmount.value > 0
         ) {
             runCatching {
                 val b0 = ScreenshotManager.captureBase64(JarvisApp.instance).first
@@ -1185,7 +1220,9 @@ object QuizAnalyzer {
             }
 
             // Mode PILIHAN: lakukan semua scroll+capture dulu (tanpa AI), lalu 1x panggil AI.
-            if (!autoDriven && _proMode.value && preCapturedBase64 == null && manualText == null) {
+            if (!autoDriven && _proMode.value && _scrollAmount.value > 0 &&
+                preCapturedBase64 == null && manualText == null
+            ) {
                 var donePilihan = 0
                 while (donePilihan < _manualExtraCount.value) {
                     val added = scrollCaptureMerge()
@@ -1281,7 +1318,7 @@ object QuizAnalyzer {
                 result = r
                 // Lanjutan otomatis hanya di mode OTOMATIS & Analyze manual biasa;
                 // di mode PILIHAN jumlahnya sudah ditentukan user di atas.
-                if (!r.needsMore || !autoDriven || !_proMode.value ||
+                if (!r.needsMore || !autoDriven || !_proMode.value || _scrollAmount.value == 0 ||
                     preCapturedBase64 != null || manualText != null || extraScrolls >= maxExtras) break
                 val added = scrollCaptureMerge()
                 if (added < 0) break

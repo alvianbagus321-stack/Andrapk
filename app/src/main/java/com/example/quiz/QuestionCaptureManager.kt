@@ -418,6 +418,14 @@ object QuestionCaptureManager {
                 break
             }
 
+            // GULIR = 0 (dimatikan user): jangan scroll sama sekali; lengkap hanya
+            // bila soal+opsi terbaca dari capture tunggal, else gate menolak menjawab
+            if (QuizAnalyzer.scrollAmountPref == 0) {
+                state.complete = a.question && a.labels.isNotEmpty()
+                Log.i(TAG, "[SCROLL] Disabled (amount=0) - complete: " + state.complete)
+                DiagnosticLogger.update(captureDetail = "[SCROLL] Gulir otomatis DIMATIKAN (0) - complete=" + state.complete)
+                break
+            }
             // SCROLL_DOWN (spec C/D: fallback berlapis di dalam controller)
             state.needsScroll = true
             Log.i(TAG, "[SCROLL] Request: SCROLL_DOWN")

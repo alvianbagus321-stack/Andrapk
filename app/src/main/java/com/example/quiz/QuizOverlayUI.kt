@@ -66,6 +66,8 @@ fun QuizOverlayUI() {
     val autoSweepOn by QuizAnalyzer.autoSweep.collectAsState()
     val proMode by QuizAnalyzer.proMode.collectAsState()
     val wheelSide by QuizAnalyzer.wheelSide.collectAsState()
+    val manualMode by QuizAnalyzer.manualMode.collectAsState()
+    val scrollAmount by QuizAnalyzer.scrollAmount.collectAsState()
     val captureActive by com.example.service.ScreenshotManager.isMediaProjectionActive.collectAsState()
     val captureDiedAt by com.example.service.ScreenshotManager.projectionDiedAt.collectAsState()
     val sweeping by QuizAnalyzer.sweeping.collectAsState()
@@ -221,6 +223,19 @@ fun QuizOverlayUI() {
                         .clickable { QuizAnalyzer.setProMode(false) }
                         .padding(vertical = 7.dp)
                 )
+                Text(
+                    "MANUAL",
+                    color = if (manualMode) Color.Black else JarvisTextPrimary,
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Black,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (manualMode) JarvisAmber else Color(0x22FFFFFF))
+                        .clickable { QuizAnalyzer.setManualMode(true) }
+                        .padding(vertical = 7.dp)
+                )
             }
 
             Spacer(Modifier.height(8.dp))
@@ -250,7 +265,7 @@ fun QuizOverlayUI() {
                 )
             }
 
-            if (proMode) { // baris ini khusus PRO; mode DEFAULT punya barisnya sendiri di bawah
+            if (proMode && !manualMode) { // baris ini khusus PRO; mode DEFAULT punya barisnya sendiri di bawah
             // Auto Jawab: loop analisis+jawab+submit sampai selesai / batas soal (atur di Mode advance)
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -272,7 +287,7 @@ fun QuizOverlayUI() {
             }
             } // akhir Auto Jawab PRO
 
-            if (proMode) {
+            if (proMode && !manualMode) {
                 // MODE ADVANCE: setelan lanjutan disembunyikan agar HUD tetap ringkas
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -488,6 +503,31 @@ fun QuizOverlayUI() {
                         overflow = TextOverflow.Ellipsis
                     )
 
+                    // Intensitas gulir otomatis (0 = MATI) — dipakai semua jalur gulir
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        listOf(0 to "Off", 30 to "30", 50 to "50", 70 to "70").forEach { (v, label) ->
+                            val selected = scrollAmount == v
+                            Text(
+                                label,
+                                color = if (selected) Color.Black else JarvisTextPrimary,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (selected) JarvisAmber else Color(0x22FFFFFF))
+                                    .clickable { QuizAnalyzer.setScrollAmount(v) }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            )
+                        }
+                        Text(
+                            "Gulir otomatis (0 = mati)",
+                            color = JarvisTextSecondary,
+                            fontSize = 9.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
                     // SOP langkah 1: mulai dari atas saat Analyze
                     Spacer(Modifier.height(6.dp))
                     Text("Scroll otomatis saat Analyze", color = JarvisTextPrimary, fontSize = 11.5.sp)
@@ -591,9 +631,32 @@ fun QuizOverlayUI() {
 
             } // akhir seksi PRO
 
-            if (!proMode) {
+            if (!proMode && !manualMode) {
                 // MODE DEFAULT: panel bersih — hanya Auto Jawab (Auto Submit & auto-
                 // minimize tetap berlaku dari setelannya); satu capture per Analyze.
+                // Gulir otomatis: 0 = MATI (tak pernah scroll), berlaku juga di PRO
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf(0 to "Off", 30 to "30", 50 to "50", 70 to "70").forEach { (v, label) ->
+                        val selected = scrollAmount == v
+                        Text(
+                            label,
+                            color = if (selected) Color.Black else JarvisTextPrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) JarvisAmber else Color(0x22FFFFFF))
+                                .clickable { QuizAnalyzer.setScrollAmount(v) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        )
+                    }
+                    Text(
+                        "Gulir otomatis (0 = mati)",
+                        color = JarvisTextSecondary,
+                        fontSize = 9.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Auto Jawab semua soal", color = JarvisTextPrimary, fontSize = 11.5.sp)
@@ -621,9 +684,76 @@ fun QuizOverlayUI() {
                 )
             }
 
+            if (manualMode) {
+                // MODE MANUAL: HANYA Screenshot + lampiran + Analyze + Auto Jawab
+                Button(
+                    onClick = { QuizAnalyzer.addManualCapture() },
+                    enabled = !isAnalyzing,
+                    colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = Color.Black),
+                    modifier = Modifier.fillMaxWidth().height(40.dp)
+                ) {
+                    Text("\ud83d\udcf8 Screenshot", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "\ud83d\udcce " + manualCaptures + " tangkapan terlampir",
+                        color = JarvisTextPrimary,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "\ud83d\uddd1 Hapus akhir",
+                        color = if (manualCaptures > 0) JarvisAmber else JarvisTextSecondary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (manualCaptures > 0) Color(0x33FFC107) else Color(0x11FFFFFF))
+                            .clickable(enabled = manualCaptures > 0) { QuizAnalyzer.removeManualCapture(manualCaptures - 1) }
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        "\u2715 Semua",
+                        color = if (manualCaptures > 0) JarvisRed else JarvisTextSecondary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (manualCaptures > 0) Color(0x33FF5555) else Color(0x11FFFFFF))
+                            .clickable(enabled = manualCaptures > 0) { QuizAnalyzer.clearManualCaptures() }
+                            .padding(horizontal = 8.dp, vertical = 5.dp)
+                    )
+                }
+                Text(
+                    "Screenshot = HUD mengecil otomatis lalu gambar terlampir di sini. Lampirkan beberapa halaman, lalu tap Analyze.",
+                    color = JarvisTextSecondary,
+                    fontSize = 9.5.sp
+                )
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                    Text("Auto Jawab (klik jawaban)", color = JarvisTextPrimary, fontSize = 11.5.sp, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = autoAnswerOn,
+                        onCheckedChange = { QuizAnalyzer.setAutoAnswerLoop(it) },
+                        modifier = Modifier.height(24.dp),
+                        colors = SwitchDefaults.colors(checkedTrackColor = JarvisCyan)
+                    )
+                }
+                Text(
+                    "Mode manual: hanya Screenshot, lampiran, Analyze & Auto Jawab.",
+                    color = JarvisTextSecondary,
+                    fontSize = 9.5.sp
+                )
+            }
+
             // Tombol Analyze / STOP (saat proses berjalan - tidak ada lagi kondisi stuck)
             Button(
-                onClick = { if (isAnalyzing) QuizAnalyzer.cancelAnalysis() else QuizAnalyzer.analyzeOnce() },
+                onClick = {
+                    if (isAnalyzing) QuizAnalyzer.cancelAnalysis()
+                    else if (manualMode) QuizAnalyzer.sendManualCaptures()
+                    else QuizAnalyzer.analyzeOnce()
+                },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isAnalyzing) JarvisRed else JarvisCyan,
                     contentColor = Color.Black
@@ -652,7 +782,7 @@ fun QuizOverlayUI() {
                         .clickable { QuizAnalyzer.stopSweep() }
                         .padding(vertical = 7.dp)
                 )
-            } else if (proMode) { // alat sweep khusus mode PRO
+            } else if (proMode && !manualMode) { // alat sweep khusus mode PRO
                 Text(
                     "\u2913 Scan Penuh (scroll sampai mentok)",
                     color = JarvisTextPrimary,
@@ -670,106 +800,108 @@ fun QuizOverlayUI() {
 
             Spacer(Modifier.height(8.dp))
 
-            // Tangkapan manual utk AI: tap 📷 sebanyak apa pun (scroll manual di antaranya),
-            // lalu Kirim = analisis gabungan semua tangkapan
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(
-                    onClick = { QuizAnalyzer.addManualCapture() },
-                    enabled = !isAnalyzing,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A3348), contentColor = JarvisTextPrimary),
-                    modifier = Modifier.weight(1f).height(30.dp)
-                ) {
-                    Text("\ud83d\udcf7 Tambah (" + manualCaptures + ")", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+            if (!manualMode) {
+                // Tangkapan manual utk AI: tap 📷 sebanyak apa pun (scroll manual di antaranya),
+                // lalu Kirim = analisis gabungan semua tangkapan
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    Button(
+                        onClick = { QuizAnalyzer.addManualCapture() },
+                        enabled = !isAnalyzing,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A3348), contentColor = JarvisTextPrimary),
+                        modifier = Modifier.weight(1f).height(30.dp)
+                    ) {
+                        Text("\ud83d\udcf7 Tambah (" + manualCaptures + ")", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Button(
+                        onClick = { QuizAnalyzer.sendManualCaptures() },
+                        enabled = manualCaptures > 0 && !isAnalyzing,
+                        colors = ButtonDefaults.buttonColors(containerColor = JarvisEmerald, contentColor = Color.Black),
+                        modifier = Modifier.weight(1f).height(30.dp)
+                    ) {
+                        Text("Kirim ke AI", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                    // Hapus buffer tangkapan manual (sebelumnya tidak ada tombolnya)
+                    Text(
+                        "\u2715",
+                        color = if (manualCaptures > 0) JarvisRed else JarvisTextSecondary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(if (manualCaptures > 0) Color(0x33FF5555) else Color(0x11FFFFFF))
+                            .clickable(enabled = manualCaptures > 0) { QuizAnalyzer.clearManualCaptures() }
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                    )
                 }
-                Button(
-                    onClick = { QuizAnalyzer.sendManualCaptures() },
-                    enabled = manualCaptures > 0 && !isAnalyzing,
-                    colors = ButtonDefaults.buttonColors(containerColor = JarvisEmerald, contentColor = Color.Black),
-                    modifier = Modifier.weight(1f).height(30.dp)
+                // Kontrol gulir manual: posisikan halaman (PC via StarDesk = roda mouse 2 jari)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Kirim ke AI", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                    Text("Gulir:", color = JarvisTextSecondary, fontSize = 10.5.sp)
+                    Text(
+                        "\u25b2",
+                        color = Color.Black,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(JarvisCyan)
+                            .clickable { QuizAnalyzer.remoteScroll(up = true) }
+                            .padding(horizontal = 14.dp, vertical = 3.dp)
+                    )
+                    Text(
+                        "\u25bc",
+                        color = Color.Black,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(JarvisCyan)
+                            .clickable { QuizAnalyzer.remoteScroll(up = false) }
+                            .padding(horizontal = 14.dp, vertical = 3.dp)
+                    )
+                    // Jalur PASTI: PageUp/PageDown dikirim via Shizuku -> StarDesk meneruskan
+                    // ke PC sbg tombol keyboard -> halaman PC tergulung walau gesture 2 jari tak mempan
+                    Text(
+                        "\u21de",
+                        color = Color.Black,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(JarvisEmerald)
+                            .clickable { QuizAnalyzer.scrollKey("pageup") }
+                            .padding(horizontal = 12.dp, vertical = 3.dp)
+                    )
+                    Text(
+                        "\u21df",
+                        color = Color.Black,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(JarvisEmerald)
+                            .clickable { QuizAnalyzer.scrollKey("pagedown") }
+                            .padding(horizontal = 12.dp, vertical = 3.dp)
+                    )
+                    Text(
+                        "(hijau = PageUp/Dn via Shizuku)",
+                        color = JarvisTextSecondary,
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                // Hapus buffer tangkapan manual (sebelumnya tidak ada tombolnya)
                 Text(
-                    "\u2715",
-                    color = if (manualCaptures > 0) JarvisRed else JarvisTextSecondary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(if (manualCaptures > 0) Color(0x33FF5555) else Color(0x11FFFFFF))
-                        .clickable(enabled = manualCaptures > 0) { QuizAnalyzer.clearManualCaptures() }
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
-                )
-            }
-            // Kontrol gulir manual: posisikan halaman (PC via StarDesk = roda mouse 2 jari)
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Gulir:", color = JarvisTextSecondary, fontSize = 10.5.sp)
-                Text(
-                    "\u25b2",
-                    color = Color.Black,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(JarvisCyan)
-                        .clickable { QuizAnalyzer.remoteScroll(up = true) }
-                        .padding(horizontal = 14.dp, vertical = 3.dp)
-                )
-                Text(
-                    "\u25bc",
-                    color = Color.Black,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(JarvisCyan)
-                        .clickable { QuizAnalyzer.remoteScroll(up = false) }
-                        .padding(horizontal = 14.dp, vertical = 3.dp)
-                )
-                // Jalur PASTI: PageUp/PageDown dikirim via Shizuku -> StarDesk meneruskan
-                // ke PC sbg tombol keyboard -> halaman PC tergulung walau gesture 2 jari tak mempan
-                Text(
-                    "\u21de",
-                    color = Color.Black,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(JarvisEmerald)
-                        .clickable { QuizAnalyzer.scrollKey("pageup") }
-                        .padding(horizontal = 12.dp, vertical = 3.dp)
-                )
-                Text(
-                    "\u21df",
-                    color = Color.Black,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Black,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(JarvisEmerald)
-                        .clickable { QuizAnalyzer.scrollKey("pagedown") }
-                        .padding(horizontal = 12.dp, vertical = 3.dp)
-                )
-                Text(
-                    "(hijau = PageUp/Dn via Shizuku)",
+                    "\ud83d\udcf7 = simpan layar sekarang (scroll dulu bila perlu); Kirim = analisis gabungan",
                     color = JarvisTextSecondary,
                     fontSize = 9.sp,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Text(
-                "\ud83d\udcf7 = simpan layar sekarang (scroll dulu bila perlu); Kirim = analisis gabungan",
-                color = JarvisTextSecondary,
-                fontSize = 9.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
 
             Spacer(Modifier.height(6.dp))
 
