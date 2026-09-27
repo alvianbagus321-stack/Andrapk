@@ -208,17 +208,24 @@ object QuizOverlayManager {
         prefs?.edit()?.putInt(KEY_X, params.x)?.putInt(KEY_Y, params.y)?.apply()
     }
 
-    /** Drag via onInterceptTouchEvent agar tetap jalan walau sentuhan di atas elemen Compose. */
+    /**
+     * Drag via onInterceptTouchEvent — HANYA dari zona HEADER (baris judul).
+     * Dulu: gesture apapun yang bergeser >slop (termasuk VERTIKAL utk scroll
+     * konten HUD) di-intercept sbg drag -> scroll internal Compose tak pernah
+     * kebagian sentuhan (HUD terasa "stuck tak bisa digulir").
+     */
     private class DraggableLayout(context: Context) : FrameLayout(context) {
         private var getPos: (() -> Pair<Int, Int>)? = null
         private var setPosFn: ((Int, Int) -> Unit)? = null
         private var onDragEndFn: (() -> Unit)? = null
         private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        private val dragZoneH = (56 * context.resources.displayMetrics.density).toInt()
         private var downRawX = 0f
         private var downRawY = 0f
         private var startX = 0
         private var startY = 0
         private var dragging = false
+        private var downInZone = false
 
         fun configure(getPos: () -> Pair<Int, Int>, setPos: (Int, Int) -> Unit, onDragEnd: () -> Unit) {
             this.getPos = getPos
@@ -229,14 +236,17 @@ object QuizOverlayManager {
         override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    downInZone = ev.y <= dragZoneH
+                    if (!downInZone) { dragging = false; return false } // di luar header: biarkan Compose (scroll) menerima sentuhan
                     downRawX = ev.rawX; downRawY = ev.rawY
                     val p = getPos?.invoke()
                     startX = p?.first ?: 0; startY = p?.second ?: 0
                     dragging = false
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (!dragging && hypot(ev.rawX - downRawX, ev.rawY - downRawY) > touchSlop) dragging = true
+                    if (downInZone && !dragging && hypot(ev.rawX - downRawX, ev.rawY - downRawY) > touchSlop) dragging = true
                 }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> downInZone = false
             }
             return dragging
         }
