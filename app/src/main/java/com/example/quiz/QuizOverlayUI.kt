@@ -68,6 +68,7 @@ fun QuizOverlayUI() {
     val wheelSide by QuizAnalyzer.wheelSide.collectAsState()
     val manualMode by QuizAnalyzer.manualMode.collectAsState()
     val scrollAmount by QuizAnalyzer.scrollAmount.collectAsState()
+    val captureMethod by QuizAnalyzer.captureMethod.collectAsState()
     val captureActive by com.example.service.ScreenshotManager.isMediaProjectionActive.collectAsState()
     val captureDiedAt by com.example.service.ScreenshotManager.projectionDiedAt.collectAsState()
     val sweeping by QuizAnalyzer.sweeping.collectAsState()
@@ -286,6 +287,42 @@ fun QuizOverlayUI() {
                 )
             }
             } // akhir Auto Jawab PRO
+
+            // METODE TANGKAP (PRO): pilih salah satu / serahkan ke AI (Adaptif)
+            if (proMode && !manualMode) {
+                Text("Metode tangkap", color = JarvisTextPrimary, fontSize = 11.5.sp)
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf(
+                        0 to "Adaptif",
+                        1 to "Screenshot",
+                        2 to "ScreenRec"
+                    ).forEach { (v, label) ->
+                        val selected = captureMethod == v
+                        Text(
+                            label,
+                            color = if (selected) Color.Black else JarvisTextPrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (selected) JarvisCyan else Color(0x22FFFFFF))
+                                .clickable { QuizAnalyzer.setCaptureMethod(v) }
+                                .padding(vertical = 7.dp),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                }
+                Text(
+                    "Otomatis adaptif: AI yang mengontrol - halaman 1 via video; soal terpotong WAJIB digulir ke bawah, tiap halaman jadi frame utk AI (Android 10+). Screenshot = jalur klasik.",
+                    color = JarvisTextSecondary,
+                    fontSize = 9.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(6.dp))
+            }
 
             if (proMode && !manualMode) {
                 // MODE ADVANCE: setelan lanjutan disembunyikan agar HUD tetap ringkas
