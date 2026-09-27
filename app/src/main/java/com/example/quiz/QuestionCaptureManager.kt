@@ -88,7 +88,7 @@ class AndroidNativeController : RemoteController {
         if (node != null) {
             val fwd = runCatching { node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) }.getOrDefault(false)
             val down = if (Build.VERSION.SDK_INT >= 23) {
-                runCatching { node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_DOWN) }.getOrDefault(false)
+                runCatching { node.performAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id) }.getOrDefault(false)
             } else false
             if (fwd || down) {
                 Log.i(QuestionCaptureManager.TAG, "[SCROLL] Method: Accessibility | Result: SUCCESS")
@@ -113,7 +113,7 @@ class AndroidNativeController : RemoteController {
         if (node != null) {
             val bwd = runCatching { node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) }.getOrDefault(false)
             val up = if (Build.VERSION.SDK_INT >= 23) {
-                runCatching { node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_UP) }.getOrDefault(false)
+                runCatching { node.performAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id) }.getOrDefault(false)
             } else false
             if (bwd || up) return@withContext true
         }
@@ -342,7 +342,7 @@ object QuestionCaptureManager {
         hash
     }.getOrDefault(0L)
 
-    private fun ocrOf(b64: String): String = runCatching {
+    private suspend fun ocrOf(b64: String): String = runCatching {
         val bytes = Base64.decode(b64, Base64.DEFAULT)
         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return ""
         val t = OcrEngine.recognize(bmp).getOrNull() ?: ""
