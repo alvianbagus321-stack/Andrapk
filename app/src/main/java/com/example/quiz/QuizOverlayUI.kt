@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -102,11 +104,12 @@ fun QuizOverlayUI() {
         if (b64v == null) {
             viewAttachment = null
         } else {
-            val fullImg = androidx.compose.runtime.remember(vIdx, b64v) {
-                runCatching {
+            val fullImg: ImageBitmap? = androidx.compose.runtime.remember(vIdx, b64v) {
+                val bmp: android.graphics.Bitmap? = runCatching {
                     val bytes = android.util.Base64.decode(b64v, android.util.Base64.DEFAULT)
                     android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                }.getOrNull()?.asImageBitmap()
+                }.getOrNull()
+                bmp?.asImageBitmap()
             }
             androidx.compose.ui.window.Dialog(onDismissRequest = { viewAttachment = null }) {
                 Surface(
@@ -857,11 +860,12 @@ fun QuizOverlayUI() {
                     // PRATINJAU lampiran: tap thumbnail utk melihat gambar penuh
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                         manualThumbs.forEachIndexed { idx, b64 ->
-                            val img = androidx.compose.runtime.remember(idx, b64) {
-                                runCatching {
+                            val img: ImageBitmap? = androidx.compose.runtime.remember(idx, b64) {
+                                val bmp: android.graphics.Bitmap? = runCatching {
                                     val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
                                     android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                                }.getOrNull()?.asImageBitmap()
+                                }.getOrNull()
+                                bmp?.asImageBitmap()
                             }
                             if (img != null) {
                                 Image(
