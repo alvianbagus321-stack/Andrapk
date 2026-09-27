@@ -124,7 +124,16 @@ fun QuizOverlayUI() {
             Brush.horizontalGradient(listOf(JarvisCyan.copy(alpha = 0.9f), JarvisTeal.copy(alpha = 0.5f), JarvisCyan.copy(alpha = 0.8f)))
         )
     ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+        // FIX OVERFLOW: HUD dibatasi 92% tinggi layar; kelebihan konten DIGULIR
+        // di dalam kartu (dulu kepotong di bawah layar & tak bisa digulir).
+        val hudScrHdp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+        val hudScroll = androidx.compose.foundation.rememberScrollState()
+        Column(
+            modifier = Modifier
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .heightIn(max = (hudScrHdp * 0.92f).dp)
+                .verticalScroll(hudScroll)
+        ) {
             // Header: judul + minimize + close
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.Bolt, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(14.dp))
