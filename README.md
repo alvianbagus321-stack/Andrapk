@@ -2,227 +2,60 @@
 
 Aplikasi Android AI companion dengan **server MCP bawaan** (OAuth + HTTP di port 8765) sehingga bisa disambungkan ke **ChatGPT connector** lewat tunnel, plus **Termux agent engine** untuk kontrol perangkat secara otonom (tap, swipe, screenshot, shell, dll).
 
----
+## 📱 Fitur Lengkap Aplikasi Andrapk (JARVIS — Device Automation Suite)
 
-## 🔨 Cara Build APK
+### 🗣️ 1. Asisten AI Chat + Agent Loop
+- **Chat biasa** dengan AI (Gemini/OpenAI-compatible) — model & API key diatur user.
+- **Agent Loop otomatis**: AI berpikir → eksekusi tool (tap, swipe, shell, dll) → amati hasil → lanjut sampai tugas selesai (bisa multi-aksi per giliran, maks 8/giliran).
+- **Anti-loop**: aksi identik diulang ke-3 → dilewati dgn peringatan; ke-4 → loop berhenti dgn pesan jelas.
+- **Anti-timeout**: riwayat dirampingkan (maks 6 giliran, output dipangkas) + **retry koneksi otomatis 1×** + instruksi "efisiensi berpikir" (dilarang mengulang perhitungan yang sama).
+- **SOP Remote Desktop**: saat StarDesk aktif, AI diarahkan pakai `ocr_screenshot` → tap koordinat (bukan read_screen yang kosong), scroll hanya via roda/PageDown.
 
-Ada 3 cara — pilih salah satu:
-
-- **Cara A — Otomatis lewat script `build.sh`** (disarankan, tanpa Android Studio)
-- **Cara B — Android Studio** (cara klasik)
-- **Cara C — GitHub Codespaces** ☁️ (build dari browser, tanpa install apa pun — bisa bahkan dari HP)
-
-> Script `build.sh` akan menyiapkan **semua** yang dibutuhkan: JDK, Android SDK, Gradle, license, sampai keystore. Kamu tinggal jalankan satu perintah.
-
-### Persyaratan
-
-| Kebutuhan | Keterangan |
+### 🧠 2. AI Quiz Analyzer (HUD melayang) — 3 mode
+| Mode | Isi |
 |---|---|
-| OS | Linux (Ubuntu/Debian/Fedora/Arch/openSUSE), macOS, atau **WSL** di Windows |
-| RAM | ≥ 4 GB (build memakai `-Xmx4g`) |
-| Internet | Wajib saat build pertama (unduh SDK + dependensi, ±1–1,5 GB) |
-| HP (opsional) | Untuk `./build.sh install`: USB debugging aktif |
+| **PRO** | Semua fitur: Auto Analyze, Auto Submit, Auto Jawab, multi-capture, Scan Penuh, Mode advance, Diagnostic, Penjelasan |
+| **DEFAULT** | Bersih: 1 scan → AI jawab → Auto Submit (nol gesture) |
+| **MANUAL** | Hanya: tombol **📸 Screenshot** (auto-minimize + langsung terlampir), lampiran **ber-thumbnail + viewer penuh** (hapus per item/semua), **Analyze** (kirim semua ke AI), toggle **Auto Jawab** |
 
-> ⚠️ Android SDK **tidak bisa** jalan langsung di Termux (bukan glibc). Untuk build di HP, pakai `proot-distro` (lihat bagian [Build di HP via Termux](#-build-di-hp-via-termux)).
+- **Metode tangkap (PRO)**: `Adaptif` (video dulu, AI yang kontrol, fallback screenshot), `Screenshot` (klasik), `ScreenRec` (frame video per halaman; soal terpotong wajib scroll; halaman terkirim ke AI berurutan).
+- **QuestionCaptureManager**: capture → cek kelengkapan (soal + opsi A–F/1–5/Benar-Salah) → belum lengkap = scroll → capture lagi (merge anti-duplikat). Batas aman 15 halaman.
+- **Completion gate**: AI **dilarang menjawab** soal yang belum lengkap — tidak menebak.
+- **Kejujuran hitung**: hasil hitung tak ada di opsi → pilih terdekat tapi confidence maks 40% + ditulis jelas.
+- **Auto Submit** hanya bila keyakinan ≥70%; kurang → "⚠ AI kurang yakin — DILEWATI".
+- **Auto Jawab**: loop jawab+submit sampai selesai (batas soal bisa diatur), support soal **isian** (mengetik).
+- **Auto-minimize HUD** saat capture, muncul lagi sendiri.
+- **HUD**: bisa **digulir** (drag kartu hanya dari header), chip mode eksklusif, peringatan merah **"Sesi tangkap layar MATI"** = 1 ketuk → dialog izin ulang, chip **Gulir otomatis Off/30/50/70**, Delay (500ms–10s), Posisi roda Otomatis/Kiri/Kanan, tombol **⏹ Stop** + watchdog (120s/panggilan, 240s total).
 
----
+### 🌀 3. Sistem Scroll (RemoteController)
+- **Android asli**: node `isScrollable` → `ACTION_SCROLL_*`, fallback gesture dinamis (0.80H→0.30H, tanpa koordinat mati).
+- **StarDesk/remote**: drag pelan **tepat di widget roda** (posisi dideteksi dari screenshot; kiri/kanan) → kalau roda tak terkonfirmasi, drag **dilewati** (kursor PC aman) → fallback **PageUp/PageDown** via Shizuku/Termux-ADB.
+- **Scroll = tool call**: `quiz_scroll_page` & `quiz_capture` — AI hanya menggulir bila OCR membuktikan konten terpotong (anti-scroll-tanpa-alasan).
 
-## Cara A — Build Otomatis dengan `build.sh` ⚡
+### 📸 4. Screenshot, OCR & Rekaman
+- Screenshot **adaptif semua orientasi** (portrait/landscape, MediaProjection + accessibility + **Termux-ADB** sebagai cadangan).
+- **OCR dengan bounding-box** → koordinat tap presisi (screenshot 1:1 layar), upscale otomatis untuk teks kecil di video remote, tangkapan gelap/FLAG_SECURE terdeteksi & ditangani.
+- **Screen recorder** (MediaRecorder→mp4) + tool `screen_record` untuk agent.
 
-### 1. Tarik kode terbaru
+### 🛠️ 5. Tool Registry (dipakai agent)
+`open_app, read_screen, screenshot, ocr_screenshot, tap, tap_by_text, swipe, press_key, input_text, adb_shell, get_device_resolution, screen_record, quiz_scroll_page, quiz_capture, create_tool` (AI bahkan bisa membuat tool baru), plus permission mode (SAFE/FULL_ACCESS) & konfirmasi penghapusan.
 
-```bash
-cd lokasi/folder/Andrapk
-git pull
-```
+### 🐧 6. Integrasi Termux-ADB (pengganti Shizuku)
+- One-liner `setup_adb.sh`: auto `allow-external-apps`, install android-tools, adb connect, helper `jad` (status/reconnect/shell). Kartu **HELP hijau** in-app.
+- Jalur `adb shell` & `screencap` lewat Termux (screenshot tetap jalan walau izin capture mati).
 
-### 2. Jalankan script
+### 🎛️ 7. Overlay & UI
+- Kartu floating UHD (Thinking/Executing/Result) **dibatasi 85% layar + scroll internal**, float bar tidak menghalangi klik layar, pill minimize, spektrum suara.
+- **Mode advance** persisten (semua setelan tersimpan), laporan crash in-app (tap = salin log).
 
-```bash
-chmod +x build.sh     # sekali saja
-./build.sh
-```
+### 🎙️ 8. Suara & Server
+- **Hotword "Jarvis"**, voice call, TTS/STT.
+- **Local HTTP server** (127.0.0.1:8765) + **MCP server** + **OAuth** + tunnel — MCP bridge Python stdlib-only di Termux.
 
-Pertama kali dijalankan, script **otomatis**:
-
-1. Memasang **JDK 21** (via `apt`/`dnf`/`pacman`/`zypper`/`brew`)
-2. Mengunduh **Android SDK** ke `~/Android/Sdk` + menerima lisensi
-3. Mengunduh **Gradle 9.3.1** (versi mengikuti `gradle-wrapper.properties`)
-4. Membuat `local.properties`, `.env`, `debug.keystore`
-5. Build **APK debug**
-
-> ⏱️ Build pertama butuh waktu **10–30 menit** (banyak unduhan). Build kedua dst. jauh lebih cepat karena semua ter-cache.
-
-### 3. Ambil APK-nya
-
-Kalau sukses, APK ada di:
-
-```
-app/build/outputs/apk/debug/app-debug.apk
-```
-
-Pasang ke HP — pilih salah satu:
-
-- **Lewat kabel USB** (termudah): sambungkan HP (USB debugging aktif) lalu
-  ```bash
-  ./build.sh install
-  ```
-- **Manual**: salin `app-debug.apk` ke HP (WhatsApp/kabel/Drive) → buka → izinkan "instal dari sumber tidak dikenal" → pasang.
-  > Kalau muncul **"App not installed"**, uninstall APK lama dulu lalu coba lagi.
-
-### Semua perintah `build.sh`
-
-| Perintah | Fungsi |
-|---|---|
-| `./build.sh` | Build APK debug (default) |
-| `./build.sh install` | Build + pasang langsung ke HP via adb |
-| `./build.sh release` | Build APK release (keystore dibuat otomatis) |
-| `./build.sh setup` | Hanya siapkan JDK + SDK + Gradle (tanpa build) |
-| `./build.sh info` | Cek status lingkungan build |
-| `./build.sh clean` | Bersihkan hasil build |
-
-### Build release
-
-```bash
-./build.sh release
-```
-
-Saat pertama kali build release, script otomatis membuat:
-
-- `my-upload-key.jks` — keystore tanda tangan
-- `release-signing.env` — simpanan kredensial keystore
-
-> 🔴 **SIMPAN kedua file itu baik-baik** (sudah di-gitignore, tidak ikut ter-commit). Tanpa keduanya, update APK berikutnya **tidak bisa** dipasang di atas versi lama (tanda tangan beda).
-
-Hasilnya: `app/build/outputs/apk/release/app-release.apk`
-
----
-
-## Cara B — Build via Android Studio 🖥️
-
-1. Buka **Android Studio** (versi terbaru / Ladybug+).
-2. **File → Open** → pilih folder repo ini → tunggu **Gradle Sync** selesai (butuh internet untuk unduh ML Kit & dependensi lain).
-3. **Build → Build App Bundle(s) / APK(s) → Build APK(s)**.
-4. APK muncul di `app/build/outputs/apk/debug/app-debug.apk` (notif *locate* di kanan bawah).
-
-> Kalau Android Studio minta SDK/JDK, biasanya cukup ikon ⚠️ di kanan atas yang menyarankan otomatis memasangnya.
-
----
-
-## Cara C — Build via GitHub Codespaces ☁️
-
-Build **tanpa install apa pun di komputer** — cukup browser (bahkan dari HP). Codespace = komputer Linux di cloud milik GitHub, jadi `build.sh` jalan langsung.
-
-### 1. Buat Codespace
-
-1. Buka repo ini di github.com (login).
-2. Tekan tombol **Code** → tab **Codespaces** → **Create codespaces on...** → pilih branch yang berisi kode terbaru.
-3. Tunggu proses **post-create** selesai (±5–10 menit, sekali saja per codespace) — otomatis memasang **JDK 21 + Android SDK + Gradle** lewat `.devcontainer/devcontainer.json` + `./build.sh setup`.
-
-### 2. Build
-
-Di terminal Codespace:
-
-```bash
-./build.sh            # APK debug
-./build.sh release    # atau APK release
-```
-
-> Machine default (2-core/8 GB) sudah cukup. Build pertama ±15–25 menit (unduh dependensi), berikutnya jauh lebih cepat. Ingin lebih cepat? Buat codespace baru dengan machine 4-core.
-
-### 3. Ambil APK-nya — pilih salah satu
-
-**a. Unduh langsung dari editor:**
-Explorer → buka `app/build/outputs/apk/debug/` → klik kanan `app-debug.apk` → **Download**.
-
-**b. Lewat GitHub Releases (praktis kalau build dari HP):**
-
-```bash
-gh release create apk-$(date +%Y%m%d-%H%M) app/build/outputs/apk/debug/app-debug.apk --generate-notes
-```
-
-Lalu buka halaman **Releases** repo ini dari HP → unduh APK-nya → pasang.
-
-### 4. Hemat kuota ⏳
-
-- Akun personal gratis: **120 core-hour/bulan** (machine 2-core = **60 jam**).
-- **Stop** codespace saat selesai (tab Codespaces → `...` → **Stop**) — kuota hanya berjalan saat aktif.
-- Codespace yang dibiarkan tetap **auto-stop** setelah idle 30 menit (default).
-- Codespace yang tak dipakai bisa dihapus (tab Codespaces → `...` → **Delete**) — hasil build yang belum diambil akan hilang, jadi **unduh/publish APK dulu**.
-
----
-
-## Build via Terminal (setelah wrapper ada)
-
-Setelah `./build.sh` sukses pertama kali, script otomatis membuat **`gradlew`**. Sejak itu build bisa juga lewat cara standar:
-
-```bash
-./gradlew assembleDebug     # APK debug
-./gradlew assembleRelease   # APK release
-./gradlew installDebug      # pasang ke HP yang tersambung
-```
-
----
-
-## 🐧 Build di HP via Termux
-
-Android SDK resmi tidak jalan di Termux, tapi bisa lewat distro Ubuntu di dalam `proot`:
-
-```bash
-pkg update && pkg install proot-distro git curl unzip
-proot-distro install ubuntu
-proot-distro login ubuntu
-# di dalam Ubuntu:
-apt update && apt install -y curl unzip git
-cd lokasi/repo/Andrapk     # repo bisa di-clone ulang di dalam proot
-./build.sh
-```
-
-> Di dalam proot, build agak lebih lambat dan butuh ruang penyimpanan ±3 GB.
-
----
-
-## 🔧 Troubleshooting Build
-
-| Gejala | Solusi |
-|---|---|
-| Build gagal di tengah jalan (internet putus) | Jalankan ulang `./build.sh` — lanjut dari yang sudah terunduh |
-| `Could not resolve ...` / dependensi gagal | Pastikan internet aktif; jalankan ulang |
-| `Out of memory` / `Metaspace` | Tutup aplikasi lain; pastikan RAM bebas ≥ 4 GB |
-| "App not installed" saat pasang di HP | Uninstall APK lama dulu, lalu pasang lagi |
-| `sdkmanager` gagal saat setup | Lisensi sudah diterima script; AGP akan mengunduh otomatis saat build — jalankan ulang |
-| Cek kondisi lingkungan | `./build.sh info` |
-
-Masih gagal? Copy-paste pesan error lengkapnya untuk dianalisis.
-
----
-
-## 📡 Setelah APK Terpasang (Server MCP + ChatGPT)
-
-1. Buka aplikasi, pastikan **server MCP ONLINE** (berjalan di port 8765).
-2. Jalankan tunnel di Termux/komputer yang satu jaringan dengan HP:
-   ```bash
-   cloudflared tunnel --url http://127.0.0.1:8765
-   ```
-3. Di ChatGPT (Settings → Connectors → Create), daftarkan:
-   ```
-   https://<URL-dari-cloudflare>.trycloudflare.com/mcp
-   ```
-4. ChatGPT otomatis menemukan OAuth app → muncul **halaman IZINKAN** di HP → setujui → selesai.
-   > Jangan pilih "No authentication" — app baru wajib OAuth (401 tanpa token itu memang by design).
-5. URL `trycloudflare` berubah setiap tunnel di-restart — daftarkan ulang bila berubah.
-
-Untuk APK lama yang belum ada OAuth in-app, tetap bisa pakai bridge standalone: `termux/mcp_bridge.py` (lihat petunjuk di dalam file / `setup-mcp.sh`).
-
----
-
-## 🗂️ Struktur Penting
-
-| Path | Isi |
-|---|---|
-| `app/` | Source code aplikasi Android (Kotlin + Compose) |
-| `app/src/main/java/com/example/server/` | HTTP server MCP + OAuth (`JarvisHttpServer.kt`, `OAuthManager.kt`) |
-| `termux/mcp_bridge.py` | Bridge standalone untuk APK lama (stdlib-only, port 9000) |
-| `build.sh` | Script build otomatis all-in-one |
-| `.devcontainer/devcontainer.json` | Konfigurasi GitHub Codespaces (JDK 21 + auto-setup build) |
-| `gradle/libs.versions.toml` | Katalog versi dependensi |
+<img width="720" height="1600" alt="Screenshot_20261006-214925_transfer_2026-10-06_215036" src="https://github.com/user-attachments/assets/8df56668-685d-4304-bd93-7c8275722646" />
+<img width="720" height="1600" alt="Screenshot_20261006-213805_transfer_2026-10-06_215036" src="https://github.com/user-attachments/assets/ac0f3258-c908-4bac-ace6-ac34e1924bf4" />
+<img width="720" height="1600" alt="Screenshot_20261006-213814_transfer_2026-10-06_215036" src="https://github.com/user-attachments/assets/8f3c385d-122f-42e7-85c3-c389b45c9e54" />
+<img width="720" height="1600" alt="Screenshot_20261006-214936_transfer_2026-10-06_215036" src="https://github.com/user-attachments/assets/4e863348-1d31-45b1-b953-4e3175d22218" />
+<img width="720" height="1600" alt="Screenshot_20261006-213735_transfer_2026-10-06_215036" src="https://github.com/user-attachments/assets/d537b923-f3ce-4888-9503-af7a23546b17" />
+<img width="720" height="1600" alt="Screenshot_20261006-213730_transfer_2026-10-06_215036" src="https://github.com/user-attachments/assets/1130b98b-61bf-469f-89b8-674f70de5634" />
+<img width="720" height="1600" alt="Screenshot_20261006-213723_transfer_2026-10-06_215036" src="https://github.com/user-attachments/assets/9795058e-d6d7-4e90-aa75-f0c30e4308c2" />
