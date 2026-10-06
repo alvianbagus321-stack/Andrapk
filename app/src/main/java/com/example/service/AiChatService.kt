@@ -51,6 +51,12 @@ object AiChatService {
     const val DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 
     /**
+     * Safety cap: maximum tool calls the agent may execute within ONE agent loop turn.
+     * Guards against runaway multi-action batches in a single response.
+     */
+    private const val MAX_ACTIONS_PER_TURN = 8
+
+    /**
      * Executes AI prompt and coordinates with Android automation tools if action commands are determined.
      */
     suspend fun sendMessage(
@@ -117,17 +123,34 @@ object AiChatService {
             4. Jika pengguna meminta menjalankan perintah shell, termux, membuka aplikasi, mengubah pengaturan, cek storage, cek ram, atau tool custom lainnya, SEGERA EKSEKUSI dengan mengeluarkan blok ```json:action```!
             
             PRINSIP AGENT LOOP:
-            1. Kamu beroperasi dalam multi-step Agent Loop: Berpikir → Ambil 1 tindakan (tool) → Amati hasil dari HP → Tentukan tindakan berikutnya → Ulangi sampai selesai.
-            2. Jalankan HANYA SATU AKSI per giliran, lalu tunggu hasil eksekusinya karena kondisi sistem HP dan layar dapat berubah setelah tindakan.
-            3. Setiap kali kamu butuh mengeksekusi aksi, letakkan blok JSON di bagian akhir jawabanmu dengan format:
+            1. Kamu beroperasi dalam multi-step Agent Loop: Berpikir → Eksekusi satu ATAU beberapa tindakan (tool) → Amati hasil dari HP → Tentukan tindakan berikutnya → Ulangi sampai selesai.
+            2. MULTI-AKSI PER GILIRAN: Dalam satu giliran kamu BOLEH mengeluarkan LEBIH DARI SATU blok ```json:action``` (usahakan maksimal 5 blok). Semua blok akan dieksekusi secara BERURUTAN sesuai urutan penulisan.
+               - GUNAKAN multi-aksi jika beberapa tool saling melengkapi dan kamu SUDAH MENGETAHUI semua parameternya tanpa perlu membaca hasil aksi sebelumnya (contoh: cek_ram + get_storage + shell 'date', tap + type_text + press_key ENTER, termux_api + clipboard_set).
+               - GUNAKAN SATU aksi saja per giliran jika aksi berikutnya BERGANTUNG pada hasil/output/perubahan layar dari aksi sebelumnya (contoh: open_app lalu read_screen, read_screen lalu tap ke elemen yang baru terdeteksi, screenshot untuk menentukan koordinat berikutnya).
+            3. Setiap kali kamu butuh mengeksekusi aksi, letakkan blok JSON di bagian akhir jawabanmu dengan format (boleh lebih dari satu blok):
             ```json:action
             {
               "tool": "nama_tool",
               "params": { ... }
             }
             ```
-            4. Setelah aksi dieksekusi oleh sistem Android, hasilnya (stdout / output / status) akan langsung dikirimkan kembali kepadamu pada giliran berikutnya.
+            4. Setelah SEMUA blok aksi dieksekusi oleh sistem Android, hasilnya (stdout / output / status) akan langsung dikirimkan kembali kepadamu pada giliran berikutnya, diurutkan sesuai urutan eksekusi (Aksi 1, Aksi 2, dst).
             5. KETIKA SEMUA TUGAS SELESAI atau pengguna hanya bertanya tanpa perlu aksi di HP, berikan jawaban akhir yang ramah, informatif, dan solutif TANPA blok ```json:action```.
+
+            STRATEGI AKURASI & VERIFIKASI (WAJIB — hasil audit pengujian perangkat nyata):
+            1. read_screen adalah SUMBER KOORDINAT PRIMER. Jangan pernah menebak koordinat. Bila tahu teks tombolnya, SELALU utamakan tap_by_text (anti-miss, aman di landscape) di atas tap koordinat manual.
+            2. Panggil screen_orientation di awal sesi dan saat mencurigai layar berputar (mis. setelah buka app video/remote desktop). Screenshot kini OTOMATIS mengikuti rotasi layar.
+            3. VERIFIKASI setelah setiap aksi penting: wait_for_element (teks yang diharapkan muncul), get_current_app / dumpsys_window (app target di depan), atau diff_screen (bandingkan before/after: panggil sebelum aksi utk baseline lalu setelah aksi).
+            4. Jika aksi tampak gagal (diff_screen bilang tidak berubah, tap meleset), RETRY MAKSIMAL 2x dengan pendekatan BERBEDA (koordinat → tap_by_text → accessibility_click), lalu laporkan ke user bila tetap gagal.
+            5. Untuk list panjang pakai scroll_to_text (bukan swipe buta berulang); tunggu layar selesai loading dengan wait_stable sebelum screenshot/read_screen; baca layar padat dengan read_screen + {"filter_clickable": true} agar hanya tombol yang tampil.
+            6. EFISIENSI BERPIKIR (WAJIB): Alasanmu SINGKAT dan TEGAS. Hitung/verifikasi MAKSIMAL dua kali lalu PUTUSKAN. Jika hasil tidak persis cocok dengan opsi yang tersedia, pilih yang TERDEKAT dan sebutkan ketidakpastiannya — DILARANG mengulang perhitungan yang sama berulang-ulang (membuang waktu, membesarkan payload, dan memicu timeout).
+
+            MODE REMOTE DESKTOP (StarDesk/AnyDesk/dll sedang jadi foreground app):
+            a. Layar HP menampilkan PC; isi PC BUKAN node UI — read_screen/tap_by_text TIDAK akan menemukan elemennya. JANGAN mengulang read_screen yang kosong; langsung pakai ocr_screenshot utk membaca layar & dapatkan koordinat (bounding-box), lalu TAP KOORDINAT itu (tap koordinat pada remote = klik di PC — itulah cara menjawab soal/mengklik).
+            b. MENGULIR halaman PC: JANGAN swipe dua jari; cari widget RODA (pill gelap vertikal di tepi KIRI/KANAN tengah layar, biasanya KIRI saat landscape) lalu swipe vertikal PELAN 1 jari tepat di rodanya (500ms, jarak pendek).
+            c. HATI-HATI: drag/swipe di AREA PC (bukan roda) = menggerakkan KURSOR PC atau menggambar — bukan scroll. Kalau tidak yakin posisi roda, jangan menebak: OCR dulu, atau laporkan ke user.
+            d. Teks PC kecil/terkompresi: minta ocr_screenshot, bila buram tunggu wait_stable lalu ulang sekali — jangan menyimpulkan sebelum OCR berhasil.
+            e. GULIR = TOOL CALL: scroll tidak pernah berjalan otomatis. Kumpulkan bukti dulu via ocr_screenshot; bila (dan hanya bila) konten terpotong, panggil quiz_scroll_page sekali, lalu OCR ulang. Ulangi pola ini per halaman — bukan scroll beruntun.
 
             ARSITEKTUR TOOL (3-LAYER MODULAR REGISTRY):
             1. Android & Accessibility Layer:
@@ -137,9 +160,23 @@ object AiChatService {
                - type_text: Mengetik teks pada kolom input aktif (params: {"text": "teks yang ingin diketik", "element_id": "opsional"})
                - press_key: Menekan tombol sistem (params: {"keycode": "ENTER"|"BACK"|"HOME"|"RECENTS"|"VOLUME_UP"|"VOLUME_DOWN"})
                - swipe: Menggeser layar (params: {"x1": 500, "y1": 1500, "x2": 500, "y2": 500, "duration_ms": 300})
-               - screenshot: Mengambil tangkapan layar perangkat
+               - screenshot: Mengambil tangkapan layar perangkat (GAMBAR saja — untuk dilihat AI vision / decode_image kemudian)
+               - adb_shell: shell LEVEL ADB via Termux (pengganti Shizuku; butuh setup termux/setup_adb.sh di HP): params {"command":"input keyevent 93"} utk keyevent, {"command":"screencap -p > /sdcard/JARVIS/x.png"} utk screenshot level shell, {"command":"uiautomator dump"} dst
+               - ocr_screenshot: Tangkap layar + BACA TEKSNYA langsung (OCR satu langkah) — UTAMAKAN ini untuk membaca teks/soal/chat yang tampil di layar, termasuk konten tanpa elemen UI (remote desktop, game, WebView). Lebih praktis daripada screenshot lalu decode_image
+               - quiz_scroll_page: GULIR halaman SEKALI ({"direction":"down"|"up","page":false|true}; page=true = PageUp/PageDown PC). ATURAN ANTI-SCROLL-TANPA-ALASAN: DILARANG menggulir di awal tugas atau tanpa bukti — gulir HANYA setelah ocr_screenshot menunjukkan konten TERPOTONG; setelah setiap scroll WAJIB ocr_screenshot ulang
+               - quiz_capture: simpan frame layar ke buffer analyzer HUD (user yang menekan Kirim ke AI)
+               - decode_image: Mendekode gambar (params: {"source": "last_screenshot"} atau {"base64": "..."} / {"path": "..."} / {"uri": "..."}) menjadi TEKS lengkap: dimensi, warna dominan, kecerahan, tingkat detail, peta bentuk ASCII, dan OCR teks. WAJIB dipakai untuk "melihat" isi gambar/screenshot jika kamu tidak mendukung input gambar (non-vision).
+               - ocr_region: OCR hanya AREA tertentu dari screenshot (HEMAT TOKEN — pakai ini dulu sebelum decode_image jika hanya butuh teks): params {"x_percent":0,"y_percent":0,"w_percent":50,"h_percent":30} atau piksel {"left":0,"top":0,"right":400,"bottom":200}
+               - record_screen: Rekam layar jadi video MP4 (params: {"action":"start"} lalu {"action":"stop"}; maks 3 menit) — pakai untuk debugging multi-step
+               - adb_via_shizuku: Shell level ADB via Shizuku (params: {"command":"pm list packages -3"} atau {"action":"status"/"permission"}) — pakai INI saat shell biasa DITOLAK (pm grant, am force-stop, uiautomator dump); butuh app Shizuku aktif
                - send_notification: Mengirim notifikasi lokal ke status bar (params: {"title": "Judul", "message": "Pesan"})
                - flashlight_toggle: Menyalakan/mematikan senter (params: {"enable": true})
+               - screen_orientation: Cek rotasi & dimensi layar saat ini (panggil sebelum tap bila orientasi berubah)
+               - find_by_text / tap_by_text / wait_for_element / scroll_to_text: Cari, ketuk, tunggu, dan scroll berdasarkan TEKS elemen — lebih akurat daripada koordinat manual
+               - input_swipe_bezier: Swipe kurva manusiawi (params: {"x1":500,"y1":800,"x2":500,"y2":300,"duration_ms":600,"bend":0.35}) untuk carousel/map yang mengabaikan swipe garis lurus
+               - wait_stable / diff_screen: Pastikan layar stabil / bandingkan layar before-after aksi (verifikasi otomatis)
+               - accessibility_click: Klik elemen langsung via AccessibilityNodeInfo (params: {"element_id": "id_atau_teks"})
+               - dumpsys_window: Info window fokus + rotasi via dumpsys (diagnosa orientasi/app aktif)
             2. Termux Service, API & Shell Layer:
                - termux_service: Mengontrol service background Termux & daemon JARVIS (params: {"action": "status"|"start"|"stop"|"restart"|"run_agent"|"list", "service": "jarvis_agent"})
                - termux_api: Menjalankan utilitas Termux:API (params: {"command": "battery"|"wifi"|"tts"|"vibrate"|"torch"|"notification"|"toast"|"location"|"volume"|"sensor"|"sms"|"clipboard-get"|"clipboard-set", "args": "..."})
@@ -187,6 +224,18 @@ object AiChatService {
             }
         }
 
+        // AI NON-VISION (endpoint OpenAI-compatible tanpa dukungan gambar):
+        // dekode lampiran gambar menjadi deskripsi tekstual agar tetap bisa "dibaca" model.
+        if (!isGemini && imageBase64 != null) {
+            onStatusUpdate("Menganalisa lampiran gambar menjadi teks (mode non-vision)...")
+            val analysis = ImageDecodeManager.analyzeBase64(imageBase64)
+            val analysisText = analysis.result ?: analysis.message
+            if (!analysisText.isNullOrBlank()) {
+                currentPrompt = "[LAMPIRAN GAMBAR — didekode otomatis menjadi deskripsi tekstual]\n$analysisText\n\n$userPrompt"
+            }
+            imageBase64 = null
+        }
+
         liveThoughtState.value = ""
         var activeStepImageBase64: String? = imageBase64
         var activeStepImageMimeType: String? = attachmentMimeType ?: "image/jpeg"
@@ -195,6 +244,15 @@ object AiChatService {
         val maxSteps = savedConfig.maxAgentLoops
         val isUnlimited = maxSteps == 0
         val effectiveMaxSteps = if (isUnlimited) 200 else maxSteps
+
+        // ANTI-LOOP AGENT: aksi AKTIF (tap/swipe/open_app/dll) yang IDENTIK diulang
+        // tanpa kemajuan -> dilewati, lalu loop dihentikan dgn pesan jelas.
+        // Tool observasi (screenshot/read_screen) tidak dibatasi — repeat itu wajar.
+        val recentSignatures = ArrayList<String>()
+        val actingTools = listOf(
+            "tap", "tap_by_text", "click", "swipe", "type_text", "press_key",
+            "open_app", "adb_shell", "input_text", "drag", "long_press", "scroll"
+        )
         var currentStep = 0
         val loopHistory = history.toMutableList()
         val allThoughts = mutableListOf<String>()
@@ -222,7 +280,7 @@ object AiChatService {
             val stepLabel = if (isUnlimited) "Langkah $currentStep (Mode Otomatis)" else "Langkah $currentStep/$maxSteps"
             onStatusUpdate("$stepLabel: Menganalisa & merencanakan aksi...")
 
-            val (rawResponse, nativeThought) = if (isGemini) {
+            suspend fun callModelOnce(): Pair<String, String?> = if (isGemini) {
                 callGeminiRest(
                     cleanBaseUrl, cleanModel, cleanKey, systemInstruction, loopHistory, currentPrompt,
                     imageBase64 = activeStepImageBase64,
@@ -230,6 +288,18 @@ object AiChatService {
                 )
             } else {
                 Pair(callOpenAiRest(cleanBaseUrl, cleanModel, cleanKey, systemInstruction, loopHistory, currentPrompt), null)
+            }
+            var (rawResponse, nativeThought) = callModelOnce()
+            // RETRY KONEKSI OTOMATIS: payload berat (gambar+riwayat) kadang timeout
+            // SEKALI jalan walau API sehat — coba ulang sekali sebelum menyerah.
+            if (rawResponse.startsWith("Koneksi gagal") || rawResponse.startsWith("Gagal menghubungi")) {
+                onStatusUpdate("$stepLabel: Koneksi gagal sekali - mencoba ulang otomatis...")
+                kotlinx.coroutines.delay(1500L)
+                val retryPair = callModelOnce()
+                if (!(retryPair.first.startsWith("Koneksi gagal") || retryPair.first.startsWith("Gagal menghubungi"))) {
+                    rawResponse = retryPair.first
+                    nativeThought = retryPair.second
+                }
             }
 
             // Clear image after single-use step unless updated by screenshot tool result
@@ -248,54 +318,131 @@ object AiChatService {
                 liveThoughtState.value = "[$stepLabel]\n$combinedThought"
             }
 
-            // Parse action JSON
-            val parsedAction = extractActionJson(textWithoutThought)
+            // Parse action JSON — supports one or multiple tool calls per turn
+            val parsedActions = extractActionJsonList(textWithoutThought)
 
-            if (parsedAction != null) {
-                val toolName = parsedAction.optString("tool", "").trim()
-                val params = parsedAction.optJSONObject("params") ?: JSONObject()
-                lastActionName = toolName
+            if (parsedActions.isNotEmpty()) {
+                loopHistory.add("assistant" to textWithoutThought.take(2500))
+                // Riwayat ramping: simpan maks 6 giliran terakhir — payload yang
+                // membengkak membuat koneksi mudah gagal/timeout di jaringan HP
+                while (loopHistory.size > 6) loopHistory.removeAt(0)
 
-                onStatusUpdate("$stepLabel: Mengeksekusi '$toolName'...")
+                val turnResultBlocks = mutableListOf<String>()
+                val turnExecutedCount = mutableListOf<Pair<String, ToolResult>>()
+                var turnScreenshotB64: String? = null
+                val wasTruncated = parsedActions.size >= MAX_ACTIONS_PER_TURN
 
-                // Execute tool locally
-                val executionResult = executeActionLocally(toolName, params)
-                lastToolResult = executionResult
-                executedTools.add(toolName to executionResult)
+                // Execute every action requested this turn, sequentially in order
+                for ((actionIdx, parsedAction) in parsedActions.withIndex()) {
+                    if (isCancelled) break
 
-                // Check if tool produced a new screenshot Base64 for Vision analysis
-                val toolScreenshotB64 = executionResult.extra["screenshot_b64"] as? String
-                if (!toolScreenshotB64.isNullOrBlank()) {
-                    activeStepImageBase64 = toolScreenshotB64
+                    val toolName = parsedAction.optString("tool", parsedAction.optString("name", "")).trim()
+                    val params = parsedAction.optJSONObject("params") ?: parsedAction.optJSONObject("arguments") ?: JSONObject()
+
+                    if (toolName.isEmpty()) {
+                        val skippedRes = ToolResult("error", message = "Blok aksi dilewati karena tidak memiliki field 'tool'.")
+                        turnExecutedCount.add("(tidak_dikenal)" to skippedRes)
+                        turnResultBlocks.add("Aksi ${actionIdx + 1}\nStatus: error\nOutput:\n${skippedRes.message}")
+                        continue
+                    }
+
+                    val batchLabel = if (parsedActions.size > 1) "$stepLabel | Aksi ${actionIdx + 1}/${parsedActions.size}" else stepLabel
+
+                    // ANTI-LOOP AGENT: tolak aksi aktif identik yang berulang
+                    if (toolName.lowercase() in actingTools) {
+                        val signature = toolName.lowercase() + "?" + params.toString()
+                        val repeatCount = recentSignatures.count { it == signature }
+                        if (repeatCount >= 3) {
+                            val stopMsg = "🛑 Agent dihentikan: aksi '$toolName' dengan parameter sama dijalankan berulang tanpa kemajuan. Coba instruksi yang lebih spesifik."
+                            onStatusUpdate(stopMsg)
+                            return@withContext AiChatResponse(
+                                replyText = stopMsg,
+                                thinkingProcess = allThoughts.joinToString("\n\n"),
+                                actionToolName = lastActionName,
+                                actionResult = lastToolResult
+                            )
+                        }
+                        if (repeatCount >= 2) {
+                            val skippedRes = ToolResult(
+                                "error",
+                                message = "Aksi '$toolName' sudah dijalankan " + (repeatCount + 1) +
+                                    " kali dengan parameter identik - TIDAK dieksekusi lagi. " +
+                                    "Ubah tool/parameternya, verifikasi layar dulu, atau akhiri tugas dengan jawaban final."
+                            )
+                            turnExecutedCount.add(toolName to skippedRes)
+                            turnResultBlocks.add("Aksi ${actionIdx + 1} — Tool: $toolName\nStatus: error\nOutput:\n${skippedRes.message}")
+                            stepSummary.add("$stepLabel: $toolName → DILEWATI (aksi berulang)")
+                            continue
+                        }
+                        recentSignatures.add(signature)
+                    }
+
+                    onStatusUpdate("$batchLabel: Mengeksekusi '$toolName'...")
+
+                    // Execute tool locally
+                    val executionResult = executeActionLocally(toolName, params)
+                    lastToolResult = executionResult
+                    lastActionName = toolName
+                    turnExecutedCount.add(toolName to executionResult)
+                    executedTools.add(toolName to executionResult)
+
+                    // Check if tool produced a new screenshot Base64 (latest screenshot wins)
+                    val toolScreenshotB64 = executionResult.extra["screenshot_b64"] as? String
+                    var screenAnalysisText: String? = null
+                    if (!toolScreenshotB64.isNullOrBlank()) {
+                        ImageDecodeManager.rememberScreenshot(toolScreenshotB64)
+                        if (isGemini) {
+                            // Model vision: kirim gambar asli pada langkah berikutnya
+                            turnScreenshotB64 = toolScreenshotB64
+                        } else {
+                            // Model non-vision: ubah screenshot menjadi deskripsi tekstual
+                            onStatusUpdate("$batchLabel: Menganalisa screenshot menjadi teks (mode non-vision)...")
+                            val analysis = ImageDecodeManager.analyzeBase64(toolScreenshotB64)
+                            val analysisText = analysis.result ?: analysis.message
+                            if (!analysisText.isNullOrBlank()) {
+                                screenAnalysisText = "[Analisa Otomatis Screenshot]\n$analysisText"
+                            }
+                        }
+                    }
+
+                    val resultOutputStr = executionResult.result ?: executionResult.message ?: if (executionResult.status == "ok") "Berhasil (OK)" else "Gagal"
+                    val briefResult = if (resultOutputStr.length > 300) resultOutputStr.take(300) + "..." else resultOutputStr
+                    stepSummary.add("$stepLabel: $toolName → ${executionResult.status.uppercase()}: $briefResult")
+
+                    val outCapped = if (resultOutputStr.length > 2500) resultOutputStr.take(2500) + "\n...(dipotong)" else resultOutputStr
+                    turnResultBlocks.add("Aksi ${actionIdx + 1} — Tool: $toolName\nStatus: ${executionResult.status}\nOutput:\n$outCapped")
+                    screenAnalysisText?.let { turnResultBlocks.add(it) }
+
+                    // Natural delay for UI transitions (e.g. app launching or layout animations)
+                    if (toolName.equals("open_app", ignoreCase = true)) {
+                        kotlinx.coroutines.delay(1500L)
+                    } else if (toolName.lowercase() in listOf("tap", "type_text", "press_key", "swipe")) {
+                        kotlinx.coroutines.delay(500L)
+                    }
+                }
+
+                // Send the latest screenshot (if any) for Vision analysis on the next step
+                if (!turnScreenshotB64.isNullOrBlank()) {
+                    activeStepImageBase64 = turnScreenshotB64
                     activeStepImageMimeType = "image/jpeg"
                     onStatusUpdate("$stepLabel: Tangkapan layar berhasil dikirim ke Analisis Visi AI...")
                 }
 
-                val resultOutputStr = executionResult.result ?: executionResult.message ?: if (executionResult.status == "ok") "Berhasil (OK)" else "Gagal"
-                val briefResult = if (resultOutputStr.length > 300) resultOutputStr.take(300) + "..." else resultOutputStr
-                stepSummary.add("$stepLabel: $toolName → ${executionResult.status.uppercase()}: $briefResult")
-
-                // Natural delay for UI transitions (e.g. app launching or layout animations)
-                if (toolName.equals("open_app", ignoreCase = true)) {
-                    kotlinx.coroutines.delay(1500L)
-                } else if (toolName in listOf("tap", "type_text", "press_key", "swipe")) {
-                    kotlinx.coroutines.delay(500L)
+                // Formulate feedback prompt for next step in agent loop (contains ALL results, in execution order)
+                currentPrompt = buildString {
+                    appendLine("[Hasil Eksekusi Tool $stepLabel — ${turnExecutedCount.size} aksi dieksekusi berurutan]")
+                    turnResultBlocks.forEachIndexed { idx, block ->
+                        appendLine(block)
+                        if (idx < turnResultBlocks.lastIndex) appendLine()
+                    }
+                    if (wasTruncated) {
+                        appendLine()
+                        appendLine("⚠️ Batas $MAX_ACTIONS_PER_TURN aksi per giliran tercapai; sebagian blok aksi tidak dieksekusi.")
+                    }
+                    appendLine()
+                    appendLine("Instruksi Pengguna Awal: \"$userPrompt\"")
+                    append("Silakan evaluasi hasil di atas dan tentukan langkah berikutnya (atau berikan respon akhir jika tugas telah selesai).")
                 }
-
-                // Add agent's response to history
-                loopHistory.add("assistant" to textWithoutThought)
-
-                // Formulate feedback prompt for next step in agent loop
-                currentPrompt = """
-                    [Hasil Eksekusi Tool $stepLabel]
-                    Tool: $toolName
-                    Status: ${executionResult.status}
-                    Output:
-                    $resultOutputStr
-
-                    Instruksi Pengguna Awal: "$userPrompt"
-                    Silakan evaluasi hasil di atas dan tentukan langkah berikutnya (atau berikan respon akhir jika tugas telah selesai).
-                """.trimIndent()
 
             } else {
                 // AI decided no further tool action is needed -> Task Complete!
@@ -379,6 +526,37 @@ object AiChatService {
         }
     }
 
+    /**
+     * Panggilan AI mentah untuk fitur lain (mis. AI Quiz Analyzer) — MEMAKAI
+     * client & konfigurasi yang sudah ada (tanpa API key baru).
+     * @return Pair(teks jawaban, pesan error) — teks null bila gagal.
+     */
+    suspend fun rawCompletion(
+        systemInstruction: String,
+        prompt: String,
+        imageBase64: String? = null,
+        extraImagesBase64: List<String>? = null
+    ): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        val cfg = com.example.data.AiConfigManager.config.value
+        if (cfg.apiKey.isBlank()) {
+            return@withContext null to "API key AI belum diisi. Buka pengaturan AI di app untuk mengisinya."
+        }
+        // Deteksi jalur Gemini-native dari konfigurasi existing (AiConfig tak punya flag —
+        // providerLabel/baseUrl adalah sumber kebenarannya).
+        val isGemini = cfg.providerLabel.contains("gemini", ignoreCase = true) ||
+                cfg.baseUrl.contains("generativelanguage", ignoreCase = true)
+        val (text, _) = if (isGemini) {
+            callGeminiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt, imageBase64, null, extraImagesBase64)
+        } else {
+            // Provider OpenAI-compatible: teks saja (gambar tidak didukung jalur ini)
+            callOpenAiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt) to null
+        }
+        val isErrorPrefix = text.startsWith("Gagal menghubungi") ||
+                text.startsWith("Koneksi gagal") ||
+                text.startsWith("Tidak ada teks balasan")
+        if (isErrorPrefix) null to text else text to null
+    }
+
     private fun callGeminiRest(
         baseUrl: String,
         model: String,
@@ -387,7 +565,8 @@ object AiChatService {
         history: List<Pair<String, String>>,
         prompt: String,
         imageBase64: String? = null,
-        imageMimeType: String? = "image/jpeg"
+        imageMimeType: String? = "image/jpeg",
+        extraImagesBase64: List<String>? = null
     ): Pair<String, String?> {
         val endpoint = "$baseUrl/v1beta/models/$model:generateContent?key=$apiKey"
 
@@ -438,6 +617,17 @@ object AiChatService {
                     put("inline_data", JSONObject().apply {
                         put("mime_type", imageMimeType ?: "image/jpeg")
                         put("data", imageBase64)
+                    })
+                })
+            }
+            // Multi-gambar: tangkapan tambahan (scroll-capture / pilihan user) ikut
+            // dilampirkan — AI melihat SEMUA frame, bukan cuma yang terakhir.
+            for (img in extraImagesBase64.orEmpty()) {
+                if (img.isBlank()) continue
+                partsArr.put(JSONObject().apply {
+                    put("inline_data", JSONObject().apply {
+                        put("mime_type", imageMimeType ?: "image/jpeg")
+                        put("data", img)
                     })
                 })
             }
@@ -546,7 +736,7 @@ object AiChatService {
         }
         if (baseUrl.contains("openrouter.ai")) {
             reqBuilder.addHeader("HTTP-Referer", "https://ai.studio/build")
-            reqBuilder.addHeader("X-Title", "JARVIS Companion")
+            reqBuilder.addHeader("X-Title", "Andra Control")
         }
 
         return try {
@@ -572,18 +762,62 @@ object AiChatService {
         }
     }
 
-    private fun extractActionJson(text: String): JSONObject? {
-        val regex = Regex("```json:action([\\s\\S]*?)```")
-        val match = regex.find(text) ?: return null
-        val rawJson = match.groupValues[1].trim()
-        return try {
-            JSONObject(rawJson)
-        } catch (_: Exception) {
-            null
+    /**
+     * Extracts one or more action objects from the AI response.
+     * Supported formats:
+     * 1. Multiple ```json:action { ... } ``` blocks in a single response (executed sequentially by the agent loop).
+     * 2. A single block containing a batch object: { "actions": [ {...}, {...} ] } or { "tools": [...] }.
+     * 3. A single block containing a raw JSON array: [ {...}, {...} ].
+     * 4. Legacy single-action block (backward compatible).
+     * Returns at most [MAX_ACTIONS_PER_TURN] actions.
+     */
+    private fun extractActionJsonList(text: String): List<JSONObject> {
+        val actions = mutableListOf<JSONObject>()
+        fun atCapacity() = actions.size >= MAX_ACTIONS_PER_TURN
+
+        val regex = Regex("```json:action([\\s\\S]*?)```", RegexOption.IGNORE_CASE)
+        for (match in regex.findAll(text)) {
+            if (atCapacity()) break
+            val rawJson = match.groupValues[1].trim()
+
+            val obj: JSONObject? = try {
+                JSONObject(rawJson)
+            } catch (_: Exception) {
+                null
+            }
+
+            if (obj != null) {
+                // Batch format: {"actions": [...]} / {"tools": [...]}
+                val batchArray = obj.optJSONArray("actions") ?: obj.optJSONArray("tools")
+                if (batchArray != null) {
+                    for (i in 0 until batchArray.length()) {
+                        val item = batchArray.optJSONObject(i) ?: continue
+                        actions.add(item)
+                        if (atCapacity()) break
+                    }
+                } else {
+                    actions.add(obj)
+                }
+                continue
+            }
+
+            // Fallback: block may contain a raw JSON array of actions: [{...}, {...}]
+            try {
+                val arr = JSONArray(rawJson)
+                for (i in 0 until arr.length()) {
+                    val item = arr.optJSONObject(i) ?: continue
+                    actions.add(item)
+                    if (atCapacity()) break
+                }
+            } catch (_: Exception) {
+                // Skip malformed block
+            }
         }
+        return actions
     }
 
-    private suspend fun executeActionLocally(toolName: String, params: JSONObject): ToolResult {
+    /** Eksekusi tool oleh client eksternal/MCP (publik, melewati semua pemeriksaan keamanan yang sama). */
+    suspend fun executeActionLocally(toolName: String, params: JSONObject): ToolResult {
         val lower = toolName.lowercase().trim()
 
         // 1. Check if tool is enabled
@@ -677,13 +911,29 @@ object AiChatService {
             )
             return ToolResult(
                 status = "ok",
-                result = "✨ Berhasil membuat Custom Tool Python '${created.name}' (${created.id})!\n\nScript tersimpan di: ${scriptFile.name} dan terdaftar sebagai tool aktif yang langsung dapat dieksekusi oleh JARVIS."
+                result = "✨ Berhasil membuat Custom Tool Python '${created.name}' (${created.id})!\n\nScript tersimpan di: ${scriptFile.name} dan terdaftar sebagai tool aktif yang langsung dapat dieksekusi oleh JARVIS.\nPanggil tool ini dengan nama: '${created.name}'.\n⚠️ Catatan: eksekusi Python membutuhkan python3 di perangkat (Termux: pkg install python). Bila belum ada, tool akan memberikan panduan instalasi saat dipanggil."
             )
         }
 
         // If tool is in custom tools or standard registry
         if (customTool != null && customTool.scriptType != com.example.model.ToolScriptType.ACCESSIBILITY) {
             return ToolManager.executeCustomTool(customTool, params)
+        }
+
+        // Media analysis: decode gambar menjadi teks kaya (untuk AI non-vision)
+        if (lower == "decode_image" || lower == "analyze_image") {
+            val withOcr = params.optBoolean("with_ocr", params.optBoolean("ocr", true))
+            val source = params.optString("source", params.optString("src", "")).trim().lowercase()
+            val b64 = params.optString("base64", params.optString("image_base64", params.optString("image", "")))
+            val filePath = params.optString("path", params.optString("file", ""))
+            val uri = params.optString("uri", params.optString("content_uri", ""))
+            return when {
+                b64.isNotBlank() -> ImageDecodeManager.analyzeBase64(b64, withOcr)
+                source == "last_screenshot" || source == "screenshot" -> ImageDecodeManager.analyzeLastScreenshot(withOcr)
+                filePath.isNotBlank() -> ImageDecodeManager.analyzePath(filePath, withOcr)
+                uri.isNotBlank() -> ImageDecodeManager.analyzeUri(com.example.JarvisApp.instance, uri, withOcr)
+                else -> ToolResult("error", message = "Parameter gambar tidak ditemukan. Gunakan {\"source\":\"last_screenshot\"}, {\"base64\":\"...\"}, {\"path\":\"...\"}, atau {\"uri\":\"...\"}.")
+            }
         }
 
         val service = JarvisAccessibilityService.instance
@@ -749,11 +999,15 @@ object AiChatService {
             }
             "read_screen", "inspect_screen" -> {
                 if (service != null) {
-                    val elements = service.readScreenElements()
+                    // Opsi filter: hanya elemen clickable (mengurangi noise utk agent) + limit jumlah output
+                    val filterClickable = params.optBoolean("filter_clickable", false)
+                    val limit = params.optInt("limit", 35).coerceIn(1, 100)
+                    var elements = service.readScreenElements()
+                    if (filterClickable) elements = elements.filter { it.isClickable }
                     if (elements.isEmpty()) {
-                        ToolResult("ok", result = "Layar saat ini kosong atau tidak ada elemen UI interaktif yang terdeteksi.")
+                        ToolResult("ok", result = "Layar saat ini kosong atau tidak ada elemen UI${if (filterClickable) " interaktif (filter_clickable=true)" else ""} yang terdeteksi.")
                     } else {
-                        val formatted = elements.take(35).mapIndexed { idx, el ->
+                        val formatted = elements.take(limit).mapIndexed { idx, el ->
                             val idStr = if (el.viewId.isNotBlank()) el.viewId else el.id
                             val labels = listOf(el.text, el.contentDescription).filter { it.isNotBlank() }
                             val labelDesc = if (labels.isNotEmpty()) "Teks: \"${labels.joinToString(" / ")}\"" else "Tanpa label"
@@ -765,17 +1019,70 @@ object AiChatService {
                             val flagInfo = if (flags.isNotEmpty()) "[${flags.joinToString(", ")}]" else ""
                             "• #$idx ID: '$idStr' | $labelDesc | Tipe: $type | Posisi: (${el.bounds.centerX}, ${el.bounds.centerY}) $flagInfo"
                         }.joinToString("\n")
-                        val extraCount = if (elements.size > 35) "\n... (+${elements.size - 35} elemen lainnya)" else ""
+                        val extraCount = if (elements.size > limit) "\n... (+${elements.size - limit} elemen lainnya)" else ""
                         ToolResult("ok", result = "📋 Tampilan Layar Saat Ini (${elements.size} elemen terdeteksi):\n$formatted$extraCount")
                     }
                 } else ToolResult("error", message = "Accessibility Service belum aktif")
             }
+            "quiz_scroll_page" -> {
+                val dir = params.optString("direction", "down")
+                val page = params.optBoolean("page", false)
+                val (ok, msg) = com.example.quiz.QuizAnalyzer.toolScrollPage(dir, page)
+                if (ok) ToolResult("ok", result = msg)
+                else ToolResult("error", message = msg)
+            }
+            "quiz_capture" -> {
+                com.example.quiz.QuizAnalyzer.addManualCapture()
+                ToolResult("ok", result = "Frame disimpan ke buffer analyzer (hitungan bertambah di HUD). User menekan Kirim ke AI untuk analisis gabungan.")
+            }
             "screenshot" -> {
                 val (base64, errorMsg) = ScreenshotManager.captureBase64(com.example.JarvisApp.instance)
                 if (base64 != null) {
-                    ToolResult("ok", result = "Tangkapan layar berhasil diambil (${base64.length / 1024} KB)")
+                    ImageDecodeManager.rememberScreenshot(base64)
+                    ToolResult(
+                        "ok",
+                        result = "Tangkapan layar OK - ${ScreenshotManager.lastCaptureInfo()}, ${base64.length / 1024} KB. Gunakan tool decode_image dengan {\"source\":\"last_screenshot\"} untuk membaca isinya sebagai teks.",
+                        extra = mapOf("screenshot_b64" to base64)
+                    )
                 } else {
                     ToolResult("error", message = errorMsg ?: "Gagal mengambil tangkapan layar. Pastikan Screen Share atau Accessibility aktif.")
+                }
+            }
+            "ocr_screenshot" -> {
+                val (base64, errorMsg) = ScreenshotManager.captureBase64(com.example.JarvisApp.instance)
+                if (base64 != null) {
+                    ImageDecodeManager.rememberScreenshot(base64)
+                    val text = runCatching {
+                        val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bmp == null) null
+                        else {
+                            val r = com.example.quiz.OcrEngine.recognize(bmp)
+                            bmp.recycle()
+                            r.getOrNull()
+                        }
+                    }.getOrNull()
+                    if (text.isNullOrBlank()) {
+                        ToolResult("ok", result = "Tangkapan berhasil, tapi OCR tidak membaca teks apa pun. Layar mungkin berisi gambar tanpa teks, atau tangkapan kosong/hitam — ulangi, atau pakai tool screenshot lalu decode_image.")
+                    } else {
+                        val shown = text.take(4000) + if (text.length > 4000) "\n...(+${text.length - 4000} karakter lagi)" else ""
+                        ToolResult("ok", result = "🔤 Teks di layar (OCR satu langkah):\n$shown", extra = mapOf("screenshot_b64" to base64))
+                    }
+                } else {
+                    ToolResult("error", message = errorMsg ?: "Gagal mengambil tangkapan layar.")
+                }
+            }
+            "adb_shell" -> {
+                val cmd = params.optString("command", "")
+                if (cmd.isBlank()) {
+                    ToolResult("error", message = "Parameter 'command' wajib, mis. {\"command\":\"input keyevent 93\"}")
+                } else {
+                    val out = AdbShizukuManager.termuxAdbShellWithOutput(cmd)
+                    if (out != null) {
+                        ToolResult("ok", result = "🖥️ adb shell ($cmd):\n" + out.take(3000))
+                    } else {
+                        ToolResult("error", message = "Gagal. Pastikan Termux+ADB siap: buka Termux, jalankan termux/setup_adb.sh lalu 'jad status'")
+                    }
                 }
             }
             "battery", "get_battery" -> {

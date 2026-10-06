@@ -158,7 +158,7 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
                     onClick = {
                         val json = ToolManager.exportToolsToJson()
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("JARVIS Custom Tools", json))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Custom Tools", json))
                         Toast.makeText(context, "Semua custom tools disalin ke clipboard", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.testTag("btn_export_tools")

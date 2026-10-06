@@ -44,6 +44,7 @@ import com.example.ui.theme.*
  */
 @Composable
 fun JarvisFloatingOverlayUI(
+    allowedModes: Set<OverlayUiMode> = OverlayUiMode.entries.toSet(),
     onDismiss: () -> Unit,
     onCloseOverlay: () -> Unit,
     onCancel: () -> Unit,
@@ -62,7 +63,13 @@ fun JarvisFloatingOverlayUI(
     // Smooth continuous animations for Arc Reactor
     val infiniteTransition = rememberInfiniteTransition(label = "hud_cyber_loop")
 
-    val pulseAlpha by infiniteTransition.animateFloat(
+    // OPTIMASI 60fps: State-nya selalu ada, tapi .value hanya dibaca saat HUD
+    // benar-benar aktif (listening/thinking/executing). Saat standby (mini pill)
+    // & hasil, nilai statis dipakai -> tidak ada observer animasi -> TIDAK ada
+    // redraw per frame (hemat baterai & menjaga layar tetap mulus).
+    val isAnimActive = uiMode != OverlayUiMode.MINI_PILL && uiMode != OverlayUiMode.RESULT
+
+    val pulseState = infiniteTransition.animateFloat(
         initialValue = 0.35f,
         targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
@@ -72,7 +79,7 @@ fun JarvisFloatingOverlayUI(
         label = "pulseAlpha"
     )
 
-    val rotationAngle by infiniteTransition.animateFloat(
+    val rotationState = infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
         animationSpec = infiniteRepeatable(
@@ -82,7 +89,7 @@ fun JarvisFloatingOverlayUI(
         label = "rotation"
     )
 
-    val counterRotationAngle by infiniteTransition.animateFloat(
+    val counterRotationState = infiniteTransition.animateFloat(
         initialValue = 360f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
@@ -92,14 +99,32 @@ fun JarvisFloatingOverlayUI(
         label = "counterRotation"
     )
 
+    val pulseAlpha = if (isAnimActive) pulseState.value else 1f
+    val rotationAngle = if (isAnimActive) rotationState.value else 0f
+    val counterRotationAngle = if (isAnimActive) counterRotationState.value else 0f
+
     var isExpandedView by remember { mutableStateOf(false) }
 
-    Box(
-        modifier = Modifier
+    // Mode task (chat/otomasi) tampil di window FULLSCREEN: kartu memenuhi lebar layar
+    // dan berada di ATAS layar (dulu window wrap-content membuat UI muncul terlalu ke bawah).
+    val isTaskMode = uiMode == OverlayUiMode.THINKING || uiMode == OverlayUiMode.EXECUTING || uiMode == OverlayUiMode.RESULT
+    val renderHere = uiMode in allowedModes
+    val rootModifier = if (isTaskMode && renderHere) {
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 28.dp)
+    } else {
+        Modifier
             .wrapContentSize()
             .padding(6.dp)
+    }
+
+    Box(
+        modifier = rootModifier
     ) {
-        when (uiMode) {
+        if (!renderHere) {
+            // Mode ini sedang ditampilkan di jendela lain (voice vs task dipisah)
+        } else when (uiMode) {
             OverlayUiMode.MINI_PILL -> {
                 LiquidGlassMiniPill(
                     pulseAlpha = pulseAlpha,
@@ -133,7 +158,8 @@ fun JarvisFloatingOverlayUI(
                         statusText = statusText,
                         toolName = toolName,
                         onCancel = onCancel,
-                        onExpand = { isExpandedView = true }
+                        onExpand = { isExpandedView = true },
+                        onMinimize = onDismiss
                     )
                 } else {
                     if (uiMode == OverlayUiMode.THINKING) {
@@ -248,7 +274,7 @@ private fun LiquidGlassMiniPill(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "JARVIS",
+                            text = "ASISTEN",
                             color = JarvisCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Black,
@@ -359,10 +385,17 @@ private fun LiquidGlassCardContainer(
             // Cybernetic corner markers overlay
             CyberneticCornerCrosshairs(tint = borderColor.copy(alpha = 0.5f))
 
+            // FIX OVERFLOW: kartu floating yang dibuka penuh tak boleh menjebak
+            // keluar bawah layar (dulu kepotong & tak bisa digulir). Tinggi dibatasi
+            // 85% tinggi layar; kelebihan konten DIGULIR di dalam panel.
+            val scrHdp = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp
+            val scrollSt = androidx.compose.foundation.rememberScrollState()
             Column(
                 modifier = Modifier
                     .padding(16.dp)
                     .fillMaxWidth()
+                    .heightIn(max = (scrHdp * 0.85f).dp)
+                    .verticalScroll(scrollSt)
             ) {
                 content()
             }
@@ -436,7 +469,7 @@ private fun LiquidGlassListeningCard(
                 Spacer(modifier = Modifier.width(6.dp))
                 Column {
                     Text(
-                        text = "JARVIS // ONLINE",
+                        text = "ASISTEN // ONLINE",
                         color = JarvisCyan,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Black,
@@ -531,7 +564,7 @@ private fun LiquidGlassListeningCard(
                 if (aiReply.isNotBlank()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "JARVIS:",
+                            text = "ASISTEN:",
                             color = JarvisCyan,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -621,7 +654,7 @@ private fun LiquidGlassThinkingCard(
                 Spacer(modifier = Modifier.width(6.dp))
                 Column {
                     Text(
-                        text = "JARVIS • REASONING",
+                        text = "ASISTEN • MEMPROSES",
                         color = JarvisTeal,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Black,
@@ -742,7 +775,7 @@ private fun LiquidGlassExecutingCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "JARVIS • EKSEKUSI OTOMASI",
+                    text = "ASISTEN • EKSEKUSI OTOMASI",
                     color = JarvisAmber,
                     fontSize = 11.5.sp,
                     fontWeight = FontWeight.Black,
@@ -868,7 +901,7 @@ private fun LiquidGlassResultCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = "JARVIS RESPON",
+                        text = "RESPON ASISTEN",
                         color = JarvisCyan,
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Black,
@@ -933,7 +966,7 @@ private fun LiquidGlassResultCard(
                 .verticalScroll(scrollState)
         ) {
             Text(
-                text = aiReply.ifBlank { "Tugas telah selesai diproses oleh JARVIS." },
+                text = aiReply.ifBlank { "Tugas telah selesai diproses oleh asisten." },
                 color = JarvisTextPrimary,
                 fontSize = 12.sp,
                 lineHeight = 16.5.sp
@@ -988,10 +1021,11 @@ private fun CompactTaskOverlayCard(
     statusText: String,
     toolName: String?,
     onCancel: () -> Unit,
-    onExpand: () -> Unit
+    onExpand: () -> Unit,
+    onMinimize: () -> Unit
 ) {
     val themeColor = if (isExecuting) JarvisAmber else JarvisCyan
-    val titleText = if (isExecuting) "⚡ AI EXECUTING" else "🧠 AI THINKING"
+    val titleText = if (isExecuting) "EKSEKUSI" else "MEMPROSES"
     
     val subtitleText = when {
         !toolName.isNullOrBlank() -> "Tool: $toolName"
@@ -1083,6 +1117,29 @@ private fun CompactTaskOverlayCard(
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
+            // Minimize: kecilkan overlay ke pill tanpa membatalkan task
+            Surface(
+                modifier = Modifier
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .clickable { onMinimize() }
+                    .testTag("minimize_task_button"),
+                shape = CircleShape,
+                color = themeColor.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, themeColor.copy(alpha = 0.5f))
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Minimize",
+                        tint = themeColor,
+                        modifier = Modifier.size(16.dp)
                     )
                 }
             }

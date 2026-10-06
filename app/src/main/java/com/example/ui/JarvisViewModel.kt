@@ -26,6 +26,7 @@ class JarvisViewModel : ViewModel() {
     val telemetry: StateFlow<SystemTelemetry> = repository.telemetry
     val serverLogs: StateFlow<List<ServerLogItem>> = repository.serverLogs
     val inspectedElements: StateFlow<List<UiElementInfo>> = repository.inspectedElements
+    val networkExposed: StateFlow<Boolean> = repository.networkExposed
 
     private val _lastActionResult = MutableStateFlow<String?>(null)
     val lastActionResult = _lastActionResult.asStateFlow()
@@ -43,6 +44,11 @@ class JarvisViewModel : ViewModel() {
 
     fun clearLogs() {
         repository.clearLogs()
+    }
+
+    /** Toggle bind 0.0.0.0 agar AI eksternal (MCP via tunnel/LAN) dapat menjangkau server. */
+    fun setNetworkExposed(enabled: Boolean) {
+        repository.setNetworkExposed(enabled)
     }
 
     fun inspectScreen() {
@@ -327,6 +333,25 @@ class JarvisViewModel : ViewModel() {
     val isHotwordEnabled: StateFlow<Boolean> = com.example.service.JarvisHotwordManager.isHotwordEnabled
     val isHotwordListeningActive: StateFlow<Boolean> = com.example.service.JarvisHotwordManager.isListeningActive
     val isOverlayVisible: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.isOverlayVisible
+
+    val quizOverlayEnabled: StateFlow<Boolean> = com.example.quiz.QuizOverlayManager.isEnabled
+
+    /** Toggle overlay AI Quiz Analyzer. Return false bila izin overlay belum diberikan. */
+    fun toggleQuizOverlay(context: android.content.Context): Boolean {
+        val ok = com.example.quiz.QuizOverlayManager.toggle(context)
+        return ok
+    }
+
+    val voiceOverlayEnabled: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.voiceOverlayEnabled
+    val taskOverlayEnabled: StateFlow<Boolean> = com.example.ui.JarvisOverlayManager.taskOverlayEnabled
+
+    fun setVoiceOverlayEnabled(enabled: Boolean) {
+        com.example.ui.JarvisOverlayManager.setVoiceOverlayEnabled(enabled)
+    }
+
+    fun setTaskOverlayEnabled(enabled: Boolean) {
+        com.example.ui.JarvisOverlayManager.setTaskOverlayEnabled(enabled)
+    }
 
     fun toggleHotword(context: android.content.Context): Boolean {
         val result = com.example.service.JarvisHotwordManager.toggleHotword(context)

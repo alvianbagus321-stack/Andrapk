@@ -69,7 +69,7 @@ fun JarvisThinkingHistoryDialog(
         entries
     }
 
-    fun copyToClipboard(text: String, label: String = "JARVIS Thinking Trace") {
+    fun copyToClipboard(text: String, label: String = "Proses Berpikir Asisten") {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         val clip = ClipData.newPlainText(label, text)
         clipboard.setPrimaryClip(clip)
@@ -141,7 +141,7 @@ fun JarvisThinkingHistoryDialog(
                     .heightIn(max = 480.dp)
             ) {
                 Text(
-                    text = "Daftar proses analisa penalaran internal yang dilakukan oleh JARVIS sebelum menjawab atau mengeksekusi tool di HP:",
+                    text = "Daftar proses analisa penalaran internal yang dilakukan oleh asisten sebelum menjawab atau mengeksekusi tool di HP:",
                     color = JarvisTextSecondary,
                     fontSize = 11.sp,
                     lineHeight = 15.sp

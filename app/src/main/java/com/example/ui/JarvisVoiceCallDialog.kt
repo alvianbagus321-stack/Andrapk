@@ -95,7 +95,7 @@ fun JarvisVoiceCallDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "JARVIS NEURAL VOICE LINK",
+                            text = "SUARA LANGSUNG",
                             color = JarvisCyan,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
@@ -109,8 +109,8 @@ fun JarvisVoiceCallDialog(
                     Text(
                         text = when (voiceState) {
                             VoiceState.LISTENING -> "● MENDENGARKAN SUARA ANDA..."
-                            VoiceState.THINKING -> "○ JARVIS SEDANG MEMPROSES..."
-                            VoiceState.SPEAKING -> "▶ JARVIS SEDANG BERBICARA..."
+                            VoiceState.THINKING -> "○ MEMPROSES..."
+                            VoiceState.SPEAKING -> "▶ SEDANG BERBICARA..."
                             VoiceState.IDLE -> voiceStatus.uppercase()
                         },
                         color = when (voiceState) {
@@ -206,7 +206,7 @@ fun JarvisVoiceCallDialog(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "JARVIS",
+                                        text = "ASISTEN",
                                         color = JarvisCyan,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
@@ -311,7 +311,7 @@ fun JarvisVoiceCallDialog(
 }
 
 /**
- * Animated Arc Reactor / Glowing Pulse Orb Visualizer for JARVIS Voice
+ * Animated Arc Reactor / Glowing Pulse Orb Visualizer for Voice Mode
  */
 @Composable
 fun JarvisOrbVisualizer(

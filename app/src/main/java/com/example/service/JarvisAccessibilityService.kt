@@ -35,6 +35,10 @@ class JarvisAccessibilityService : AccessibilityService() {
 
         @Volatile
         var instance: JarvisAccessibilityService? = null
+
+        /** Snapshot layar terakhir untuk diff_screen (verifikasi before/after aksi). */
+        @Volatile
+        private var lastDiffSnapshot: ScreenSnapshot? = null
             private set
     }
 
@@ -64,6 +68,62 @@ class JarvisAccessibilityService : AccessibilityService() {
         instance = null
         _isConnected.value = false
         Log.i(TAG, "JarvisAccessibilityService destroyed")
+    }
+
+    /**
+     * Swipe DUA JARI serentak: di app remote desktop (StarDesk/AnyDesk/dll) gerakan dua
+     * jari diteruskan sebagai RODA MOUSE di PC — halaman PC ikut ter-gulung. Berbeda
+     * dengan swipe 1 jari yang menjadi mouse-drag (menyeleksi teks, TIDAK menggulung).
+     * Di app Android biasa tetap berfungsi sebagai scroll biasa.
+     */
+    suspend fun twoFingerSwipeCoordinates(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long): ToolResult =
+        suspendCoroutine { cont ->
+            val safeDuration = durationMs.coerceIn(50L, 2500L)
+            val off = 48f
+            val p1 = Path().apply { moveTo(x1 - off, y1); lineTo(x2 - off, y2) }
+            val p2 = Path().apply { moveTo(x1 + off, y1); lineTo(x2 + off, y2) }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(p1, 0, safeDuration))
+                .addStroke(GestureDescription.StrokeDescription(p2, 0, safeDuration))
+                .build()
+            val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    cont.resume(
+                        ToolResult(
+                            status = "ok",
+                            result = "Two-finger swipe (${x1.toInt()}, ${y1.toInt()})->(${x2.toInt()}, ${y2.toInt()}) in ${safeDuration}ms"
+                        )
+                    )
+                }
+
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    cont.resume(
+                        ToolResult(
+                            status = "error",
+                            errorCode = ErrorCodes.GESTURE_FAILED,
+                            message = "Two-finger swipe dibatalkan sistem",
+                            retryable = true
+                        )
+                    )
+                }
+            }, null)
+            if (!dispatched) {
+                cont.resume(
+                    ToolResult(
+                        status = "error",
+                        errorCode = ErrorCodes.GESTURE_FAILED,
+                        message = "Gagal dispatch two-finger gesture",
+                        retryable = true
+                    )
+                )
+            }
+        }
+
+    /** Package name app yang sedang tampil di depan (untuk deteksi konteks, mis. remote desktop). */
+    fun foregroundPackageName(): String? = try {
+        rootInActiveWindow?.packageName?.toString()
+    } catch (_: Exception) {
+        null
     }
 
     /**
@@ -257,6 +317,71 @@ class JarvisAccessibilityService : AccessibilityService() {
     /**
      * Taps an element by ID, viewId, or label with multi-window lookup.
      */
+    /**
+     * Swipe mengikuti kurva Bezier kubik — gerakan menyerupai jari manusia
+     * (bukan garis lurus robotik). Param bend: -1.0..1.0 = kelengkungan relatif
+     * terhadap panjang swipe (positif melengkung ke kiri arah gerak, negatif ke kanan).
+     */
+    suspend fun bezierSwipe(
+        x1: Float, y1: Float, x2: Float, y2: Float,
+        durationMs: Long, bend: Float = 0.35f
+    ): ToolResult = suspendCoroutine { cont ->
+        com.example.ui.JarvisOverlayManager.showTapPointer(this, x1, y1)
+        com.example.ui.JarvisOverlayManager.showTapPointer(this, x2, y2)
+        val safeDuration = durationMs.coerceIn(80L, 3000L)
+        val dx = x2 - x1
+        val dy = y2 - y1
+        val dist = kotlin.math.sqrt(dx * dx + dy * dy)
+        // Vektor tegak lurus arah swipe
+        val px = if (dist > 0f) -dy / dist else 0f
+        val py = if (dist > 0f) dx / dist else 0f
+        val bow = bend.coerceIn(-1f, 1f) * dist * 0.35f
+        val c1x = x1 + dx * 0.30f + px * bow
+        val c1y = y1 + dy * 0.30f + py * bow
+        val c2x = x1 + dx * 0.70f + px * bow
+        val c2y = y1 + dy * 0.70f + py * bow
+
+        val path = Path().apply {
+            moveTo(x1, y1)
+            cubicTo(c1x, c1y, c2x, c2y, x2, y2)
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, safeDuration)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+
+        val dispatched = dispatchGesture(gesture, object : GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription?) {
+                cont.resume(
+                    ToolResult(
+                        status = "ok",
+                        result = "Bezier swipe OK: (${x1.toInt()}, ${y1.toInt()}) → (${x2.toInt()}, ${y2.toInt()}) bend=$bend in ${safeDuration}ms (kurva manusiawi)"
+                    )
+                )
+            }
+
+            override fun onCancelled(gestureDescription: GestureDescription?) {
+                cont.resume(
+                    ToolResult(
+                        status = "error",
+                        errorCode = ErrorCodes.GESTURE_FAILED,
+                        message = "Bezier swipe dibatalkan sistem",
+                        retryable = true
+                    )
+                )
+            }
+        }, null)
+
+        if (!dispatched) {
+            cont.resume(
+                ToolResult(
+                    status = "error",
+                    errorCode = ErrorCodes.GESTURE_FAILED,
+                    message = "Sistem menolak gesture bezier swipe",
+                    retryable = true
+                )
+            )
+        }
+    }
+
     suspend fun tapElement(identifier: String): ToolResult {
         var node: AccessibilityNodeInfo? = null
 
@@ -508,8 +633,30 @@ class JarvisAccessibilityService : AccessibilityService() {
             Intent.FLAG_ACTIVITY_CLEAR_TOP
         )
         return try {
+            val resolvedPkg = intent.component?.packageName ?: targetPkg
+            val before = currentApp.value
+            if (before.equals(resolvedPkg, ignoreCase = true)) {
+                return ToolResult(status = "ok", result = "✅ Aplikasi '$resolvedPkg' sudah berada di foreground.")
+            }
             startActivity(intent)
-            ToolResult(status = "ok", result = "Opened application '$targetPkg'")
+            // Verifikasi foreground: tunggu accessibility event melaporkan app target (maks 3 dtk).
+            // Dulu tool ini "tidak persist" karena sekadar startActivity tanpa konfirmasi.
+            var now = currentApp.value
+            var waitedMs = 0
+            while (waitedMs < 3000 && !now.equals(resolvedPkg, ignoreCase = true)) {
+                Thread.sleep(250)
+                waitedMs += 250
+                now = currentApp.value
+            }
+            if (now.equals(resolvedPkg, ignoreCase = true)) {
+                ToolResult(status = "ok", result = "✅ Aplikasi '$resolvedPkg' terbuka & terverifikasi sebagai foreground (setelah ${waitedMs}ms).")
+            } else {
+                ToolResult(
+                    status = "ok",
+                    result = "⚠️ Perintah buka '$resolvedPkg' terkirim, tetapi foreground belum terkonfirmasi setelah ${waitedMs}ms (terdeteksi: '$now'). " +
+                            "Verifikasi dengan 'get_current_app'/'dumpsys_window', lalu coba lagi bila perlu."
+                )
+            }
         } catch (e: Exception) {
             ToolResult(
                 status = "error",
@@ -603,6 +750,138 @@ class JarvisAccessibilityService : AccessibilityService() {
         }
         traverse(root)
         return list
+    }
+
+    /**
+     * Mencari elemen UI yang cocok dengan teks (label tombol, judul, deskripsi, view id).
+     * Pencarian case-insensitive & partial match — untuk agent loop & tap_by_text.
+     */
+    fun findElementsByText(query: String): List<UiElementInfo> {
+        val q = query.trim()
+        if (q.isBlank()) return emptyList()
+        return getScreenElements().filter { el ->
+            el.text.contains(q, ignoreCase = true) ||
+                el.contentDescription.contains(q, ignoreCase = true) ||
+                el.viewId.contains(q, ignoreCase = true)
+        }
+    }
+
+    /**
+     * Mengetuk elemen langsung berdasarkan teksnya — jauh lebih akurat daripada
+     * tap koordinat manual (terutama setelah layar berputar/landscape).
+     * Prioritas kecocokan: persis > diawali > mengandung; elemen clickable diutamakan.
+     */
+    suspend fun tapByText(query: String, timeoutMs: Long = 3000L): ToolResult {
+        val q = query.trim()
+        if (q.isBlank()) {
+            return ToolResult("error", message = "Teks elemen tidak boleh kosong.")
+        }
+        val deadline = System.currentTimeMillis() + timeoutMs.coerceIn(0L, 20000L)
+        var candidates = findElementsByText(q)
+        while (candidates.isEmpty() && System.currentTimeMillis() < deadline) {
+            kotlinx.coroutines.delay(250)
+            candidates = findElementsByText(q)
+        }
+        if (candidates.isEmpty()) {
+            return ToolResult(
+                status = "error",
+                message = "Tidak ada elemen berteks '$q' di layar${if (timeoutMs > 0) " (menunggu ${timeoutMs}ms)" else ""}. Coba 'find_by_text' dengan kata kunci lain, atau 'read_screen' untuk melihat isi layar."
+            )
+        }
+        val target = candidates.sortedWith(
+            compareByDescending<UiElementInfo> { it.isClickable }
+                .thenBy { if (it.text.equals(q, true) || it.contentDescription.equals(q, true)) 0 else 1 }
+                .thenBy { (it.bounds.width) * (it.bounds.height) }
+        ).first()
+        tapCoordinates(target.bounds.centerX.toFloat(), target.bounds.centerY.toFloat())
+        return ToolResult(
+            status = "ok",
+            result = "👆 Tap '${(target.text.ifBlank { target.contentDescription }).ifBlank { target.viewId }}' di (${target.bounds.centerX}, ${target.bounds.centerY}) — cocok untuk '$q' (dari ${candidates.size} kandidat)."
+        )
+    }
+
+    /** Snapshot ringan layar untuk diff_screen & wait_stable. */
+    private data class ScreenSnapshot(val hash: Int, val summary: String, val count: Int)
+
+    private fun snapshotScreen(): ScreenSnapshot {
+        val els = getScreenElements()
+        val sig = els.joinToString("|") { "${it.id}:${it.text}:${it.bounds.centerX},${it.bounds.centerY}" }
+        val summary = els.take(20).joinToString("\n") { el ->
+            "- '${el.text.ifBlank { el.contentDescription }}' @ (${el.bounds.centerX}, ${el.bounds.centerY})"
+        }
+        return ScreenSnapshot(sig.hashCode(), summary, els.size)
+    }
+
+    /**
+     * Scroll otomatis sampai teks ditemukan (untuk list panjang) — menggantikan
+     * swipe buta berulang. Scroll dari bawah (75% tinggi) ke atas (30%).
+     */
+    suspend fun scrollToText(query: String, maxSwipes: Int = 6): ToolResult {
+        val q = query.trim()
+        if (q.isBlank()) return ToolResult("error", message = "Parameter 'text' wajib diisi.")
+        val metrics = ScreenshotManager.getScreenMetrics(this)
+        val cx = metrics.widthPixels / 2f
+        var swipes = 0
+        var matched = findElementsByText(q)
+        while (matched.isEmpty() && swipes < maxSwipes.coerceIn(1, 15)) {
+            swipeCoordinates(cx, metrics.heightPixels * 0.75f, cx, metrics.heightPixels * 0.30f, 400)
+            kotlinx.coroutines.delay(500)
+            swipes++
+            matched = findElementsByText(q)
+        }
+        return if (matched.isEmpty()) {
+            ToolResult("error", message = "Teks '$q' tidak ditemukan setelah $swipes kali scroll.")
+        } else {
+            val el = matched.first()
+            ToolResult(
+                status = "ok",
+                result = "📜 '$q' ditemukan setelah $swipes scroll @ (${el.bounds.centerX}, ${el.bounds.centerY}). Ketuk dengan tap_by_text."
+            )
+        }
+    }
+
+    /** Menunggu layar stabil (tidak berubah >= 2 interval 400ms) sebelum aksi berikutnya. */
+    suspend fun waitForStableScreen(timeoutMs: Long = 3000L): ToolResult {
+        val deadline = System.currentTimeMillis() + timeoutMs.coerceIn(500L, 15000L)
+        var prev = snapshotScreen()
+        var stableLoops = 0
+        while (System.currentTimeMillis() < deadline && stableLoops < 2) {
+            kotlinx.coroutines.delay(400)
+            val cur = snapshotScreen()
+            if (cur.hash == prev.hash) stableLoops++ else stableLoops = 0
+            prev = cur
+        }
+        return ToolResult(
+            status = "ok",
+            result = if (stableLoops >= 2) {
+                "✅ Layar stabil (${prev.count} elemen, tidak berubah >= 800ms)."
+            } else {
+                "⏳ Layar MASIH BERUBAH (terakhir ${prev.count} elemen). Tunggu sebentar sebelum aksi berikutnya."
+            }
+        )
+    }
+
+    /** Bandingkan layar saat ini vs snapshot pemanggilan sebelumnya (verifikasi before/after aksi). */
+    suspend fun diffScreen(): ToolResult {
+        val cur = snapshotScreen()
+        val last = lastDiffSnapshot
+        lastDiffSnapshot = cur
+        return if (last == null) {
+            ToolResult(
+                status = "ok",
+                result = "📸 Baseline layar disimpan (${cur.count} elemen). Lakukan aksi (tap/open_app), lalu panggil 'diff_screen' lagi untuk membandingkan before/after."
+            )
+        } else if (last.hash == cur.hash) {
+            ToolResult(
+                status = "ok",
+                result = "⚠️ TIDAK ADA PERUBAHAN layar sebelum→sesudah (${cur.count} elemen sama persis). Kemungkinan aksi terakhir GAGAL/tidak berefek — coba pendekatan lain (mis. tap_by_text)."
+            )
+        } else {
+            ToolResult(
+                status = "ok",
+                result = "✅ Layar BERUBAH sebelum→sesudah: ${last.count} elemen → ${cur.count} elemen.\nState terkini (20 teratas):\n${cur.summary}"
+            )
+        }
     }
 
     private fun findNodeByIdentifier(node: AccessibilityNodeInfo?, identifier: String): AccessibilityNodeInfo? {
