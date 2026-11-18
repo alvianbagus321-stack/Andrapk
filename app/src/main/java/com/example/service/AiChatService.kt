@@ -70,17 +70,19 @@ object AiChatService {
         onStatusUpdate: (String) -> Unit
     ): AiChatResponse = withContext(Dispatchers.IO) {
         val savedConfig = com.example.data.AiConfigManager.config.value
-        val cleanKey = apiKey.trim().ifEmpty {
-            com.example.data.AiConfigManager.getEffectiveApiKey()
-        }
         val cleanBaseUrl = baseUrl.trim().ifEmpty { savedConfig.baseUrl.ifEmpty { DEFAULT_GEMINI_BASE_URL } }.trimEnd('/')
         val cleanModel = modelName.trim().ifEmpty { savedConfig.modelName.ifEmpty { DEFAULT_GEMINI_MODEL } }
+        val cleanKey = apiKey.trim().ifEmpty {
+            com.example.data.AiConfigManager.getEffectiveApiKey(cleanBaseUrl)
+        }
 
         val isGemini = com.example.data.AiConfigManager.isGeminiEndpoint(cleanBaseUrl)
 
-        if (isGemini && (cleanKey.isEmpty() || cleanKey == "MY_GEMINI_API_KEY")) {
+        if (com.example.data.AiConfigManager.requiresApiKey(cleanBaseUrl, cleanModel) &&
+            (cleanKey.isEmpty() || cleanKey == "MY_GEMINI_API_KEY")
+        ) {
             return@withContext AiChatResponse(
-                replyText = "⚠️ API Key belum disetel. Silakan masukkan API Key Anda pada pengaturan AI Endpoint di atas atau melalui AI Studio Secrets panel.",
+                replyText = com.example.data.AiConfigManager.buildMissingApiKeyMessage(cleanBaseUrl, cleanModel),
                 thinkingProcess = null,
                 actionResult = null
             )
@@ -278,6 +280,48 @@ object AiChatService {
             }
             currentStep++
             val stepLabel = if (isUnlimited) "Langkah $currentStep (Mode Otomatis)" else "Langkah $currentStep/$maxSteps"
+
+            // Cek kuota & auto-reset limit untuk model gratis (OpenRouter :free, Inception Labs, Groq, dll.)
+            var quotaCheck = com.example.data.FreeQuotaManager.checkBeforeRequest(cleanBaseUrl, cleanModel)
+            if (!quotaCheck.allowed && quotaCheck.isShortMinuteWait && quotaCheck.waitMs > 0L) {
+                var remainingWait = quotaCheck.waitMs + 300L
+                while (remainingWait > 0L && !isCancelled) {
+                    val cd = com.example.data.FreeQuotaManager.formatCountdown(remainingWait)
+                    onStatusUpdate("$stepLabel: Limit per menit penuh — menunggu reset otomatis ($cd)...")
+                    val slice = remainingWait.coerceAtMost(500L)
+                    kotlinx.coroutines.delay(slice)
+                    remainingWait -= slice
+                }
+                if (isCancelled) {
+                    onStatusUpdate("Dihentikan oleh pengguna.")
+                    return@withContext AiChatResponse(
+                        replyText = "Proses AI dihentikan oleh pengguna. 🛑",
+                        thinkingProcess = allThoughts.joinToString("\n\n").ifBlank { null },
+                        actionToolName = lastActionName,
+                        actionResult = lastToolResult
+                    )
+                }
+                quotaCheck = com.example.data.FreeQuotaManager.checkBeforeRequest(cleanBaseUrl, cleanModel)
+            }
+            if (!quotaCheck.allowed) {
+                val limitMsg = buildString {
+                    append(quotaCheck.userMessage ?: "Batas kuota tercapai. Tunggu hingga kuota direset otomatis.")
+                    if (stepSummary.isNotEmpty()) {
+                        appendLine()
+                        appendLine()
+                        appendLine("Ringkasan langkah yang sudah selesai:")
+                        append(stepSummary.joinToString("\n"))
+                    }
+                }
+                onStatusUpdate("Batas kuota tercapai — menunggu jadwal reset.")
+                return@withContext AiChatResponse(
+                    replyText = limitMsg,
+                    thinkingProcess = allThoughts.joinToString("\n\n").ifBlank { null },
+                    actionToolName = lastActionName,
+                    actionResult = lastToolResult
+                )
+            }
+
             onStatusUpdate("$stepLabel: Menganalisa & merencanakan aksi...")
 
             suspend fun callModelOnce(): Pair<String, String?> = if (isGemini) {
@@ -291,7 +335,7 @@ object AiChatService {
             }
             var (rawResponse, nativeThought) = callModelOnce()
             // RETRY KONEKSI OTOMATIS: payload berat (gambar+riwayat) kadang timeout
-            // SEKALI jalan walau API sehat — coba ulang sekali sebelum menyerah.
+            // SEKALI jalan walau API sehat — coba ulang sekali sebelum menyerah (jangan retry bila limit 429).
             if (rawResponse.startsWith("Koneksi gagal") || rawResponse.startsWith("Gagal menghubungi")) {
                 onStatusUpdate("$stepLabel: Koneksi gagal sekali - mencoba ulang otomatis...")
                 kotlinx.coroutines.delay(1500L)
@@ -538,22 +582,39 @@ object AiChatService {
         extraImagesBase64: List<String>? = null
     ): Pair<String?, String?> = withContext(Dispatchers.IO) {
         val cfg = com.example.data.AiConfigManager.config.value
-        if (cfg.apiKey.isBlank()) {
-            return@withContext null to "API key AI belum diisi. Buka pengaturan AI di app untuk mengisinya."
+        val cleanBaseUrl = cfg.baseUrl.trim().ifEmpty { DEFAULT_GEMINI_BASE_URL }.trimEnd('/')
+        val cleanModel = cfg.modelName.trim().ifEmpty { DEFAULT_GEMINI_MODEL }
+        val cleanKey = com.example.data.AiConfigManager.getEffectiveApiKey(cleanBaseUrl)
+
+        if (com.example.data.AiConfigManager.requiresApiKey(cleanBaseUrl, cleanModel) &&
+            (cleanKey.isBlank() || cleanKey == "MY_GEMINI_API_KEY")
+        ) {
+            return@withContext null to com.example.data.AiConfigManager.buildMissingApiKeyMessage(cleanBaseUrl, cleanModel)
         }
-        // Deteksi jalur Gemini-native dari konfigurasi existing (AiConfig tak punya flag —
-        // providerLabel/baseUrl adalah sumber kebenarannya).
-        val isGemini = cfg.providerLabel.contains("gemini", ignoreCase = true) ||
-                cfg.baseUrl.contains("generativelanguage", ignoreCase = true)
+
+        var quotaCheck = com.example.data.FreeQuotaManager.checkBeforeRequest(cleanBaseUrl, cleanModel)
+        if (!quotaCheck.allowed && quotaCheck.isShortMinuteWait && quotaCheck.waitMs > 0L) {
+            kotlinx.coroutines.delay(quotaCheck.waitMs + 300L)
+            quotaCheck = com.example.data.FreeQuotaManager.checkBeforeRequest(cleanBaseUrl, cleanModel)
+        }
+        if (!quotaCheck.allowed) {
+            return@withContext null to (quotaCheck.userMessage ?: "Limit model gratis tercapai — tunggu reset otomatis.")
+        }
+
+        val isGemini = com.example.data.AiConfigManager.isGeminiEndpoint(cleanBaseUrl)
         val (text, _) = if (isGemini) {
-            callGeminiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt, imageBase64, null, extraImagesBase64)
+            callGeminiRest(cleanBaseUrl, cleanModel, cleanKey, systemInstruction, emptyList(), prompt, imageBase64, null, extraImagesBase64)
         } else {
-            // Provider OpenAI-compatible: teks saja (gambar tidak didukung jalur ini)
-            callOpenAiRest(cfg.baseUrl, cfg.modelName, cfg.apiKey, systemInstruction, emptyList(), prompt) to null
+            // Provider OpenAI-compatible: teks saja (hasil OCR soal sudah disertakan di prompt)
+            callOpenAiRest(cleanBaseUrl, cleanModel, cleanKey, systemInstruction, emptyList(), prompt) to null
         }
         val isErrorPrefix = text.startsWith("Gagal menghubungi") ||
+                text.startsWith("Gagal memanggil") ||
                 text.startsWith("Koneksi gagal") ||
-                text.startsWith("Tidak ada teks balasan")
+                text.startsWith("Tidak ada teks balasan") ||
+                text.startsWith("Tidak ada balasan") ||
+                text.startsWith("Batas kuota tercapai") ||
+                text.startsWith("Batas pemakaian API")
         if (isErrorPrefix) null to text else text to null
     }
 
@@ -566,7 +627,8 @@ object AiChatService {
         prompt: String,
         imageBase64: String? = null,
         imageMimeType: String? = "image/jpeg",
-        extraImagesBase64: List<String>? = null
+        extraImagesBase64: List<String>? = null,
+        allowModelFallback: Boolean = true
     ): Pair<String, String?> {
         val endpoint = "$baseUrl/v1beta/models/$model:generateContent?key=$apiKey"
 
@@ -656,9 +718,43 @@ object AiChatService {
             val response = httpClient.newCall(request).execute()
             val bodyString = response.body?.string() ?: ""
             if (!response.isSuccessful) {
+                if (response.code == 404 &&
+                    allowModelFallback &&
+                    !model.equals(com.example.data.AiConfigManager.GEMINI_FREE_MODEL, ignoreCase = true)
+                ) {
+                    Log.w(TAG, "Model Gemini '$model' mengembalikan 404; beralih otomatis ke ${com.example.data.AiConfigManager.GEMINI_FREE_MODEL}")
+                    return callGeminiRest(
+                        baseUrl = baseUrl,
+                        model = com.example.data.AiConfigManager.GEMINI_FREE_MODEL,
+                        apiKey = apiKey,
+                        systemInstruction = systemInstruction,
+                        history = history,
+                        prompt = prompt,
+                        imageBase64 = imageBase64,
+                        imageMimeType = imageMimeType,
+                        extraImagesBase64 = extraImagesBase64,
+                        allowModelFallback = false
+                    )
+                }
+                if (response.code == 429) {
+                    val limitMsg = com.example.data.FreeQuotaManager.recordRateLimitError(
+                        baseUrl = baseUrl,
+                        modelName = model,
+                        headers = response.headers,
+                        errorBody = bodyString
+                    )
+                    return Pair(limitMsg, null)
+                }
                 return Pair("Gagal menghubungi Gemini API (${response.code}): $bodyString", null)
             }
             val json = JSONObject(bodyString)
+            val totalTokens = json.optJSONObject("usageMetadata")?.optLong("totalTokenCount", 0L) ?: 0L
+            com.example.data.FreeQuotaManager.recordSuccess(
+                baseUrl = baseUrl,
+                modelName = model,
+                headers = response.headers,
+                tokensUsed = totalTokens
+            )
             val candidates = json.optJSONArray("candidates")
             val firstCandidate = candidates?.optJSONObject(0)
             val content = firstCandidate?.optJSONObject("content")
@@ -695,13 +791,13 @@ object AiChatService {
         apiKey: String,
         systemInstruction: String,
         history: List<Pair<String, String>>,
-        prompt: String
+        prompt: String,
+        allowOpenRouterFallback: Boolean = true
     ): String {
-        val endpoint = when {
-            baseUrl.endsWith("/chat/completions") -> baseUrl
-            baseUrl.endsWith("/v1") -> "$baseUrl/chat/completions"
-            else -> "$baseUrl/chat/completions"
-        }
+        val hasKey = apiKey.isNotBlank()
+        val endpoint = com.example.data.AiConfigManager.resolveChatCompletionsEndpoint(baseUrl, hasApiKey = hasKey)
+        val isInception = com.example.data.AiConfigManager.isInceptionEndpoint(baseUrl)
+        val isOpenRouter = com.example.data.AiConfigManager.isOpenRouterEndpoint(baseUrl)
 
         val messagesArray = JSONArray()
         messagesArray.put(JSONObject().apply {
@@ -723,7 +819,13 @@ object AiChatService {
         val requestJson = JSONObject().apply {
             put("model", model)
             put("messages", messagesArray)
-            put("temperature", 0.3)
+            if (isInception) {
+                // Spesifikasi resmi Inception Labs Mercury 3: temperature 0.5..1.0 & max_completion_tokens
+                put("temperature", 0.75)
+                put("max_completion_tokens", 4096)
+            } else {
+                put("temperature", 0.3)
+            }
         }
 
         val requestBody = requestJson.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
@@ -731,10 +833,10 @@ object AiChatService {
             .url(endpoint)
             .post(requestBody)
 
-        if (apiKey.isNotBlank()) {
+        if (hasKey && !endpoint.lowercase().contains("text.pollinations.ai")) {
             reqBuilder.addHeader("Authorization", "Bearer $apiKey")
         }
-        if (baseUrl.contains("openrouter.ai")) {
+        if (isOpenRouter) {
             reqBuilder.addHeader("HTTP-Referer", "https://ai.studio/build")
             reqBuilder.addHeader("X-Title", "Andra Control")
         }
@@ -743,15 +845,74 @@ object AiChatService {
             val response = httpClient.newCall(reqBuilder.build()).execute()
             val bodyString = response.body?.string() ?: ""
             if (!response.isSuccessful) {
+                // Fallback otomatis OpenRouter :free -> openrouter/free saat model gratis tertentu
+                // sedang penuh (upstream 429), berganti ID (404), atau gangguan sementara (502/503).
+                val lowerBody = bodyString.lowercase()
+                val isDailyCap = lowerBody.contains("free-models-per-day") || lowerBody.contains("per day")
+                if (allowOpenRouterFallback &&
+                    com.example.data.AiConfigManager.isOpenRouterFreeModel(baseUrl, model) &&
+                    !model.equals(com.example.data.AiConfigManager.OPENROUTER_FREE_AUTO_MODEL, ignoreCase = true) &&
+                    response.code in listOf(404, 429, 502, 503) &&
+                    !isDailyCap
+                ) {
+                    Log.w(TAG, "Model gratis '$model' mengembalikan ${response.code}; beralih otomatis ke openrouter/free")
+                    return callOpenAiRest(
+                        baseUrl = baseUrl,
+                        model = com.example.data.AiConfigManager.OPENROUTER_FREE_AUTO_MODEL,
+                        apiKey = apiKey,
+                        systemInstruction = systemInstruction,
+                        history = history,
+                        prompt = prompt,
+                        allowOpenRouterFallback = false
+                    )
+                }
+
+                if (response.code == 429) {
+                    return com.example.data.FreeQuotaManager.recordRateLimitError(
+                        baseUrl = baseUrl,
+                        modelName = model,
+                        headers = response.headers,
+                        errorBody = bodyString
+                    )
+                }
                 return "Gagal memanggil API (${response.code}): $bodyString"
             }
+
             val json = JSONObject(bodyString)
+            val totalTokens = json.optJSONObject("usage")?.optLong("total_tokens", 0L) ?: 0L
+            com.example.data.FreeQuotaManager.recordSuccess(
+                baseUrl = baseUrl,
+                modelName = model,
+                headers = response.headers,
+                tokensUsed = totalTokens
+            )
+
             val choices = json.optJSONArray("choices")
             val message = choices?.optJSONObject(0)?.optJSONObject("message")
-            val reasoning = message?.optString("reasoning_content", "") ?: ""
-            val content = message?.optString("content", "") ?: "Tidak ada balasan dari API."
-            
-            if (reasoning.isNotBlank()) {
+            val reasoningContent = if (message != null && !message.isNull("reasoning_content")) {
+                message.optString("reasoning_content", "")
+            } else ""
+            val reasoningAlt = if (message != null && !message.isNull("reasoning")) {
+                message.optString("reasoning", "")
+            } else ""
+            val reasoning = reasoningContent.ifBlank { reasoningAlt }
+            val rawContent = if (message != null && !message.isNull("content")) {
+                message.optString("content", "")
+            } else ""
+            val contentBase = rawContent.ifBlank { "Tidak ada balasan dari API." }
+
+            // Deteksi respons proxy yang mengembalikan HTTP 200 saat kuota API key habis
+            val contentLower = contentBase.lowercase()
+            val isSoftQuotaError = contentLower.contains("your quota is exhausted") ||
+                contentLower.contains("api key status: exceeded") ||
+                contentLower.contains("insufficient_quota")
+            val content = if (isSoftQuotaError) {
+                contentBase + "\n\nSaran: Kuota endpoint ini sudah habis. Buka Pengaturan AI untuk beralih ke model gratis yang reset berkala (OpenRouter :free, Groq, Gemini Flash-Lite, Pollinations) atau klaim 100 Juta token gratis di Inception Labs."
+            } else {
+                contentBase
+            }
+
+            if (reasoning.isNotBlank() && !isSoftQuotaError) {
                 "<thought>\n$reasoning\n</thought>\n\n$content"
             } else {
                 content

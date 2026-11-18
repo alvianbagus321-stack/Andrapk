@@ -3,6 +3,7 @@ package com.example.ui.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,45 +27,34 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.AuroraViolet
 import com.example.ui.theme.GlassBorderBrush
+import com.example.ui.theme.JarvisAmber
+import com.example.ui.theme.JarvisBackground
 import com.example.ui.theme.JarvisBorder
+import com.example.ui.theme.JarvisBorderStrong
 import com.example.ui.theme.JarvisCyan
 import com.example.ui.theme.JarvisEmerald
 import com.example.ui.theme.JarvisSurface
+import com.example.ui.theme.JarvisSurfaceElevated
 import com.example.ui.theme.JarvisSurfaceVariant
 import com.example.ui.theme.JarvisTextPrimary
 import com.example.ui.theme.JarvisTextSecondary
 
 /**
- * Aurora Design System — komponen bersama agar seluruh layar punya bahasa visual konsisten.
+ * Komponen bersama Graphite Precision — tenang, presisi, dan ringan di GPU (60fps).
  */
 
-// Brush backdrop pra-alokasi (top-level): tidak pernah dialokasi ulang saat
-// recomposition/draw sehingga nol alokasi per frame — penting untuk 60fps.
-private val BackdropBaseBrush = Brush.verticalGradient(
-    listOf(Color(0xFF05060E), Color(0xFF0A0E20), Color(0xFF070A16))
-)
-private val BackdropGlowTopBrush = Brush.radialGradient(
-    colors = listOf(JarvisCyan.copy(alpha = 0.10f), Color.Transparent)
-)
-private val BackdropGlowBottomBrush = Brush.radialGradient(
-    colors = listOf(AuroraViolet.copy(alpha = 0.09f), Color.Transparent)
-)
-
 /**
- * Latar belakang "deep space": gradasi vertikal gelap dengan pendaran aurora
- * lembut di sudut atas dan bawah. Digambar dalam SATU pass drawBehind
- * (bukan bertumpuk Box) supaya minim overdraw dan ringan di GPU.
+ * Kanvas dasar matte carbon bersih tanpa efek pendaran neon berlebihan.
  */
 @Composable
 fun AuroraBackdrop(
@@ -74,37 +64,20 @@ fun AuroraBackdrop(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .drawBehind {
-                val w = size.width
-                val h = size.height
-                // Latar dasar
-                drawRect(BackdropBaseBrush)
-                // Pendaran aurora atas (cyan) — pusat di kiri-atas
-                drawCircle(
-                    brush = BackdropGlowTopBrush,
-                    radius = size.minDimension * 1.1f,
-                    center = Offset(w * 0.12f, h * 0.02f)
-                )
-                // Pendaran aurora bawah (violet) — pusat di kanan-bawah
-                drawCircle(
-                    brush = BackdropGlowBottomBrush,
-                    radius = size.minDimension * 1.25f,
-                    center = Offset(w * 0.92f, h * 0.98f)
-                )
-            }
+            .background(JarvisBackground)
     ) {
         content()
     }
 }
 
 /**
- * Kartu "kaca" gelap dengan border gradasi aurora halus — wadah utama konten.
+ * Kartu permukaan bertingkat dengan garis tepi 1dp netral.
  */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
-    containerColor: Color = JarvisSurface.copy(alpha = 0.92f),
-    cornerRadius: Dp = 18.dp,
+    containerColor: Color = JarvisSurface,
+    cornerRadius: Dp = 14.dp,
     accentBrush: Brush? = null,
     content: @Composable () -> Unit
 ) {
@@ -123,7 +96,7 @@ fun GlassCard(
 }
 
 /**
- * Header section: garis aksen vertikal + judul kapital + subjudul opsional.
+ * Header bagian yang bersih dengan hierarki tipografi natural (tanpa kapital berlebih).
  */
 @Composable
 fun SectionHeader(
@@ -137,39 +110,33 @@ fun SectionHeader(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .width(4.dp)
-                .height(if (subtitle != null) 30.dp else 18.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(
-                    Brush.verticalGradient(listOf(accent, accent.copy(alpha = 0.25f)))
-                )
-        )
-        Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
                 color = JarvisTextPrimary,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.2.sp
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.1).sp
             )
             if (subtitle != null) {
+                Spacer(modifier = Modifier.height(1.dp))
                 Text(
                     text = subtitle,
                     color = JarvisTextSecondary,
-                    fontSize = 10.5.sp,
-                    lineHeight = 14.sp
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp
                 )
             }
         }
-        trailing?.invoke()
+        if (trailing != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            trailing()
+        }
     }
 }
 
 /**
- * Pill status kecil (AKTIF / NONAKTIF / dsb).
+ * Lencana status ringkas dengan titik indikator semantik.
  */
 @Composable
 fun StatusPill(
@@ -180,78 +147,76 @@ fun StatusPill(
 ) {
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(6.dp),
-        color = if (active) activeColor.copy(alpha = 0.16f) else JarvisSurfaceVariant,
+        shape = RoundedCornerShape(999.dp),
+        color = if (active) activeColor.copy(alpha = 0.12f) else JarvisSurfaceVariant,
         border = BorderStroke(
-            0.8.dp,
-            if (active) activeColor.copy(alpha = 0.55f) else JarvisBorder
+            1.dp,
+            if (active) activeColor.copy(alpha = 0.35f) else JarvisBorder
         )
     ) {
-        Text(
-            text = text,
-            color = if (active) activeColor else JarvisTextSecondary,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.6.sp,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .clip(CircleShape)
+                    .background(if (active) activeColor else JarvisTextSecondary.copy(alpha = 0.6f))
+            )
+            Text(
+                text = text,
+                color = if (active) activeColor else JarvisTextSecondary,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.1.sp,
+                maxLines = 1
+            )
+        }
     }
 }
 
 /**
- * Titik status bercahaya (indikator running/standby).
+ * Titik indikator status solid & tajam.
  */
 @Composable
 fun StatusDot(
     active: Boolean,
     modifier: Modifier = Modifier,
     activeColor: Color = JarvisEmerald,
-    inactiveColor: Color = Color(0xFFFBBF24),
-    size: Dp = 9.dp
+    inactiveColor: Color = JarvisAmber,
+    size: Dp = 7.dp
 ) {
     Box(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
             .background(if (active) activeColor else inactiveColor)
-            .background(
-                Brush.radialGradient(
-                    listOf(
-                        (if (active) activeColor else inactiveColor).copy(alpha = 0.45f),
-                        Color.Transparent
-                    ),
-                    radius = size.value * 2f
-                )
-            )
     )
 }
 
 /**
- * Logo mark aplikasi: lingkaran gelap dengan ikon petir bergradasi aurora.
+ * Ikon identitas aplikasi: kotak bersudut presisi bergaya utilitas profesional.
  */
 @Composable
 fun AppLogoMark(
     modifier: Modifier = Modifier,
-    size: Dp = 38.dp,
-    iconSize: Dp = 20.dp
+    size: Dp = 34.dp,
+    iconSize: Dp = 18.dp
 ) {
+    val radius = (size.value * 0.28f).dp
     Box(
         modifier = modifier
             .size(size)
-            .clip(CircleShape)
-            .background(Color(0xFF0D1226))
-            .border(
-                1.dp,
-                Brush.linearGradient(
-                    listOf(JarvisCyan.copy(alpha = 0.8f), AuroraViolet.copy(alpha = 0.8f))
-                ),
-                CircleShape
-            ),
+            .clip(RoundedCornerShape(radius))
+            .background(JarvisSurfaceElevated)
+            .border(1.dp, JarvisBorderStrong, RoundedCornerShape(radius)),
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = Icons.Default.Bolt,
-            contentDescription = "Logo",
+            contentDescription = "Andra Control",
             modifier = Modifier.size(iconSize),
             tint = JarvisCyan
         )
@@ -259,7 +224,7 @@ fun AppLogoMark(
 }
 
 /**
- * Tile ringkas untuk telemetri (baterai, jaringan, aplikasi aktif).
+ * Kartu metrik ringkas untuk telemetri sistem (baterai, jaringan, aplikasi aktif).
  */
 @Composable
 fun MetricTile(
@@ -272,38 +237,44 @@ fun MetricTile(
 ) {
     GlassCard(
         modifier = modifier,
-        cornerRadius = 14.dp,
-        accentBrush = androidx.compose.ui.graphics.SolidColor(JarvisBorder.copy(alpha = 0.8f))
+        cornerRadius = 12.dp,
+        accentBrush = SolidColor(JarvisBorder)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clip(RoundedCornerShape(7.dp))
-                        .background(accent.copy(alpha = 0.14f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(14.dp))
-                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = JarvisTextSecondary,
+                    modifier = Modifier.size(14.dp)
+                )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    label,
+                    text = label,
                     color = JarvisTextSecondary,
-                    fontSize = 9.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    letterSpacing = 0.6.sp
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(modifier = Modifier.height(7.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
-                value,
+                text = value,
                 color = JarvisTextPrimary,
-                fontSize = 14.5.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-            Text(detail, color = JarvisTextSecondary, fontSize = 9.5.sp, maxLines = 1)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = detail,
+                color = JarvisTextSecondary,
+                fontSize = 10.5.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }

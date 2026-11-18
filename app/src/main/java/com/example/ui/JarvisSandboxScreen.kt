@@ -80,9 +80,9 @@ fun JarvisSandboxScreen(viewModel: JarvisViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("sandbox_inspector_card"),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisBorder))
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
@@ -90,19 +90,22 @@ fun JarvisSandboxScreen(viewModel: JarvisViewModel) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
-                            Text("1. UI TREE INSPECTOR (read_screen)", color = JarvisCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            Text("Inspects nodes via AccessibilityService", color = JarvisTextSecondary, fontSize = 11.sp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Inspeksi Hirarki UI", style = MaterialTheme.typography.titleMedium, color = JarvisTextPrimary)
+                            Text("Pindai node interaktif via AccessibilityService", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
                         }
+                        Spacer(modifier = Modifier.width(10.dp))
                         Button(
                             onClick = { viewModel.inspectScreen() },
-                            colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = JarvisBackground),
+                            colors = ButtonDefaults.buttonColors(containerColor = JarvisCyan, contentColor = JarvisOnPrimary),
                             shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(36.dp),
                             enabled = !isExecuting
                         ) {
-                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Inspect", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Inspect", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
 

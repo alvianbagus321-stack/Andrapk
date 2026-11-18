@@ -44,9 +44,17 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      signingConfig = signingConfigs.getByName("release")
+      val releaseCfg = signingConfigs.getByName("release")
+      if (releaseCfg.storeFile?.exists() == true && !releaseCfg.storePassword.isNullOrBlank()) {
+        signingConfig = releaseCfg
+      }
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      val debugCfg = signingConfigs.getByName("debugConfig")
+      if (debugCfg.storeFile?.exists() == true) {
+        signingConfig = debugCfg
+      }
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

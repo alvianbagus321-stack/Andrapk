@@ -24,6 +24,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -72,8 +74,28 @@ fun JarvisDashboardScreen(
     val aiConfig by viewModel.aiConfig.collectAsState()
 
     var showAiConfigDialog by remember { mutableStateOf(false) }
+    var openAiConfigOnFreeTab by remember { mutableStateOf(false) }
+    var openAiConfigPresetId by remember { mutableStateOf<String?>(null) }
     var showMcpHelpDialog by remember { mutableStateOf(false) }
     var selectedLog by remember { mutableStateOf<ServerLogItem?>(null) }
+
+    // Status kuota model gratis aktif (ringan: refresh tiap 1 dtk hanya saat cooldown, 15 dtk saat normal)
+    val quotaRevision by com.example.data.FreeQuotaManager.revision.collectAsState()
+    val orHighTier by com.example.data.FreeQuotaManager.openRouterHighTier.collectAsState()
+    val enforceLimit by com.example.data.FreeQuotaManager.enforceLocalLimit.collectAsState()
+    var quotaTickMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    val activeFreeQuota = remember(aiConfig.baseUrl, aiConfig.modelName, quotaRevision, orHighTier, enforceLimit, quotaTickMs) {
+        com.example.data.FreeQuotaManager.getStatus(aiConfig.baseUrl, aiConfig.modelName, quotaTickMs)
+    }
+    LaunchedEffect(aiConfig.baseUrl, aiConfig.modelName, activeFreeQuota?.isBlocked) {
+        if (activeFreeQuota != null) {
+            val interval = if (activeFreeQuota.isBlocked) 1_000L else 15_000L
+            while (true) {
+                kotlinx.coroutines.delay(interval)
+                quotaTickMs = System.currentTimeMillis()
+            }
+        }
+    }
 
     val micLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -86,14 +108,23 @@ fun JarvisDashboardScreen(
                                         }
     }
 
+    val appSwitchColors = SwitchDefaults.colors(
+        checkedThumbColor = Color.White,
+        checkedTrackColor = JarvisCyan,
+        checkedBorderColor = Color.Transparent,
+        uncheckedThumbColor = JarvisTextSecondary,
+        uncheckedTrackColor = JarvisSurfaceVariant,
+        uncheckedBorderColor = JarvisBorderStrong
+    )
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(top = 14.dp, bottom = 96.dp)
     ) {
-        // JENDELA MENGAMBANG — toggle terpisah: HUD suara vs chat/task + status penyimpanan tahan-uninstall
+        // Jendela Mengambang — toggle terpisah: HUD suara vs chat/task + status penyimpanan
         item {
             val voiceOverlayOn by viewModel.voiceOverlayEnabled.collectAsState()
             val taskOverlayOn by viewModel.taskOverlayEnabled.collectAsState()
@@ -102,54 +133,61 @@ fun JarvisDashboardScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("floating_window_card"),
-                colors = CardDefaults.cardColors(containerColor = JarvisSurfaceVariant.copy(alpha = 0.35f)),
-                shape = RoundedCornerShape(20.dp)
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.WebAsset, contentDescription = null, tint = JarvisCyan)
+                        DashboardIconBox(icon = Icons.Filled.WebAsset)
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text("Jendela Mengambang", style = MaterialTheme.typography.titleMedium, color = JarvisTextPrimary)
-                            Text("Atur tampil/sembunyi tiap jendela", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
+                            Text("Atur visibilitas panel melayang di atas aplikasi lain", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
                         }
                     }
+                    HorizontalDivider(thickness = 1.dp, color = JarvisBorder)
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("HUD Suara (Pill)", style = MaterialTheme.typography.bodyMedium, color = JarvisTextPrimary)
-                            Text("Pill kecil + kartu mendengarkan; bisa digeser, posisi diingat", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
+                            Text("Indikator Suara", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = JarvisTextPrimary)
+                            Text("Kapsul ringkas dan panel dengar yang dapat digeser", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
                         }
+                        Spacer(Modifier.width(10.dp))
                         Switch(
                             checked = voiceOverlayOn,
-                            onCheckedChange = { viewModel.setVoiceOverlayEnabled(it) }
+                            onCheckedChange = { viewModel.setVoiceOverlayEnabled(it) },
+                            colors = appSwitchColors
                         )
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Overlay Chat & Task", style = MaterialTheme.typography.bodyMedium, color = JarvisTextPrimary)
-                            Text("Kartu besar memenuhi layar saat AI berpikir/mengeksekusi/menjawab", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
+                            Text("Panel Tugas & Balasan", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = JarvisTextPrimary)
+                            Text("Menampilkan progres eksekusi dan jawaban AI", style = MaterialTheme.typography.bodySmall, color = JarvisTextSecondary)
                         }
+                        Spacer(Modifier.width(10.dp))
                         Switch(
                             checked = taskOverlayOn,
-                            onCheckedChange = { viewModel.setTaskOverlayEnabled(it) }
+                            onCheckedChange = { viewModel.setTaskOverlayEnabled(it) },
+                            colors = appSwitchColors
                         )
                     }
-                    HorizontalDivider(thickness = 1.dp, color = JarvisBorder.copy(alpha = 0.4f))
+                    HorizontalDivider(thickness = 1.dp, color = JarvisBorder)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             if (storageOk) Icons.Filled.CheckCircle else Icons.Filled.Warning,
                             contentDescription = null,
-                            tint = if (storageOk) JarvisEmerald else JarvisRed
+                            tint = if (storageOk) JarvisEmerald else JarvisAmber,
+                            modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
                             if (storageOk)
-                                "Chat & ingatan AI tersimpan di ${com.example.data.PersistentStore.externalPath()} — tidak hilang walau app dihapus"
+                                "Riwayat dan memori tersimpan permanen di ${com.example.data.PersistentStore.externalPath()}"
                             else
-                                "Chat & ingatan AI akan hilang saat app dihapus. Aktifkan izin 'Akses semua file' agar tersimpan aman di storage.",
+                                "Aktifkan akses penyimpanan agar riwayat chat tetap aman saat pembaruan aplikasi.",
                             style = MaterialTheme.typography.bodySmall,
                             color = JarvisTextSecondary,
                             modifier = Modifier.weight(1f)
@@ -157,53 +195,48 @@ fun JarvisDashboardScreen(
                         if (!storageOk) {
                             TextButton(onClick = {
                                 com.example.service.AdbShizukuManager.requestAllFilesAccess(context)
-                            }) { Text("Izinkan") }
+                            }) { Text("Izinkan", color = JarvisCyan, fontSize = 12.sp) }
                         }
                     }
                 }
             }
         }
 
-        // VERSI APK — biar tahu build yang terpasang saat mau rebuild/update
+        // Informasi Versi Aplikasi
         item {
             val versionInfo = remember {
                 runCatching {
                     val pi = context.packageManager.getPackageInfo(context.packageName, 0)
                     val code = if (android.os.Build.VERSION.SDK_INT >= 28) pi.longVersionCode
                                else @Suppress("DEPRECATION") pi.versionCode.toLong()
-                    "v${pi.versionName} (build $code)"
+                    "v${pi.versionName} · build $code"
                 }.getOrDefault("versi tidak terbaca")
             }
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(JarvisSurfaceVariant.copy(alpha = 0.25f))
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                color = JarvisSurface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Andra Control",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = JarvisTextPrimary
-                    )
-                    Text(
-                        "APK terpasang: $versionInfo",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = JarvisTextSecondary
-                    )
-                }
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = JarvisCyan.copy(alpha = 0.15f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        versionInfo,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = JarvisCyan,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        text = "Versi Aplikasi",
+                        color = JarvisTextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = versionInfo,
+                        color = JarvisTextPrimary,
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -269,33 +302,35 @@ fun JarvisDashboardScreen(
             }
         }
 
-        // AI QUIZ ANALYZER — toggle overlay penganalisis soal di layar
+        // Quiz Analyzer — toggle overlay pemindai soal di layar
         item {
             val quizOn by viewModel.quizOverlayEnabled.collectAsState()
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("quiz_analyzer_card"),
-                colors = CardDefaults.cardColors(containerColor = JarvisSurfaceVariant.copy(alpha = 0.35f)),
-                shape = RoundedCornerShape(20.dp)
+                colors = CardDefaults.cardColors(containerColor = JarvisSurface),
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Row(
                     modifier = Modifier.padding(16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Filled.Bolt, contentDescription = null, tint = JarvisCyan)
+                    DashboardIconBox(icon = Icons.Filled.Bolt)
                     Spacer(Modifier.width(10.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("AI Quiz Analyzer", style = MaterialTheme.typography.titleMedium, color = JarvisTextPrimary)
+                        Text("Quiz Analyzer", style = MaterialTheme.typography.titleMedium, color = JarvisTextPrimary)
                         Text(
-                            "Overlay kecil untuk memindai & menjawab soal di layar (screenshot + OCR + AI)",
+                            "Pindai dan analisis soal di layar dengan tangkapan layar serta OCR",
                             style = MaterialTheme.typography.bodySmall,
                             color = JarvisTextSecondary
                         )
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(10.dp))
                     Switch(
                         checked = quizOn,
+                        colors = appSwitchColors,
                         onCheckedChange = {
                             val ok = viewModel.toggleQuizOverlay(context)
                             if (!ok) {
@@ -304,7 +339,7 @@ fun JarvisDashboardScreen(
                                     context.startActivity(
                                         Intent(
                                             Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                            Uri.parse("package:$(context.packageName)")
+                                            Uri.parse("package:${context.packageName}")
                                         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     )
                                 } catch (_: Exception) {
@@ -313,7 +348,7 @@ fun JarvisDashboardScreen(
                             } else {
                                 Toast.makeText(
                                     context,
-                                    if (quizOn) "Quiz Analyzer dimatikan" else "Quiz Analyzer aktif — lihat overlay di layar",
+                                    if (quizOn) "Quiz Analyzer dinonaktifkan" else "Quiz Analyzer aktif",
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -323,15 +358,15 @@ fun JarvisDashboardScreen(
             }
         }
 
-        // ASISTEN SUARA & HUD CARD
+        // Asisten Suara Latar Belakang
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("background_voice_assistant_card"),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-                border = CardDefaults.outlinedCardBorder().copy(brush = CardBorderCyanViolet)
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
@@ -339,57 +374,37 @@ fun JarvisDashboardScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                modifier = Modifier.size(38.dp),
-                                shape = CircleShape,
-                                color = if (isHotwordEnabled) JarvisCyan.copy(alpha = 0.2f) else JarvisSurfaceVariant,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (isHotwordEnabled) JarvisCyan else JarvisBorder
-                                )
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.RecordVoiceOver,
-                                        contentDescription = "Voice Assistant",
-                                        tint = if (isHotwordEnabled) JarvisCyan else JarvisTextSecondary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            DashboardIconBox(
+                                icon = Icons.Default.RecordVoiceOver,
+                                active = isHotwordEnabled
+                            )
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "ASISTEN SUARA",
-                                        color = JarvisCyan,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 13.sp,
-                                        letterSpacing = 1.sp
+                                        text = "Asisten Suara",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = JarvisTextPrimary
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = if (isHotwordEnabled) JarvisEmerald.copy(alpha = 0.2f) else JarvisSurfaceHighlight
-                                    ) {
-                                        Text(
-                                            text = if (isHotwordEnabled) "AKTIF" else "OFF",
-                                            color = if (isHotwordEnabled) JarvisEmerald else JarvisTextSecondary,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                        )
-                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    StatusPill(
+                                        text = if (isHotwordEnabled) "Aktif" else "Mati",
+                                        active = isHotwordEnabled
+                                    )
                                 }
                                 Text(
-                                    text = "Asisten Suara Latar Belakang & HUD Melayang",
-                                    color = JarvisTextSecondary,
-                                    fontSize = 10.5.sp
+                                    text = "Deteksi kata aktivasi di latar belakang",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisTextSecondary
                                 )
                             }
                         }
 
+                        Spacer(modifier = Modifier.width(8.dp))
                         Switch(
                             checked = isHotwordEnabled,
                             onCheckedChange = { enable ->
@@ -402,23 +417,18 @@ fun JarvisDashboardScreen(
                                         micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                                     } else {
                                         viewModel.setHotwordEnabled(context, true)
-                                        Toast.makeText(context, "Asisten suara aktif di latar belakang!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Asisten suara aktif di latar belakang", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
                                     viewModel.setHotwordEnabled(context, false)
                                     Toast.makeText(context, "Asisten suara dinonaktifkan", Toast.LENGTH_SHORT).show()
                                 }
                             },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = JarvisCyan,
-                                checkedTrackColor = JarvisCyan.copy(alpha = 0.3f),
-                                uncheckedThumbColor = JarvisTextSecondary,
-                                uncheckedTrackColor = JarvisSurfaceHighlight
-                            )
+                            colors = appSwitchColors
                         )
                     }
 
-                    HorizontalDivider(color = JarvisBorder.copy(alpha = 0.4f))
+                    HorizontalDivider(color = JarvisBorder)
 
                     // Description
                     Text(
@@ -517,17 +527,19 @@ fun JarvisDashboardScreen(
                                     viewModel.setHotwordEnabled(context, true)
                                 }
                                 viewModel.testTriggerHotword()
-                                Toast.makeText(context, "Mendengarkan... Silakan katakan instruksi Anda!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Mendengarkan — ucapkan perintah Anda", Toast.LENGTH_SHORT).show()
                             },
-                            modifier = Modifier.weight(1.2f),
+                            modifier = Modifier
+                                .weight(1.15f)
+                                .height(36.dp),
                             shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisCyan),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.6f)),
-                            contentPadding = PaddingValues(vertical = 4.dp)
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTextPrimary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorderStrong),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
                         ) {
-                            Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Tes Suara Langsung", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Mic, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Uji Suara", fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
                         }
 
                         OutlinedButton(
@@ -536,113 +548,106 @@ fun JarvisDashboardScreen(
                                     val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
                                     context.startActivity(intent)
                                 } catch (_: Exception) {
-                                    Toast.makeText(context, "Buka Pengaturan Baterai untuk mengizinkan aplikasi tetap berjalan", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "Buka Pengaturan Baterai untuk mengizinkan operasi latar belakang", Toast.LENGTH_SHORT).show()
                                 }
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp),
                             shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTextSecondary),
                             border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
-                            contentPadding = PaddingValues(vertical = 4.dp)
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
                         ) {
                             Icon(Icons.Default.BatteryChargingFull, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Baterai Aktif", fontSize = 10.5.sp)
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Optimasi Baterai", fontSize = 11.5.sp, fontWeight = FontWeight.Medium, maxLines = 1)
                         }
                     }
                 }
             }
         }
 
-        // MODEL & CUSTOM ENDPOINT CONFIGURATION CARD
+        // Model & Endpoint AI
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("ai_endpoint_config_card"),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-                border = CardDefaults.outlinedCardBorder().copy(brush = CardBorderTealViolet)
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder)
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                modifier = Modifier.size(36.dp),
-                                shape = CircleShape,
-                                color = JarvisTeal.copy(alpha = 0.15f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisTeal)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Tune,
-                                        contentDescription = "AI Config",
-                                        tint = JarvisTeal,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            DashboardIconBox(icon = Icons.Default.Tune)
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "MODEL & ENDPOINT",
-                                    color = JarvisTeal,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 13.sp,
-                                    letterSpacing = 1.sp
+                                    text = "Model & Endpoint",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = JarvisTextPrimary
                                 )
                                 Text(
-                                    text = "Provider: ${aiConfig.providerLabel}",
+                                    text = aiConfig.providerLabel,
+                                    style = MaterialTheme.typography.bodySmall,
                                     color = JarvisTextSecondary,
-                                    fontSize = 11.sp
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
 
-                        Button(
-                            onClick = { showAiConfigDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = JarvisTeal.copy(alpha = 0.2f), contentColor = JarvisTeal),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisTeal.copy(alpha = 0.7f)),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        Spacer(modifier = Modifier.width(8.dp))
+                        OutlinedButton(
+                            onClick = {
+                                openAiConfigOnFreeTab = false
+                                openAiConfigPresetId = null
+                                showAiConfigDialog = true
+                            },
+                            modifier = Modifier.height(34.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTextPrimary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorderStrong),
+                            contentPadding = PaddingValues(horizontal = 11.dp, vertical = 0.dp),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Atur API", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Icon(Icons.Default.Settings, contentDescription = null, tint = JarvisTextSecondary, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Atur API", fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
                         }
                     }
 
                     Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = JarvisSurfaceVariant.copy(alpha = 0.6f),
-                        border = androidx.compose.foundation.BorderStroke(0.8.dp, JarvisBorder),
+                        shape = RoundedCornerShape(10.dp),
+                        color = JarvisSurfaceVariant,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = "Model Aktif:", color = JarvisTextSecondary, fontSize = 10.5.sp)
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = JarvisCyan.copy(alpha = 0.15f),
-                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, JarvisCyan.copy(alpha = 0.5f))
-                                ) {
-                                    Text(
-                                        text = aiConfig.modelName,
-                                        color = JarvisCyan,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
+                                Text(text = "Model", color = JarvisTextSecondary, fontSize = 11.sp)
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = aiConfig.modelName,
+                                    color = JarvisTextPrimary,
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
 
                             Row(
@@ -650,28 +655,128 @@ fun JarvisDashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(text = "Endpoint:", color = JarvisTextSecondary, fontSize = 10.5.sp)
+                                Text(text = "Endpoint", color = JarvisTextSecondary, fontSize = 11.sp)
+                                Spacer(modifier = Modifier.width(12.dp))
                                 Text(
-                                    text = if (aiConfig.baseUrl.length > 28) aiConfig.baseUrl.take(26) + "..." else aiConfig.baseUrl,
-                                    color = JarvisTextPrimary,
-                                    fontSize = 10.5.sp,
-                                    fontFamily = FontFamily.Monospace
+                                    text = aiConfig.baseUrl.removePrefix("https://").removePrefix("http://"),
+                                    color = JarvisTextSecondary,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
+
+                            activeFreeQuota?.let { fq ->
+                                val qColor = when {
+                                    fq.isBlocked -> JarvisRed
+                                    fq.periodRemainingFraction <= 0.2f -> JarvisAmber
+                                    else -> JarvisEmerald
+                                }
+                                HorizontalDivider(color = JarvisBorder)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = if (fq.isBlocked) {
+                                            "Jeda kuota · reset ${com.example.data.FreeQuotaManager.formatCountdown(fq.activeWaitMs)}"
+                                        } else {
+                                            "Kuota ${fq.periodRemaining}/${fq.periodLimit} req"
+                                        },
+                                        color = qColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = if (fq.periodResetInMs > 0L) {
+                                            "Reset ${com.example.data.FreeQuotaManager.formatCountdown(fq.periodResetInMs)}"
+                                        } else {
+                                            "${fq.minuteRemaining}/${fq.minuteLimit} /mnt"
+                                        },
+                                        color = JarvisTextSecondary,
+                                        fontSize = 10.5.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(JarvisBackground)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth(fq.periodRemainingFraction)
+                                            .fillMaxHeight()
+                                            .clip(RoundedCornerShape(2.dp))
+                                            .background(qColor)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Aksi Cepat: Preset Gratis & Portal Token Inception Labs
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                openAiConfigOnFreeTab = true
+                                openAiConfigPresetId = null
+                                showAiConfigDialog = true
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
+                                .testTag("dashboard_free_models_button"),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = JarvisTextPrimary),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorderStrong),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                        ) {
+                            Text("Model Gratis", fontSize = 11.5.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                        }
+
+                        Button(
+                            onClick = {
+                                openAiConfigOnFreeTab = true
+                                openAiConfigPresetId = "inception_mercury_3"
+                                showAiConfigDialog = true
+                                openFreeApiPortalUrl(context, com.example.data.AiConfigManager.INCEPTION_LABS_LOGIN_URL)
+                            },
+                            modifier = Modifier
+                                .weight(1.15f)
+                                .height(36.dp)
+                                .testTag("dashboard_inception_token_button"),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = JarvisCyan,
+                                contentColor = JarvisOnPrimary
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Text("Klaim Token AI", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                         }
                     }
                 }
             }
         }
-        // Status overview cards
+        // Layanan Sistem
         item {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("status_overview_card"),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisBorder))
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     Row(
@@ -680,30 +785,17 @@ fun JarvisDashboardScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "STATUS LAYANAN SISTEM",
-                            color = JarvisCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.2.sp
+                            text = "Layanan Sistem",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = JarvisTextPrimary
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .background(if (isServerRunning) JarvisEmerald else JarvisAmber)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (isServerRunning) "RUNNING" else "STANDBY",
-                                color = if (isServerRunning) JarvisEmerald else JarvisAmber,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        StatusPill(
+                            text = if (isServerRunning) "Berjalan" else "Siaga",
+                            active = isServerRunning
+                        )
                     }
 
-                    HorizontalDivider(color = JarvisBorder.copy(alpha = 0.5f))
+                    HorizontalDivider(color = JarvisBorder)
 
                     // Accessibility Service Status
                     ServiceRow(
@@ -890,11 +982,7 @@ fun JarvisDashboardScreen(
                     .testTag("mcp_card"),
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = Brush.horizontalGradient(
-                        listOf(AuroraViolet.copy(alpha = 0.5f), JarvisCyan.copy(alpha = 0.4f))
-                    )
-                )
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
@@ -902,40 +990,28 @@ fun JarvisDashboardScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Surface(
-                                modifier = Modifier.size(36.dp),
-                                shape = CircleShape,
-                                color = AuroraViolet.copy(alpha = 0.15f),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, AuroraViolet)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.Extension,
-                                        contentDescription = "MCP",
-                                        tint = AuroraViolet,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            DashboardIconBox(icon = Icons.Default.Extension)
                             Spacer(modifier = Modifier.width(10.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "AI EKSTERNAL (MCP)",
-                                    color = AuroraViolet,
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 13.sp,
-                                    letterSpacing = 1.sp
+                                    text = "Integrasi MCP Eksternal",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = JarvisTextPrimary
                                 )
                                 Text(
-                                    text = "Hubungkan ChatGPT / Claude / Cursor ke tools HP ini",
-                                    color = JarvisTextSecondary,
-                                    fontSize = 10.5.sp
+                                    text = "Hubungkan Claude, ChatGPT, atau Cursor ke perangkat ini",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = JarvisTextSecondary
                                 )
                             }
                         }
+                        Spacer(modifier = Modifier.width(6.dp))
                         StatusPill(
-                            text = if (isServerRunning) "SIAP" else "SERVER MATI",
+                            text = if (isServerRunning) "Siap" else "Mati",
                             active = isServerRunning
                         )
                         IconButton(
@@ -943,7 +1019,7 @@ fun JarvisDashboardScreen(
                             modifier = Modifier.size(30.dp).testTag("mcp_help_button")
                         ) {
                             Icon(
-                                Icons.Default.HelpOutline,
+                                Icons.AutoMirrored.Filled.HelpOutline,
                                 contentDescription = "Panduan koneksi MCP",
                                 tint = JarvisTextSecondary,
                                 modifier = Modifier.size(18.dp)
@@ -951,13 +1027,14 @@ fun JarvisDashboardScreen(
                         }
                     }
 
-                    // ================= METODE 1: URL LANGSUNG =================
+                    HorizontalDivider(color = JarvisBorder)
+
+                    // Metode 1: Koneksi Langsung Lokal / LAN
                     Text(
-                        text = "METODE 1 — URL LANGSUNG (LOKAL / LAN)",
-                        color = JarvisCyan,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        text = "Koneksi Lokal & Jaringan WiFi",
+                        color = JarvisTextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                     Text(
                         text = "Untuk AI/agent di HP ini atau perangkat lain di WiFi yang sama.",
@@ -1249,23 +1326,23 @@ fun JarvisDashboardScreen(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "AKTIVITAS REQUEST LIVE",
-                        color = JarvisTextPrimary,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        text = "Log Permintaan",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = JarvisTextPrimary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Surface(
-                        color = JarvisCyan.copy(alpha = 0.2f),
-                        shape = CircleShape
+                        color = JarvisSurfaceVariant,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                        shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
                             text = "${logs.size}",
-                            color = JarvisCyan,
+                            color = JarvisTextSecondary,
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp)
                         )
                     }
                 }
@@ -1398,10 +1475,41 @@ fun JarvisDashboardScreen(
             currentConfig = aiConfig,
             onSave = { apiKey, baseUrl, modelName, provider ->
                 viewModel.updateAiConfig(apiKey, baseUrl, modelName, provider)
+                openAiConfigPresetId = null
                 showAiConfigDialog = false
             },
-            onDismiss = { showAiConfigDialog = false }
+            onDismiss = {
+                openAiConfigPresetId = null
+                showAiConfigDialog = false
+            },
+            initialFilterFree = openAiConfigOnFreeTab,
+            initialPresetId = openAiConfigPresetId
         )
+    }
+}
+
+@Composable
+private fun DashboardIconBox(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    active: Boolean = false
+) {
+    Surface(
+        modifier = Modifier.size(34.dp),
+        shape = RoundedCornerShape(9.dp),
+        color = if (active) JarvisCyan.copy(alpha = 0.14f) else JarvisSurfaceVariant,
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (active) JarvisCyan.copy(alpha = 0.4f) else JarvisBorder
+        )
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (active) JarvisCyan else JarvisTextSecondary,
+                modifier = Modifier.size(17.dp)
+            )
+        }
     }
 }
 
@@ -1422,26 +1530,40 @@ fun ServiceRow(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
+                        .size(7.dp)
                         .clip(CircleShape)
                         .background(if (isActive) JarvisEmerald else JarvisAmber)
                 )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(title, color = JarvisTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.width(7.dp))
+                Text(title, color = JarvisTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
-            Text(subtitle, color = JarvisTextSecondary, fontSize = 11.sp)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                subtitle,
+                color = JarvisTextSecondary,
+                fontSize = 11.sp,
+                lineHeight = 14.5.sp
+            )
         }
-        Button(
-            onClick = onAction,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (isActive) JarvisEmerald.copy(alpha = 0.15f) else JarvisCyan.copy(alpha = 0.2f),
-                contentColor = if (isActive) JarvisEmerald else JarvisCyan
-            ),
+        Spacer(modifier = Modifier.width(10.dp))
+        Surface(
             shape = RoundedCornerShape(8.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            modifier = Modifier.defaultMinSize(minWidth = 64.dp, minHeight = 36.dp)
+            color = if (isActive) JarvisSurfaceVariant else JarvisCyan.copy(alpha = 0.14f),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                if (isActive) JarvisBorderStrong else JarvisCyan.copy(alpha = 0.4f)
+            ),
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(onClick = onAction)
         ) {
-            Text(actionLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(
+                text = actionLabel,
+                color = if (isActive) JarvisTextPrimary else JarvisCyan,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            )
         }
     }
 }

@@ -32,7 +32,8 @@ class JarvisApp : Application() {
         // langsung dari Dashboard tanpa adb (penting utk ROM pembatas spt Tecno/HiOS).
         com.example.data.CrashReporter.install()
 
-        // Ringan & dibutuhkan UI segera — tetap sinkron.
+        // Ringan & dibutuhkan UI segera — tetap sinkron (kuota diinisialisasi lebih dulu).
+        com.example.data.FreeQuotaManager.init(this)
         com.example.data.AiConfigManager.init(this)
         _repository = CompanionRepository(this)
 

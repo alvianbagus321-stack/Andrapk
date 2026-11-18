@@ -91,8 +91,8 @@ GRADLE_VERSION="${GRADLE_VERSION:-$(sed -n 's/.*gradle-\([0-9][0-9.]*\)-bin.zip.
 GRADLE_VERSION="${GRADLE_VERSION:-9.3.1}"
 
 # Platform & build-tools: parse dari app/build.gradle.kts (compileSdk release(N) minor M)
-_ver_major="$(sed -n 's/.*release(\([0-9]\+\)).*/\1/p' app/build.gradle.kts 2>/dev/null | head -1)"
-_ver_minor="$(sed -n 's/.*minorApiLevel[[:space:]]*=[[:space:]]*\([0-9]\+\).*/\1/p' app/build.gradle.kts 2>/dev/null | head -1)"
+_ver_major="$(sed -n 's/.*release(\([0-9][0-9]*\)).*/\1/p' app/build.gradle.kts 2>/dev/null | head -1)"
+_ver_minor="$(sed -n 's/.*minorApiLevel[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' app/build.gradle.kts 2>/dev/null | head -1)"
 PLATFORM="${PLATFORM:-android-${_ver_major:-36}${_ver_minor:+.${_ver_minor}}}"
 BUILD_TOOLS="${BUILD_TOOLS:-36.0.0}"
 
@@ -237,7 +237,7 @@ ensure_gradle() {
   fi
   # b) gradle sistem yang cukup baru
   if have gradle; then
-    local gv; gv="$(gradle --version 2>/dev/null | sed -n 's/^Gradle \([0-9.]\+\).*/\1/p' | head -1)"
+    local gv; gv="$(gradle --version 2>/dev/null | sed -n 's/^Gradle \([0-9.][0-9.]*\).*/\1/p' | head -1)"
     if [[ -n "$gv" && "${gv%%.*}" -ge 9 ]] 2>/dev/null; then
       GRADLE_CMD="gradle"; ok "Memakai Gradle sistem $gv"
       return 0

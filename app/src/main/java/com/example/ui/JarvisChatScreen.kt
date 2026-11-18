@@ -102,7 +102,26 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
     }
 
     var showConfigDialog by remember { mutableStateOf(false) }
+    var openConfigFreeTab by remember { mutableStateOf(false) }
     var showPermsDialog by remember { mutableStateOf(false) }
+
+    // Pemantau kuota model gratis aktif di layar Chat
+    val quotaRevision by com.example.data.FreeQuotaManager.revision.collectAsState()
+    val orHighTier by com.example.data.FreeQuotaManager.openRouterHighTier.collectAsState()
+    val enforceLimit by com.example.data.FreeQuotaManager.enforceLocalLimit.collectAsState()
+    var chatQuotaTickMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    val chatFreeQuota = remember(baseUrl, modelName, quotaRevision, orHighTier, enforceLimit, chatQuotaTickMs) {
+        com.example.data.FreeQuotaManager.getStatus(baseUrl, modelName, chatQuotaTickMs)
+    }
+    LaunchedEffect(baseUrl, modelName, chatFreeQuota?.isBlocked) {
+        if (chatFreeQuota != null) {
+            val step = if (chatFreeQuota.isBlocked) 1_000L else 15_000L
+            while (true) {
+                kotlinx.coroutines.delay(step)
+                chatQuotaTickMs = System.currentTimeMillis()
+            }
+        }
+    }
     var showCustomPermsDialog by remember { mutableStateOf(false) }
     var showVoiceCallDialog by remember { mutableStateOf(false) }
     var showSessionDialog by remember { mutableStateOf(false) }
@@ -144,314 +163,353 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
             .fillMaxSize()
             .background(JarvisBackground)
     ) {
-        // Chat Header with Endpoint & Settings Indicator
+        // Chat Header — compact, fits narrow screens without clipping trailing actions
         Surface(
             color = JarvisSurface,
-            tonalElevation = 2.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(if (isThinking) JarvisAmber else JarvisEmerald)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(
-                            text = "Asisten Perangkat",
-                            color = JarvisTextPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (isThinking) JarvisAmber else JarvisEmerald)
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = if (modelName.isNotBlank()) modelName else "Gemini 3.5 Flash",
-                                color = JarvisCyan,
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = when (permissionMode) {
-                                    AiPermissionMode.SANDBOXED -> JarvisTeal.copy(alpha = 0.2f)
-                                    AiPermissionMode.LOW_RISK -> JarvisAmber.copy(alpha = 0.2f)
-                                    AiPermissionMode.FULL_ACCESS -> JarvisRed.copy(alpha = 0.2f)
-                                    AiPermissionMode.CUSTOM -> JarvisCyan.copy(alpha = 0.2f)
-                                },
-                                modifier = Modifier.clickable { showPermsDialog = true }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable {
+                                    openConfigFreeTab = false
+                                    showConfigDialog = true
+                                }
                             ) {
                                 Text(
-                                    text = "🛡️ ${permissionMode.name}",
-                                    color = when (permissionMode) {
-                                        AiPermissionMode.SANDBOXED -> JarvisTeal
-                                        AiPermissionMode.LOW_RISK -> JarvisAmber
-                                        AiPermissionMode.FULL_ACCESS -> JarvisRed
-                                        AiPermissionMode.CUSTOM -> JarvisCyan
-                                    },
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    text = if (modelName.isNotBlank()) modelName else "Pilih model",
+                                    color = JarvisTextPrimary,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                Icon(
+                                    Icons.Default.ArrowDropDown,
+                                    contentDescription = null,
+                                    tint = JarvisTextSecondary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                chatFreeQuota?.let { fq ->
+                                    val badgeColor = when {
+                                        fq.isBlocked -> JarvisRed
+                                        fq.periodRemainingFraction <= 0.2f -> JarvisAmber
+                                        else -> JarvisEmerald
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = badgeColor.copy(alpha = 0.14f),
+                                        modifier = Modifier
+                                            .clickable {
+                                                openConfigFreeTab = true
+                                                showConfigDialog = true
+                                            }
+                                            .testTag("chat_free_quota_badge")
+                                    ) {
+                                        Text(
+                                            text = if (fq.isBlocked) {
+                                                "Jeda ${com.example.data.FreeQuotaManager.formatCountdown(fq.activeWaitMs)}"
+                                            } else {
+                                                "${fq.periodRemaining}/${fq.periodLimit}"
+                                            },
+                                            color = badgeColor,
+                                            fontSize = 9.5.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            fontFamily = FontFamily.Monospace,
+                                            maxLines = 1,
+                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                                val permLabel = when (permissionMode) {
+                                    AiPermissionMode.SANDBOXED -> "Sandbox"
+                                    AiPermissionMode.LOW_RISK -> "Terbatas"
+                                    AiPermissionMode.FULL_ACCESS -> "Akses penuh"
+                                    AiPermissionMode.CUSTOM -> "Izin kustom"
+                                }
+                                Text(
+                                    text = permLabel,
+                                    color = JarvisTextSecondary,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.clickable { showPermsDialog = true }
                                 )
                             }
                         }
                     }
-                }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Quick Always-On "Jarvis" Background Assistant Toggle Chip
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (isHotwordEnabled) JarvisEmerald.copy(alpha = 0.2f) else JarvisSurfaceVariant,
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            if (isHotwordEnabled) JarvisEmerald.copy(alpha = 0.8f) else JarvisBorder
-                        ),
-                        modifier = Modifier
-                            .clickable {
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Background hotword assistant toggle
+                        IconButton(
+                            onClick = {
                                 checkAndRunAudioAction {
                                     val newState = viewModel.toggleHotword(context)
                                     Toast.makeText(
                                         context,
-                                        if (newState) "Asisten suara aktif di latar belakang!"
-                                        else "Asisten suara dinonaktifkan",
+                                        if (newState) "Asisten suara latar belakang aktif"
+                                        else "Asisten suara latar belakang nonaktif",
                                         Toast.LENGTH_SHORT
                                     ).show()
                                 }
-                            }
-                            .testTag("chat_background_hotword_toggle")
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 5.dp)
+                            },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isHotwordEnabled) JarvisEmerald.copy(alpha = 0.14f)
+                                    else Color.Transparent
+                                )
+                                .testTag("chat_background_hotword_toggle")
                         ) {
                             Icon(
                                 Icons.Default.RecordVoiceOver,
                                 contentDescription = "Asisten suara latar belakang",
                                 tint = if (isHotwordEnabled) JarvisEmerald else JarvisTextSecondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = if (isHotwordEnabled) "SUARA: ON" else "SUARA: OFF",
-                                color = if (isHotwordEnabled) JarvisEmerald else JarvisTextSecondary,
-                                fontSize = 9.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
+                                modifier = Modifier.size(17.dp)
                             )
                         }
-                    }
 
-                    // Voice Call / Live Voice Mode Launcher Button
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = JarvisCyan.copy(alpha = 0.15f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.6f)),
-                        modifier = Modifier
-                            .clickable {
+                        // Live Voice Call Mode
+                        IconButton(
+                            onClick = {
                                 checkAndRunAudioAction {
                                     showVoiceCallDialog = true
                                     viewModel.startVoiceCall()
                                 }
-                            }
-                            .testTag("chat_voice_call_button")
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                            },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("chat_voice_call_button")
                         ) {
                             Icon(
                                 Icons.Default.GraphicEq,
-                                contentDescription = "Voice Mode",
-                                tint = JarvisCyan,
-                                modifier = Modifier.size(16.dp)
+                                contentDescription = "Mode percakapan suara",
+                                tint = JarvisTextSecondary,
+                                modifier = Modifier.size(17.dp)
                             )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "VOICE",
-                                color = JarvisCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
+                        }
+
+                        // Auto-TTS Read Aloud Toggle
+                        IconButton(
+                            onClick = {
+                                viewModel.toggleAutoRead()
+                                Toast.makeText(
+                                    context,
+                                    if (!autoReadEnabled) "Baca otomatis aktif" else "Baca otomatis nonaktif",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (autoReadEnabled) JarvisCyan.copy(alpha = 0.14f)
+                                    else Color.Transparent
+                                )
+                                .testTag("chat_auto_read_toggle")
+                        ) {
+                            Icon(
+                                imageVector = if (autoReadEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
+                                contentDescription = "Baca balasan otomatis",
+                                tint = if (autoReadEnabled) JarvisCyan else JarvisTextSecondary,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+
+                        // AI Config Dialog
+                        IconButton(
+                            onClick = {
+                                openConfigFreeTab = false
+                                showConfigDialog = true
+                            },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("chat_config_button")
+                        ) {
+                            Icon(
+                                Icons.Default.Settings,
+                                contentDescription = "Pengaturan model dan API",
+                                tint = JarvisTextSecondary,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+
+                        // Clear current chat
+                        IconButton(
+                            onClick = { viewModel.clearChat() },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .testTag("chat_clear_button")
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteSweep,
+                                contentDescription = "Bersihkan percakapan",
+                                tint = JarvisTextSecondary,
+                                modifier = Modifier.size(17.dp)
                             )
                         }
                     }
-
-                    // Auto-TTS Read Aloud Toggle
-                    IconButton(
-                        onClick = {
-                            viewModel.toggleAutoRead()
-                            Toast.makeText(
-                                context,
-                                if (!autoReadEnabled) "Auto-Read Suara AI Aktif" else "Auto-Read Suara AI Nonaktif",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        },
-                        modifier = Modifier.size(34.dp).testTag("chat_auto_read_toggle")
-                    ) {
-                        Icon(
-                            imageVector = if (autoReadEnabled) Icons.AutoMirrored.Filled.VolumeUp else Icons.AutoMirrored.Filled.VolumeOff,
-                            contentDescription = "Auto Read AI Responses",
-                            tint = if (autoReadEnabled) JarvisCyan else JarvisTextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { showConfigDialog = true },
-                        modifier = Modifier.size(34.dp).testTag("chat_config_button")
-                    ) {
-                        Icon(
-                            Icons.Default.Settings,
-                            contentDescription = "API & Base URL Config",
-                            tint = JarvisCyan,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { viewModel.clearChat() },
-                        modifier = Modifier.size(34.dp).testTag("chat_clear_button")
-                    ) {
-                        Icon(
-                            Icons.Default.DeleteSweep,
-                            contentDescription = "Clear Chat",
-                            tint = JarvisTextSecondary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
                 }
+                HorizontalDivider(color = JarvisBorder, thickness = 1.dp)
             }
         }
 
-        // Sub-Header: Chat Session Selector, + Sesi, and Thinking History
+        // Sub-Header: Session Selector, New Session, and Reasoning Log
         Surface(
-            color = JarvisSurfaceVariant.copy(alpha = 0.6f),
+            color = JarvisBackground,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Session Dropdown / Selector Pill
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = JarvisSurface,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.4f)),
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .clickable { showSessionDialog = true }
-                        .testTag("chat_open_sessions_pill")
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.Forum,
-                            contentDescription = null,
-                            tint = JarvisCyan,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = currentSession?.title ?: "Sesi Percakapan",
-                            color = JarvisTextPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            Icons.Default.ArrowDropDown,
-                            contentDescription = null,
-                            tint = JarvisCyan,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // New Session Quick Button
+                    // Session Dropdown / Selector
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = JarvisCyan.copy(alpha = 0.15f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan.copy(alpha = 0.5f)),
+                        color = JarvisSurface,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
                         modifier = Modifier
-                            .clickable {
-                                viewModel.createNewSession()
-                                Toast.makeText(context, "Sesi baru dibuat", Toast.LENGTH_SHORT).show()
-                            }
-                            .testTag("chat_quick_new_session")
+                            .weight(1f, fill = false)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showSessionDialog = true }
+                            .testTag("chat_open_sessions_pill")
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                Icons.Default.Add,
-                                contentDescription = "Sesi Baru",
-                                tint = JarvisCyan,
+                                Icons.Default.Forum,
+                                contentDescription = null,
+                                tint = JarvisTextSecondary,
                                 modifier = Modifier.size(13.dp)
                             )
-                            Spacer(modifier = Modifier.width(3.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "+ Sesi",
-                                color = JarvisCyan,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
+                                text = currentSession?.title ?: "Sesi Percakapan",
+                                color = JarvisTextPrimary,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = null,
+                                tint = JarvisTextSecondary,
+                                modifier = Modifier.size(15.dp)
                             )
                         }
                     }
 
-                    // AI Thinking History Button
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = JarvisAmber.copy(alpha = 0.15f),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, JarvisAmber.copy(alpha = 0.5f)),
-                        modifier = Modifier
-                            .clickable { showThinkingHistoryDialog = true }
-                            .testTag("chat_thinking_history_button")
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        // New Session Quick Button (fixed duplicate "+ + Sesi")
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = JarvisSurface,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    viewModel.createNewSession()
+                                    Toast.makeText(context, "Sesi baru dibuat", Toast.LENGTH_SHORT).show()
+                                }
+                                .testTag("chat_quick_new_session")
                         ) {
-                            Icon(
-                                Icons.Default.Psychology,
-                                contentDescription = "Riwayat Pikir AI",
-                                tint = JarvisAmber,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "Riwayat Pikir",
-                                color = JarvisAmber,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = "Sesi baru",
+                                    tint = JarvisTextPrimary,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Sesi",
+                                    color = JarvisTextPrimary,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        // Reasoning History Button
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = JarvisSurface,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showThinkingHistoryDialog = true }
+                                .testTag("chat_thinking_history_button")
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Psychology,
+                                    contentDescription = "Log penalaran",
+                                    tint = JarvisTextSecondary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Log Pikir",
+                                    color = JarvisTextSecondary,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
+                HorizontalDivider(color = JarvisBorder, thickness = 1.dp)
             }
         }
 
@@ -681,6 +739,8 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                     }
                 }
 
+                HorizontalDivider(color = JarvisBorder, thickness = 1.dp)
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -691,14 +751,14 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                     IconButton(
                         onClick = { filePickerLauncher.launch("*/*") },
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(40.dp)
                             .testTag("chat_attach_file_button")
                     ) {
                         Icon(
                             Icons.Default.AttachFile,
-                            contentDescription = "Tambah Lampiran File atau Foto",
-                            tint = JarvisCyan,
-                            modifier = Modifier.size(22.dp)
+                            contentDescription = "Lampirkan file atau foto",
+                            tint = JarvisTextSecondary,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
@@ -709,17 +769,19 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                         onValueChange = { inputText = it },
                         placeholder = {
                             Text(
-                                if (isThinking) "AI sedang berjalan (Klik STOP untuk menghentikan)..." else "Tulis pesan atau instruksi...",
-                                color = JarvisTextSecondary,
-                                fontSize = 13.sp
+                                if (isThinking) "Sedang memproses — ketuk hentikan untuk batal" else "Tulis pesan atau instruksi...",
+                                color = JarvisTextTertiary,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         },
                         modifier = Modifier
                             .weight(1f)
                             .testTag("chat_input_textfield"),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = JarvisCyan,
+                            focusedBorderColor = JarvisBorderStrong,
                             unfocusedBorderColor = JarvisBorder,
                             focusedTextColor = JarvisTextPrimary,
                             unfocusedTextColor = JarvisTextPrimary,
@@ -771,43 +833,45 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                             }
                         },
                         modifier = Modifier
-                            .size(46.dp)
-                            .clip(CircleShape)
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
                             .background(micButtonColor)
-                            .border(1.dp, if (isVoiceListening) JarvisRed else JarvisCyan.copy(alpha = 0.5f), CircleShape)
+                            .border(1.dp, if (isVoiceListening) JarvisRed else JarvisBorder, RoundedCornerShape(12.dp))
                             .testTag("chat_mic_button")
                     ) {
                         Icon(
                             imageVector = if (isVoiceListening) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = "Voice Input",
-                            tint = if (isVoiceListening) Color.White else JarvisCyan,
-                            modifier = Modifier.size(22.dp)
+                            contentDescription = "Input suara",
+                            tint = if (isVoiceListening) Color.White else JarvisTextSecondary,
+                            modifier = Modifier.size(19.dp)
                         )
                     }
 
                     Spacer(modifier = Modifier.width(6.dp))
 
-                    // Send or STOP Button
+                    // Send or Stop Button
+                    val canSend = inputText.isNotBlank() || selectedAttachmentUri != null
                     if (isThinking) {
                         FloatingActionButton(
                             onClick = { viewModel.stopAiExecution() },
                             modifier = Modifier
-                                .size(46.dp)
+                                .size(42.dp)
                                 .testTag("chat_stop_ai_button"),
                             containerColor = JarvisRed,
                             contentColor = Color.White,
-                            shape = CircleShape
+                            elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(
                                 Icons.Default.Stop,
-                                contentDescription = "Hentikan AI dan Semua Task",
-                                modifier = Modifier.size(22.dp)
+                                contentDescription = "Hentikan eksekusi AI",
+                                modifier = Modifier.size(19.dp)
                             )
                         }
                     } else {
                         FloatingActionButton(
                             onClick = {
-                                if (inputText.isNotBlank() || selectedAttachmentUri != null) {
+                                if (canSend) {
                                     viewModel.sendChatMessage(
                                         userText = inputText,
                                         attachmentUri = selectedAttachmentUri,
@@ -821,16 +885,17 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                                 }
                             },
                             modifier = Modifier
-                                .size(46.dp)
+                                .size(42.dp)
                                 .testTag("chat_send_button"),
-                            containerColor = if (inputText.isNotBlank() || selectedAttachmentUri != null) JarvisCyan else JarvisBorder,
-                            contentColor = JarvisBackground,
-                            shape = CircleShape
+                            containerColor = if (canSend) JarvisCyan else JarvisSurfaceVariant,
+                            contentColor = if (canSend) JarvisOnPrimary else JarvisTextTertiary,
+                            elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send Message",
-                                modifier = Modifier.size(20.dp)
+                                contentDescription = "Kirim pesan",
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
@@ -911,7 +976,8 @@ fun JarvisChatScreen(viewModel: JarvisViewModel) {
                 viewModel.updateAiConfig(key, url, model, provider)
                 showConfigDialog = false
             },
-            onDismiss = { showConfigDialog = false }
+            onDismiss = { showConfigDialog = false },
+            initialFilterFree = openConfigFreeTab
         )
     }
 
@@ -1043,38 +1109,41 @@ fun ChatBubble(
     ) {
         if (!isUser) {
             Surface(
-                modifier = Modifier.size(28.dp),
-                shape = CircleShape,
-                color = JarvisCyan.copy(alpha = 0.2f),
-                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisCyan)
+                modifier = Modifier.size(26.dp),
+                shape = RoundedCornerShape(8.dp),
+                color = JarvisSurfaceVariant,
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        Icons.Default.SmartToy,
-                        contentDescription = "AI",
-                        tint = JarvisCyan,
-                        modifier = Modifier.size(16.dp)
+                    Text(
+                        text = "A",
+                        color = JarvisTextSecondary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(8.dp))
         }
 
         Column(
-            modifier = Modifier.widthIn(max = 310.dp),
+            modifier = Modifier.widthIn(max = 316.dp),
             horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
         ) {
             Surface(
                 shape = RoundedCornerShape(
-                    topStart = 16.dp,
-                    topEnd = 16.dp,
-                    bottomStart = if (isUser) 16.dp else 4.dp,
-                    bottomEnd = if (isUser) 4.dp else 16.dp
+                    topStart = 14.dp,
+                    topEnd = 14.dp,
+                    bottomStart = if (isUser) 14.dp else 4.dp,
+                    bottomEnd = if (isUser) 4.dp else 14.dp
                 ),
-                color = if (isUser) JarvisCyan else JarvisSurface,
-                border = if (isUser) null else androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder)
+                color = if (isUser) JarvisSurfaceElevated else JarvisSurface,
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (isUser) JarvisBorderStrong else JarvisBorder
+                )
             ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp)) {
                     // AI Thinking Trace Banner (Expandable/Collapsible)
                     if (!isUser && !message.thinkingProcess.isNullOrBlank()) {
                         ThinkingTraceCard(
@@ -1087,8 +1156,8 @@ fun ChatBubble(
                     if (!message.attachmentName.isNullOrBlank() || !message.attachmentUri.isNullOrBlank()) {
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (isUser) JarvisBackground.copy(alpha = 0.25f) else JarvisSurfaceVariant,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isUser) JarvisBackground.copy(alpha = 0.5f) else JarvisCyan.copy(alpha = 0.5f)),
+                            color = JarvisSurfaceVariant,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder),
                             modifier = Modifier.padding(bottom = 6.dp)
                         ) {
                             Row(
@@ -1098,15 +1167,15 @@ fun ChatBubble(
                                 Icon(
                                     imageVector = if (message.attachmentMimeType?.startsWith("image/") == true) Icons.Default.Image else Icons.Default.InsertDriveFile,
                                     contentDescription = "Lampiran",
-                                    tint = if (isUser) JarvisBackground else JarvisCyan,
+                                    tint = JarvisCyan,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = message.attachmentName ?: "Lampiran",
-                                    color = if (isUser) JarvisBackground else JarvisTextPrimary,
+                                    color = JarvisTextPrimary,
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Medium
                                 )
                             }
                         }
@@ -1114,9 +1183,9 @@ fun ChatBubble(
 
                     Text(
                         text = message.text,
-                        color = if (isUser) JarvisBackground else JarvisTextPrimary,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp
+                        color = JarvisTextPrimary,
+                        fontSize = 13.5.sp,
+                        lineHeight = 19.sp
                     )
 
                     // HTML Live Preview Button if code detected

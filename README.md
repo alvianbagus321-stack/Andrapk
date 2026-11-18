@@ -4,8 +4,13 @@ Aplikasi Android AI companion dengan **server MCP bawaan** (OAuth + HTTP di port
 
 ## 📱 Fitur Lengkap Aplikasi Andrapk (JARVIS — Device Automation Suite)
 
-### 🗣️ 1. Asisten AI Chat + Agent Loop
-- **Chat biasa** dengan AI (Gemini/OpenAI-compatible) — model & API key diatur user.
+### 🗣️ 1. Asisten AI Chat + Agent Loop + Model Gratis (Auto-Reset)
+- **Chat biasa** dengan AI (Gemini/OpenAI-compatible) — model & API key diatur user (disimpan terpisah per provider sehingga aman berpindah model).
+- **Model Gratis Berkuota (Auto-Reset Berkala)**:
+  - **Inception Labs (`mercury-3`)** — bonus **100 Juta token gratis** akun baru via tautan langsung [`platform.inceptionlabs.ai`](https://platform.inceptionlabs.ai/auth/login?callbackUrl=%2F), kecepatan >1.000 token/detik + pemantau sisa token & limit reset tiap menit/24 jam.
+  - **OpenRouter Free (`openrouter/free` & `:free`)** — limit **20 req/menit** (reset tiap 60 detik) & **50 req/hari** (atau **1.000 req/hari** untuk akun terverifikasi kredit, reset otomatis tiap 00:00 UTC / 07:00 WIB), dilengkapi **pemuat katalog `:free` live** & **auto-fallback ke `openrouter/free`** bila model tertentu sedang penuh.
+  - **Provider Gratis Lainnya**: **Groq Free** (30/mnt • 1.000/hari), **Gemini 3.5 Flash-Lite Free Tier** (15/mnt • 500/hari, Vision aktif + auto-fallback bila model lama 404), **Mistral Experiment** (~1 Miliar token/bulan), **Cerebras Free** (30/mnt • 1.000/hari), **GitHub Models Free** (10/mnt • 50/hari), serta **Pollinations AI (`openai-fast`)** (langsung pakai tanpa API key di `text.pollinations.ai/openai`, atau dengan API key di `gen.pollinations.ai/v1`).
+  - **FreeQuotaManager**: indikator sisa kuota & hitung mundur reset otomatis di Dashboard, Chat, dan dialog Pengaturan AI + sinkronisasi header `Retry-After` / `X-RateLimit-*` saat HTTP 429 dan deteksi soft-quota HTTP 200.
 - **Agent Loop otomatis**: AI berpikir → eksekusi tool (tap, swipe, shell, dll) → amati hasil → lanjut sampai tugas selesai (bisa multi-aksi per giliran, maks 8/giliran).
 - **Anti-loop**: aksi identik diulang ke-3 → dilewati dgn peringatan; ke-4 → loop berhenti dgn pesan jelas.
 - **Anti-timeout**: riwayat dirampingkan (maks 6 giliran, output dipangkas) + **retry koneksi otomatis 1×** + instruksi "efisiensi berpikir" (dilarang mengulang perhitungan yang sama).
@@ -44,9 +49,11 @@ Aplikasi Android AI companion dengan **server MCP bawaan** (OAuth + HTTP di port
 - One-liner `setup_adb.sh`: auto `allow-external-apps`, install android-tools, adb connect, helper `jad` (status/reconnect/shell). Kartu **HELP hijau** in-app.
 - Jalur `adb shell` & `screencap` lewat Termux (screenshot tetap jalan walau izin capture mati).
 
-### 🎛️ 7. Overlay & UI
-- Kartu floating UHD (Thinking/Executing/Result) **dibatasi 85% layar + scroll internal**, float bar tidak menghalangi klik layar, pill minimize, spektrum suara.
-- **Mode advance** persisten (semua setelan tersimpan), laporan crash in-app (tap = salin log).
+### 🎛️ 7. Overlay & Antarmuka Graphite Precision
+- Desain sistem **Graphite Precision** — palet karbon matte berjenjang (`#0B0D10` / `#13161B` / `#1B1F26`), garis pembatas 1dp netral, tipografi terukur, dan aksen kobalt yang tenang.
+- Kartu melayang (Indikator Suara, Panel Tugas, Quiz Analyzer) beropasitas tinggi (`96%`) agar mudah dibaca di atas aplikasi lain, dengan ukuran `wrapContent` presisi dan scroll internal tanpa memblokir layar.
+- Setelan lanjutan persisten, serta pelaporan crash terintegrasi (ketuk untuk menyalin log).
+- Dokumentasi visual tersedia di `docs/rundown-planning.png` (rundown perencanaan pengembangan) dan `docs/infografis-diagram-alur.png` (infografis diagram alur sistem).
 
 ### 🎙️ 8. Suara & Server
 - **Hotword "Jarvis"**, voice call, TTS/STT.

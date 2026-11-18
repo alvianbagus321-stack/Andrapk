@@ -9,14 +9,13 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.*
@@ -24,13 +23,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.example.service.JarvisCompanionService
-import com.example.service.ScreenshotManager
 import com.example.ui.JarvisChatScreen
 import com.example.ui.JarvisDashboardScreen
 import com.example.ui.JarvisSandboxScreen
@@ -51,16 +52,14 @@ class MainActivity : ComponentActivity() {
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK && result.data != null) {
             try {
-                // In Android 14+ (API 34+), getMediaProjection must be called while a Foreground Service
-                // of type FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION is actively running.
                 JarvisCompanionService.startMediaProjection(this, result.resultCode, result.data!!)
-                Toast.makeText(this, "Screen Share berhasil diaktifkan!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Tangkap layar aktif", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 android.util.Log.e("MainActivity", "Error starting media projection service", e)
-                Toast.makeText(this, "Gagal mengaktifkan Screen Share: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Gagal mengaktifkan tangkap layar: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         } else {
-            Toast.makeText(this, "Izin Screen Share dibatalkan atau ditolak", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Izin tangkap layar dibatalkan", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -69,21 +68,22 @@ class MainActivity : ComponentActivity() {
     ) { results ->
         val grantedCount = results.values.count { it }
         if (grantedCount > 0) {
-            Toast.makeText(this, "Permissions updated ($grantedCount granted)", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "$grantedCount izin diperbarui", Toast.LENGTH_SHORT).show()
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         com.example.quiz.QuizAnalyzer.loadPersisted()
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.parseColor("#13161B"))
+        )
 
-        // Dari HUD: sesi tangkap layar mati -> langsung tampilkan dialog izin ulang
         if (intent?.getBooleanExtra("auto_request_projection", false) == true) {
             requestMediaProjection()
         }
 
-        // Request runtime permissions (Storage, Notifications)
         val permissionsToRequest = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -138,104 +138,121 @@ fun JarvisMainApp(
     var selectedTab by remember { mutableIntStateOf(0) }
     val isServerRunning by viewModel.isServerRunning.collectAsState()
 
+    val navItems = remember {
+        listOf(
+            Triple("nav_dashboard", Icons.Default.Dashboard to "Dashboard", 0),
+            Triple("nav_sandbox", Icons.Default.TouchApp to "Sandbox", 1),
+            Triple("nav_termux", Icons.Default.Terminal to "Termux", 2),
+            Triple("nav_chat", Icons.AutoMirrored.Filled.Chat to "Asisten", 3),
+            Triple("nav_tools", Icons.Default.Build to "Tools", 4)
+        )
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = JarvisBackground,
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AppLogoMark(size = 38.dp, iconSize = 20.dp)
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Andra Control",
-                                color = JarvisTextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.3.sp
+            Column {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            AppLogoMark(size = 34.dp, iconSize = 18.dp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Andra Control",
+                                    color = JarvisTextPrimary,
+                                    fontSize = 15.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = (-0.2).sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Otomasi & Asisten Perangkat",
+                                    color = JarvisTextSecondary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    },
+                    actions = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(end = 12.dp)
+                        ) {
+                            StatusPill(
+                                text = if (isServerRunning) "Online" else "Offline",
+                                active = isServerRunning
                             )
-                            Text(
-                                text = "Device Automation Suite",
-                                color = JarvisCyan,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                letterSpacing = 0.8.sp
+                            Switch(
+                                checked = isServerRunning,
+                                onCheckedChange = { viewModel.toggleServer() },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = JarvisEmerald,
+                                    checkedBorderColor = Color.Transparent,
+                                    uncheckedThumbColor = JarvisTextSecondary,
+                                    uncheckedTrackColor = JarvisSurfaceVariant,
+                                    uncheckedBorderColor = JarvisBorderStrong
+                                ),
+                                modifier = Modifier
+                                    .scale(0.84f)
+                                    .testTag("server_toggle_switch")
                             )
                         }
-                    }
-                },
-                actions = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.padding(end = 12.dp)
-                    ) {
-                        StatusPill(
-                            text = if (isServerRunning) "ONLINE" else "OFFLINE",
-                            active = isServerRunning
-                        )
-                        Switch(
-                            checked = isServerRunning,
-                            onCheckedChange = { viewModel.toggleServer() },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = JarvisBackground,
-                                checkedTrackColor = JarvisEmerald,
-                                uncheckedThumbColor = JarvisTextSecondary,
-                                uncheckedTrackColor = JarvisSurfaceVariant
-                            ),
-                            modifier = Modifier.testTag("server_toggle_switch")
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = JarvisBackground.copy(alpha = 0.6f),
-                    titleContentColor = JarvisTextPrimary
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = JarvisBackground,
+                        titleContentColor = JarvisTextPrimary
+                    )
                 )
-            )
+                HorizontalDivider(thickness = 1.dp, color = JarvisBorder)
+            }
         },
         bottomBar = {
-            NavigationBar(
-                containerColor = JarvisSurface.copy(alpha = 0.96f),
-                tonalElevation = 0.dp,
-                windowInsets = WindowInsets.navigationBars
-            ) {
-                listOf(
-                    Triple(0, Icons.Default.Dashboard, "Dashboard"),
-                    Triple(1, Icons.Default.TouchApp, "Sandbox"),
-                    Triple(2, Icons.Default.Terminal, "Termux"),
-                    Triple(3, Icons.AutoMirrored.Filled.Chat, "Asisten"),
-                    Triple(4, Icons.Default.Build, "Tools")
-                ).forEach { (index, icon, label) ->
-                    NavigationBarItem(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        icon = { Icon(icon, contentDescription = label) },
-                        label = {
-                            Text(
-                                label,
-                                fontSize = 10.5.sp,
-                                fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
-                                letterSpacing = 0.2.sp
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = JarvisCyan,
-                            selectedTextColor = JarvisCyan,
-                            indicatorColor = JarvisCyan.copy(alpha = 0.14f),
-                            unselectedIconColor = JarvisTextSecondary,
-                            unselectedTextColor = JarvisTextSecondary
-                        ),
-                        modifier = Modifier.testTag(
-                            when (index) {
-                                0 -> "nav_dashboard"
-                                1 -> "nav_sandbox"
-                                2 -> "nav_termux"
-                                3 -> "nav_chat"
-                                else -> "nav_tools"
-                            }
+            Column {
+                HorizontalDivider(thickness = 1.dp, color = JarvisBorder)
+                NavigationBar(
+                    containerColor = JarvisSurface,
+                    tonalElevation = 0.dp,
+                    windowInsets = WindowInsets.navigationBars
+                ) {
+                    navItems.forEach { (tag, iconAndLabel, index) ->
+                        val (icon, label) = iconAndLabel
+                        val isSelected = selectedTab == index
+                        NavigationBarItem(
+                            selected = isSelected,
+                            onClick = { selectedTab = index },
+                            icon = {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = label,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            label = {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    maxLines = 1
+                                )
+                            },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = JarvisTextPrimary,
+                                selectedTextColor = JarvisTextPrimary,
+                                indicatorColor = JarvisSurfaceHighlight,
+                                unselectedIconColor = JarvisTextSecondary,
+                                unselectedTextColor = JarvisTextSecondary
+                            ),
+                            modifier = Modifier.testTag(tag)
                         )
-                    )
+                    }
                 }
             }
         }

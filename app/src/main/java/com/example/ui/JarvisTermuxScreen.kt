@@ -86,32 +86,41 @@ fun JarvisTermuxScreen(viewModel: JarvisViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("termux_service_controller_card"),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(14.dp),
                 colors = CardDefaults.cardColors(containerColor = JarvisSurface),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(JarvisTeal.copy(alpha = 0.5f)))
+                border = androidx.compose.foundation.BorderStroke(1.dp, JarvisBorder)
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    val termuxInstalled = com.example.service.AdbShizukuManager.isTermuxInstalled(context)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CloudSync, contentDescription = null, tint = JarvisTeal, modifier = Modifier.size(24.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.CloudSync, contentDescription = null, tint = JarvisTextSecondary, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("TERMUX SERVICE & DAEMON CONTROL", color = JarvisTeal, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                            Text(
+                                "Layanan & Daemon Termux",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = JarvisTextPrimary,
+                                maxLines = 1
+                            )
                         }
-
+                        Spacer(modifier = Modifier.width(8.dp))
                         Surface(
-                            color = if (com.example.service.AdbShizukuManager.isTermuxInstalled(context)) JarvisEmerald.copy(alpha = 0.2f) else JarvisAmber.copy(alpha = 0.2f),
+                            color = if (termuxInstalled) JarvisEmerald.copy(alpha = 0.14f) else JarvisAmber.copy(alpha = 0.14f),
                             shape = RoundedCornerShape(6.dp)
                         ) {
                             Text(
-                                text = if (com.example.service.AdbShizukuManager.isTermuxInstalled(context)) "Termux Terpasang" else "Termux Belum Terdeteksi",
-                                color = if (com.example.service.AdbShizukuManager.isTermuxInstalled(context)) JarvisEmerald else JarvisAmber,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                text = if (termuxInstalled) "Terpasang" else "Belum ada",
+                                color = if (termuxInstalled) JarvisEmerald else JarvisAmber,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
                         }
                     }

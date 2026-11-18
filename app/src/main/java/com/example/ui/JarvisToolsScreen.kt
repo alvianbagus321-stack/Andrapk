@@ -16,7 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -89,11 +88,12 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
                     showAddEditDialog = true
                 },
                 containerColor = JarvisCyan,
-                contentColor = JarvisBackground,
-                shape = CircleShape,
+                contentColor = JarvisOnPrimary,
+                elevation = FloatingActionButtonDefaults.elevation(4.dp, 6.dp),
+                shape = RoundedCornerShape(14.dp),
                 modifier = Modifier.testTag("fab_add_tool")
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Tambah Tool Baru")
+                Icon(Icons.Default.Add, contentDescription = "Tambah tool baru")
             }
         }
     ) { innerPadding ->
@@ -101,7 +101,7 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
             // Top Bar: Title & Action Buttons
             Row(
@@ -112,61 +112,61 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Kelola Tools & AI Actions",
-                        color = JarvisTextPrimary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
+                        text = "Katalog Tools",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = JarvisTextPrimary
                     )
                     Text(
-                        text = "${allTools.count { it.isEnabled }} aktif dari ${allTools.size} tools tersedia",
-                        color = JarvisTextSecondary,
-                        fontSize = 12.sp
+                        text = "${allTools.count { it.isEnabled }} aktif dari ${allTools.size} tersedia",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = JarvisTextSecondary
                     )
                 }
 
-                // Guide & Template (?) button
-                FilledTonalIconButton(
+                IconButton(
                     onClick = { showGuideDialog = true },
-                    colors = IconButtonDefaults.filledTonalIconButtonColors(
-                        containerColor = JarvisCyan.copy(alpha = 0.15f),
-                        contentColor = JarvisCyan
-                    ),
-                    modifier = Modifier.testTag("btn_tool_guide")
+                    modifier = Modifier
+                        .size(34.dp)
+                        .testTag("btn_tool_guide")
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.HelpOutline,
-                        contentDescription = "Panduan & Template Tools (?)"
+                        contentDescription = "Panduan dan template tool",
+                        tint = JarvisTextSecondary,
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
-                Spacer(modifier = Modifier.width(6.dp))
-
-                // Import Button
                 IconButton(
                     onClick = { showImportDialog = true },
-                    modifier = Modifier.testTag("btn_import_tools")
+                    modifier = Modifier
+                        .size(34.dp)
+                        .testTag("btn_import_tools")
                 ) {
                     Icon(
                         Icons.Default.FileUpload,
-                        contentDescription = "Import Tools",
-                        tint = JarvisTeal
+                        contentDescription = "Impor tool",
+                        tint = JarvisTextSecondary,
+                        modifier = Modifier.size(19.dp)
                     )
                 }
 
-                // Export Button
                 IconButton(
                     onClick = {
                         val json = ToolManager.exportToolsToJson()
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clipboard.setPrimaryClip(ClipData.newPlainText("Custom Tools", json))
-                        Toast.makeText(context, "Semua custom tools disalin ke clipboard", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Custom tools disalin ke clipboard", Toast.LENGTH_SHORT).show()
                     },
-                    modifier = Modifier.testTag("btn_export_tools")
+                    modifier = Modifier
+                        .size(34.dp)
+                        .testTag("btn_export_tools")
                 ) {
                     Icon(
                         Icons.Default.FileDownload,
-                        contentDescription = "Export Tools",
-                        tint = JarvisTeal
+                        contentDescription = "Ekspor tool",
+                        tint = JarvisTextSecondary,
+                        modifier = Modifier.size(19.dp)
                     )
                 }
             }
@@ -189,24 +189,25 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Cari tool berdasarkan nama, id, atau perintah...", fontSize = 12.sp, color = JarvisTextSecondary) },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = JarvisCyan, modifier = Modifier.size(18.dp)) },
+                placeholder = { Text("Cari nama, ID, atau kategori tool...", fontSize = 12.5.sp, color = JarvisTextTertiary) },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = JarvisTextSecondary, modifier = Modifier.size(18.dp)) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Close, contentDescription = "Clear", tint = JarvisTextSecondary, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Close, contentDescription = "Hapus pencarian", tint = JarvisTextSecondary, modifier = Modifier.size(16.dp))
                         }
                     }
                 },
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("input_search_tools"),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(10.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = JarvisCyan,
+                    focusedBorderColor = JarvisBorderStrong,
                     unfocusedBorderColor = JarvisBorder,
                     focusedTextColor = JarvisTextPrimary,
                     unfocusedTextColor = JarvisTextPrimary,
+                    cursorColor = JarvisCyan,
                     focusedContainerColor = JarvisSurface,
                     unfocusedContainerColor = JarvisSurface
                 ),
@@ -215,43 +216,53 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Filter Chips
+            // Filter Chips — concise labels + uniform styling
+            val chipColors = FilterChipDefaults.filterChipColors(
+                containerColor = JarvisSurface,
+                labelColor = JarvisTextSecondary,
+                selectedContainerColor = JarvisSurfaceElevated,
+                selectedLabelColor = JarvisTextPrimary
+            )
+            val termuxCount = allTools.count { it.category.contains("Termux", ignoreCase = true) || it.id.startsWith("termux") }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                FilterChip(
-                    selected = selectedFilter == "all",
-                    onClick = { selectedFilter = "all" },
-                    label = { Text("Semua (${allTools.size})", fontSize = 11.sp) }
-                )
-                FilterChip(
-                    selected = selectedFilter == "active",
-                    onClick = { selectedFilter = "active" },
-                    label = { Text("Aktif (${allTools.count { it.isEnabled }})", fontSize = 11.sp) }
-                )
-                FilterChip(
-                    selected = selectedFilter == "builtin",
-                    onClick = { selectedFilter = "builtin" },
-                    label = { Text("Built-in (${allTools.count { it.isBuiltIn }})", fontSize = 11.sp) }
-                )
-                FilterChip(
-                    selected = selectedFilter == "custom",
-                    onClick = { selectedFilter = "custom" },
-                    label = { Text("Custom & AI (${allTools.count { !it.isBuiltIn }})", fontSize = 11.sp) }
-                )
-                FilterChip(
-                    selected = selectedFilter == "termux",
-                    onClick = { selectedFilter = "termux" },
-                    label = { Text("Termux & Service (${allTools.count { it.category.contains("Termux", ignoreCase = true) || it.id.startsWith("termux") }})", fontSize = 11.sp) }
-                )
+                listOf(
+                    "all" to "Semua (${allTools.size})",
+                    "active" to "Aktif (${allTools.count { it.isEnabled }})",
+                    "builtin" to "Bawaan (${allTools.count { it.isBuiltIn }})",
+                    "custom" to "Kustom (${allTools.count { !it.isBuiltIn }})",
+                    "termux" to "Termux ($termuxCount)"
+                ).forEach { (key, label) ->
+                    val isSel = selectedFilter == key
+                    FilterChip(
+                        selected = isSel,
+                        onClick = { selectedFilter = key },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = chipColors,
+                        border = FilterChipDefaults.filterChipBorder(
+                            enabled = true,
+                            selected = isSel,
+                            borderColor = JarvisBorder,
+                            selectedBorderColor = JarvisBorderStrong
+                        ),
+                        label = {
+                            Text(
+                                text = label,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Medium
+                            )
+                        }
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Tools List
+            // Tools List (generous bottom inset so FAB never covers card Play/Edit actions)
             if (filteredTools.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -263,14 +274,14 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
                         Icon(
                             Icons.Default.Build,
                             contentDescription = null,
-                            tint = JarvisTextSecondary.copy(alpha = 0.4f),
-                            modifier = Modifier.size(48.dp)
+                            tint = JarvisTextTertiary,
+                            modifier = Modifier.size(40.dp)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = "Tidak ada tool yang cocok",
                             color = JarvisTextSecondary,
-                            fontSize = 14.sp
+                            fontSize = 13.sp
                         )
                     }
                 }
@@ -280,7 +291,7 @@ fun JarvisToolsScreen(modifier: Modifier = Modifier) {
                         .fillMaxWidth()
                         .weight(1f),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(bottom = 76.dp)
+                    contentPadding = PaddingValues(bottom = 104.dp)
                 ) {
                     items(filteredTools, key = { it.id }) { tool ->
                         ToolItemCard(
@@ -477,27 +488,29 @@ fun PermissionModeOption(
 ) {
     Surface(
         modifier = modifier.clickable { onClick() },
-        color = if (isSelected) activeColor.copy(alpha = 0.15f) else JarvisSurfaceVariant,
+        color = if (isSelected) JarvisSurfaceElevated else JarvisSurfaceVariant,
         shape = RoundedCornerShape(8.dp),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (isSelected) activeColor else JarvisBorder.copy(alpha = 0.5f)
+            if (isSelected) activeColor.copy(alpha = 0.65f) else JarvisBorder
         )
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
+            modifier = Modifier.padding(vertical = 7.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = title,
-                color = if (isSelected) activeColor else JarvisTextPrimary,
+                color = if (isSelected) JarvisTextPrimary else JarvisTextSecondary,
                 fontSize = 11.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1
             )
             Text(
                 text = subtitle,
-                color = JarvisTextSecondary,
-                fontSize = 9.sp
+                color = if (isSelected) activeColor else JarvisTextTertiary,
+                fontSize = 9.sp,
+                maxLines = 1
             )
         }
     }

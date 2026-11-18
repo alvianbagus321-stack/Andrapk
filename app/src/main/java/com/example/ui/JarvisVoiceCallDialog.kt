@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -61,15 +62,7 @@ fun JarvisVoiceCallDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF030712),
-                            Color(0xFF081226),
-                            Color(0xFF050B14)
-                        )
-                    )
-                )
+                .background(JarvisBackground)
                 .systemBarsPadding()
                 .padding(20.dp)
         ) {
@@ -91,16 +84,14 @@ fun JarvisVoiceCallDialog(
                             modifier = Modifier
                                 .size(8.dp)
                                 .clip(CircleShape)
-                                .background(if (isListening || isSpeaking) JarvisEmerald else JarvisCyan)
+                                .background(if (isListening || isSpeaking) JarvisEmerald else JarvisTextTertiary)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "SUARA LANGSUNG",
-                            color = JarvisCyan,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp,
-                            fontFamily = FontFamily.Monospace
+                            text = "Percakapan Suara",
+                            color = JarvisTextPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
 
@@ -108,10 +99,10 @@ fun JarvisVoiceCallDialog(
 
                     Text(
                         text = when (voiceState) {
-                            VoiceState.LISTENING -> "● MENDENGARKAN SUARA ANDA..."
-                            VoiceState.THINKING -> "○ MEMPROSES..."
-                            VoiceState.SPEAKING -> "▶ SEDANG BERBICARA..."
-                            VoiceState.IDLE -> voiceStatus.uppercase()
+                            VoiceState.LISTENING -> "Mendengarkan..."
+                            VoiceState.THINKING -> "Memproses balasan..."
+                            VoiceState.SPEAKING -> "Sedang berbicara..."
+                            VoiceState.IDLE -> voiceStatus
                         },
                         color = when (voiceState) {
                             VoiceState.LISTENING -> JarvisEmerald
@@ -119,16 +110,15 @@ fun JarvisVoiceCallDialog(
                             VoiceState.SPEAKING -> JarvisCyan
                             VoiceState.IDLE -> JarvisTextSecondary
                         },
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.Monospace
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
-                // Middle: Sci-Fi Animated Arc Reactor Visualizer
+                // Middle: Voice Visualizer
                 Box(
                     modifier = Modifier
-                        .size(260.dp)
+                        .size(240.dp)
                         .padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -138,22 +128,21 @@ fun JarvisVoiceCallDialog(
                         isSpeaking = isSpeaking
                     )
 
-                    // Center Icon
                     Icon(
                         imageVector = when {
-                            isSpeaking -> Icons.Default.VolumeUp
+                            isSpeaking -> Icons.AutoMirrored.Filled.VolumeUp
                             isListening -> Icons.Default.Mic
                             voiceState == VoiceState.THINKING -> Icons.Default.AutoAwesome
                             else -> Icons.Default.GraphicEq
                         },
-                        contentDescription = "Voice State",
+                        contentDescription = "Status suara",
                         tint = when (voiceState) {
                             VoiceState.LISTENING -> JarvisEmerald
                             VoiceState.THINKING -> JarvisAmber
                             VoiceState.SPEAKING -> JarvisCyan
-                            else -> JarvisCyan.copy(alpha = 0.8f)
+                            else -> JarvisTextSecondary
                         },
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(40.dp)
                     )
                 }
 
